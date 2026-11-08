@@ -20,7 +20,16 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# This runner lives inside the Owncast repo (owncast/test/automated/webrtc);
+# the workspace root is the directory containing the repo checkout.
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+# Inside an unprivileged user namespace (QA_NETNS=1) git may refuse the repo as
+# "dubious ownership" (root-in-userns vs uid 1000 on disk), so fall back to a
+# filesystem-derived repo root: <repo>/test/automated/webrtc -> <repo>.
+if [[ -z "$REPO_ROOT" || ! -f "$REPO_ROOT/go.mod" ]]; then
+	REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+fi
+WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 # shellcheck source=../../../tools/scripts/env.sh
 source "$WORKSPACE_ROOT/tools/scripts/env.sh"
 # shellcheck source=../../../tools/scripts/lib/status.sh
@@ -195,6 +204,27 @@ if [[ "$CONFIG_API" == "200" ]]; then
 		status_pass "public-config" "/api/config exposes webrtc.enabled=true"
 	else
 		status_fail "public-config" "/api/config does not expose webrtc.enabled=true after enablement"
+	fi
+
+	# Global webrtc.enabled only starts the engine; every output variant also has
+	# an outputs.webrtc switch (default disabled for backward compatibility). WHEP
+	# answers webrtc_variant_not_found until the variants are opted in.
+	VARIANT_API="$(api_code GET /serverconfig "$RUN_DIR/serverconfig.json")"
+	if [[ "$VARIANT_API" == "200" ]]; then
+		VARIANTS_BODY="$RUN_DIR/variants-put.json"
+		if node "$WORKSPACE_ROOT/tools/scripts/lib/enable-webrtc-variants.js" \
+			"$RUN_DIR/serverconfig.json" "$VARIANTS_BODY" >"$RUN_DIR/variants-helper.log" 2>&1; then
+			VARIANT_PUT="$(api_code POST /config/video/streamoutputvariants "$RUN_DIR/variants-put-response.json" "$VARIANTS_BODY")"
+			if [[ "$VARIANT_PUT" == "200" ]] && restart_server; then
+				status_pass "webrtc-variant-enable" "output variants rebuilt with outputs.webrtc.enabled=true ($(node "$JSON_GET" "$VARIANTS_BODY" 'value.0.outputs.webrtc.enabled' '?') on variant 0) and server restarted"
+			else
+				status_fail "webrtc-variant-enable" "POST /api/admin/config/video/streamoutputvariants -> $VARIANT_PUT (restart may have failed)"
+			fi
+		else
+			status_blocked "webrtc-variant-enable" "no videoQualityVariants in /api/admin/serverconfig (see variants-helper.log)"
+		fi
+	else
+		status_blocked "webrtc-variant-enable" "GET /api/admin/serverconfig -> $VARIANT_API"
 	fi
 else
 	status_blocked "webrtc-config-api" "GET /api/admin/config/webrtc -> $CONFIG_API (admin config API unavailable)"
