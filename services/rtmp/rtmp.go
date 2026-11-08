@@ -39,16 +39,42 @@ func (s *Service) Start(setStreamAsConnected func(ingest.Session), setBroadcaste
 
 	srv.HandleConn = s.handleConn
 
+	s.listenerMu.Lock()
+	s.listener = lis
+	s.listenerMu.Unlock()
+
 	log.Tracef("RTMP server is listening for incoming stream on port: %d", port)
 
 	for {
 		nc, err := lis.Accept()
 		if err != nil {
+			if s.listenerClosed() {
+				return
+			}
 			time.Sleep(time.Second)
 			continue
 		}
 		go srv.HandleNetConn(nc)
 	}
+}
+
+// Stop closes the RTMP listener, ending the accept loop. The current session is
+// force-disconnected separately via Disconnect.
+func (s *Service) Stop() {
+	s.listenerMu.Lock()
+	listener := s.listener
+	s.listener = nil
+	s.listenerMu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+}
+
+func (s *Service) listenerClosed() bool {
+	s.listenerMu.Lock()
+	defer s.listenerMu.Unlock()
+	return s.listener == nil
 }
 
 // handleConn is fired when an inbound RTMP connection takes place.

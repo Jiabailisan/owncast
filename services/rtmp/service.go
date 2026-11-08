@@ -6,6 +6,7 @@
 package rtmp
 
 import (
+	"net"
 	"sync"
 
 	"github.com/owncast/owncast/config"
@@ -42,6 +43,11 @@ type Service struct {
 	mu sync.RWMutex
 	// currentSession is the live inbound session, if any.
 	currentSession *session
+
+	// listenerMu guards listener, the bound RTMP TCP listener.
+	listenerMu sync.Mutex
+	// listener is closed by Stop to end the accept loop.
+	listener net.Listener
 }
 
 // Deps is the explicit dependency contract for the RTMP service.

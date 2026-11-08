@@ -88,6 +88,9 @@ func (s *Service) Stop(_ context.Context) {
 	if s.sessions != nil {
 		s.sessions.DisconnectCurrent(errStreamStopped)
 	}
+	if s.engine != nil {
+		_ = s.engine.Stop()
+	}
 	s.StopOfflineCleanupTimer()
 	s.stopOnlineCleanupTimer()
 }

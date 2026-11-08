@@ -38,6 +38,8 @@ type IngestListener interface {
 	Start(onConnect func(ingest.Session), onBroadcaster func(models.Broadcaster))
 	// Disconnect force-disconnects the current publisher, if any.
 	Disconnect()
+	// Stop closes the listener. Implementations must be safe to call once.
+	Stop()
 }
 
 // localStreamEngine is the in-process engine: it binds every configured ingest
@@ -65,10 +67,12 @@ func (e *localStreamEngine) Start() error {
 	return nil
 }
 
-// Stop force-disconnects the current inbound publisher on every protocol.
+// Stop force-disconnects the current inbound publisher and closes every
+// ingest listener.
 func (e *localStreamEngine) Stop() error {
 	for _, listener := range e.listeners {
 		listener.Disconnect()
+		listener.Stop()
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"net/http"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"github.com/owncast/owncast/services/dispatcher"
 	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/rtmp"
+	"github.com/owncast/owncast/services/srt"
 	"github.com/owncast/owncast/services/stalefeaturedcheckservice"
 	"github.com/owncast/owncast/services/stream"
 	"github.com/owncast/owncast/services/webhooks"
@@ -64,6 +66,11 @@ var (
 	rtmpPortOverride               = flag.Int("rtmpport", 0, "Set listen port for the RTMP server")
 	followerValidationIntervalSecs = flag.Int("followervalidationinterval", 0, "Set follower validation interval in seconds")
 )
+
+// errStreamNotReady guards the SRT session handler against a session arriving
+// before the stream service is constructed (it cannot happen in the current
+// start order; kept as a defensive check).
+var errStreamNotReady = errors.New("stream service is not ready")
 
 // nolint:cyclop
 func main() {
@@ -274,10 +281,31 @@ func main() {
 	})
 	apSvc.Start()
 
-	streamSvc := stream.New(stream.Deps{
-		// Every ingest protocol is started by the same local engine. SRT is
-		// appended here when it is enabled (Phase 2 wiring).
-		Ingest:           []stream.IngestListener{rtmpSvc},
+	// SRT ingest service. It is constructed before the stream service because
+	// its accepted sessions are handed to the stream lifecycle; the handler
+	// closure is bound once streamSvc exists. The listener only binds when SRT
+	// is enabled in configuration (default off).
+	var streamSvc *stream.Service
+	srtSvc := srt.New(srt.Deps{
+		ConfigProvider: configRepository.GetSRTConfig,
+		StreamKeys:     streamKeys,
+		Sessions:       sessions,
+		Handler: func(session ingest.Session) error {
+			if streamSvc == nil {
+				return errStreamNotReady
+			}
+			streamSvc.HandleIngestSession(session)
+			return nil
+		},
+	})
+
+	streamSvc = stream.New(stream.Deps{
+		// Every ingest protocol is started by the same local engine: RTMP
+		// directly and SRT through the context-lifecycle adapter.
+		Ingest: []stream.IngestListener{
+			rtmpSvc,
+			stream.NewContextIngestListener(srtSvc),
+		},
 		Sessions:         sessions,
 		Activitypub:      apSvc,
 		Webhooks:         webhooksSvc,
@@ -373,6 +401,7 @@ func main() {
 	adminHandlers := admin.New(admin.Deps{
 		Stream:                  streamSvc,
 		Sessions:                sessions,
+		Srt:                     srtSvc,
 		Activitypub:             apSvc,
 		Webhooks:                webhooksSvc,
 		Chat:                    chatSvc,

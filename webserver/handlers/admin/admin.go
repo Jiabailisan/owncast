@@ -15,6 +15,7 @@ import (
 	"github.com/owncast/owncast/services/activitypub/persistence/followersrepository"
 	"github.com/owncast/owncast/services/chat"
 	"github.com/owncast/owncast/services/ingest"
+	"github.com/owncast/owncast/services/srt"
 	"github.com/owncast/owncast/services/stream"
 	"github.com/owncast/owncast/services/webhooks"
 )
@@ -30,6 +31,7 @@ import (
 type Admin struct {
 	stream                *stream.Service
 	sessions              *ingest.Arbiter
+	srt                   *srt.Service
 	activitypub           *activitypub.Service
 	webhooks              *webhooks.Service
 	chat                  *chat.Service
@@ -59,6 +61,7 @@ type Admin struct {
 type Deps struct {
 	Stream                *stream.Service
 	Sessions              *ingest.Arbiter
+	Srt                   *srt.Service
 	Activitypub           *activitypub.Service
 	Webhooks              *webhooks.Service
 	Chat                  *chat.Service
@@ -84,6 +87,7 @@ func New(deps Deps) *Admin {
 	return &Admin{
 		stream:                  deps.Stream,
 		sessions:                deps.Sessions,
+		srt:                     deps.Srt,
 		activitypub:             deps.Activitypub,
 		webhooks:                deps.Webhooks,
 		chat:                    deps.Chat,

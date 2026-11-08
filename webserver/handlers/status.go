@@ -31,6 +31,7 @@ func (h *Handlers) getStatusResponse() webStatusResponse {
 		LastDisconnectTime: status.LastDisconnectTime,
 		VersionNumber:      status.VersionNumber,
 		StreamTitle:        status.StreamTitle,
+		InputProtocol:      status.InputProtocol,
 	}
 	if !h.configRepository.GetHideViewerCount() {
 		response.ViewerCount = status.ViewerCount
@@ -47,4 +48,7 @@ type webStatusResponse struct {
 	StreamTitle   string `json:"streamTitle"`
 	ViewerCount   int    `json:"viewerCount,omitempty"`
 	Online        bool   `json:"online"`
+	// InputProtocol is additive: "rtmp" or "srt" while a publisher is
+	// connected, omitted otherwise (spec 7.2).
+	InputProtocol string `json:"inputProtocol,omitempty"`
 }

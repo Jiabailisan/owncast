@@ -15,6 +15,7 @@ type fakeIngestListener struct {
 	onConnect     func(ingest.Session)
 	onBroadcaster func(models.Broadcaster)
 	disconnected  bool
+	stopped       bool
 }
 
 func (f *fakeIngestListener) Start(onConnect func(ingest.Session), onBroadcaster func(models.Broadcaster)) {
@@ -24,6 +25,8 @@ func (f *fakeIngestListener) Start(onConnect func(ingest.Session), onBroadcaster
 }
 
 func (f *fakeIngestListener) Disconnect() { f.disconnected = true }
+
+func (f *fakeIngestListener) Stop() { f.stopped = true }
 
 var _ IngestListener = (*fakeIngestListener)(nil)
 
@@ -69,5 +72,8 @@ func TestLocalStreamEngineDrivesIngestListeners(t *testing.T) {
 	}
 	if !rtmpListener.disconnected || !srtListener.disconnected {
 		t.Error("engine did not disconnect every listener")
+	}
+	if !rtmpListener.stopped || !srtListener.stopped {
+		t.Error("engine did not stop every listener")
 	}
 }
