@@ -64,11 +64,11 @@ type webConfigResponse struct {
 
 // webRTCConfigResponse is the additive public WebRTC delivery config.
 type webRTCConfigResponse struct {
-	Enabled       bool                     `json:"enabled"`
-	WhepURL       string                   `json:"whepUrl,omitempty"`
-	Variants      []webRTCVariantResponse  `json:"variants"`
+	Enabled       bool                      `json:"enabled"`
+	WhepURL       string                    `json:"whepUrl,omitempty"`
+	Variants      []webRTCVariantResponse   `json:"variants"`
 	ICEServers    []webRTCICEServerResponse `json:"iceServers"`
-	FallbackToHLS bool                     `json:"fallbackToHls"`
+	FallbackToHLS bool                      `json:"fallbackToHls"`
 }
 
 // webRTCVariantResponse is one selectable WebRTC variant.
