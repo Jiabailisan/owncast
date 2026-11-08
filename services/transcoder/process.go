@@ -24,13 +24,13 @@ type ProcessSnapshot struct {
 // stateMu guards the live-process state that the FFmpeg panel reads while the
 // transcoder goroutine writes it.
 type processState struct {
-	mu       sync.RWMutex
-	purpose  []string
+	mu        sync.RWMutex
+	purpose   []string
 	startedAt time.Time
-	pid      int
-	argv     []string
-	running  bool
-	restarts int
+	pid       int
+	argv      []string
+	running   bool
+	restarts  int
 }
 
 // SetPurpose labels this process for the FFmpeg panel (e.g. hls, webrtc).
@@ -46,13 +46,13 @@ func (t *Transcoder) Snapshot() ProcessSnapshot {
 	defer t.state.mu.RUnlock()
 
 	snapshot := ProcessSnapshot{
-		ID:            t.segmentIdentifier,
-		Purpose:       append([]string(nil), t.state.purpose...),
-		PID:           t.state.pid,
-		StartedAt:     t.state.startedAt,
-		RestartCount:  t.state.restarts,
-		Running:       t.state.running,
-		Argv:          append([]string(nil), t.state.argv...),
+		ID:           t.segmentIdentifier,
+		Purpose:      append([]string(nil), t.state.purpose...),
+		PID:          t.state.pid,
+		StartedAt:    t.state.startedAt,
+		RestartCount: t.state.restarts,
+		Running:      t.state.running,
+		Argv:         append([]string(nil), t.state.argv...),
 	}
 	if !snapshot.StartedAt.IsZero() {
 		snapshot.UptimeSeconds = time.Since(snapshot.StartedAt).Seconds()
@@ -134,26 +134,31 @@ func containsSecret(arg string, secrets []string) bool {
 	}
 	return false
 }
+
 // ArgvSections are the structured argv groups shown by the admin FFmpeg panel.
 type ArgvSections struct {
-	Input   []string
-	Video   []string
-	Audio   []string
-	Output  []string
-	Other   []string
+	Input       []string
+	Video       []string
+	Audio       []string
+	Output      []string
+	Other       []string
 	Environment []string
 }
 
 // ClassifyArgv groups an executed argv into the panel's collapsible sections.
 // Classification is by flag family, so it is display-only and intentionally
 // lossless (every argument appears exactly once across the sections).
+// Argv classification is a flat flag-family matcher; splitting it would obscure
+// the display grouping rules.
+//
+//nolint:cyclop // flat flag-family classification
 func ClassifyArgv(argv []string, environment []string) ArgvSections {
 	sections := ArgvSections{
-		Input:   make([]string, 0, 4),
-		Video:   make([]string, 0, 16),
-		Audio:   make([]string, 0, 8),
-		Output:  make([]string, 0, 16),
-		Other:   make([]string, 0, 8),
+		Input:       make([]string, 0, 4),
+		Video:       make([]string, 0, 16),
+		Audio:       make([]string, 0, 8),
+		Output:      make([]string, 0, 16),
+		Other:       make([]string, 0, 8),
 		Environment: environment,
 	}
 
@@ -176,9 +181,9 @@ func ClassifyArgv(argv []string, environment []string) ArgvSections {
 			strings.HasPrefix(arg, "-maxrate") || strings.HasPrefix(arg, "-bufsize") ||
 			strings.HasPrefix(arg, "-g:") || strings.HasPrefix(arg, "-keyint_min") ||
 			strings.HasPrefix(arg, "-r:") || arg == "-g" || arg == "-keyint_min" ||
-			arg == "-preset" || arg == "-tune" || arg == "-profile:v" || arg == "-bf" ||
+			arg == "-preset" || arg == ffmpegFlagTune || arg == "-profile:v" || arg == "-bf" ||
 			arg == "-pix_fmt" || arg == "-x264-params" || arg == "-sc_threshold" ||
-			arg == "-flags" || arg == "-map" && hasValue && strings.HasPrefix(value, "0:v"):
+			arg == "-flags" || arg == ffmpegFlagMap && hasValue && strings.HasPrefix(value, "0:v"):
 			sections.Video = append(sections.Video, arg)
 			if hasValue && !strings.HasPrefix(arg, "-map") {
 				sections.Video = append(sections.Video, value)
@@ -187,7 +192,7 @@ func ClassifyArgv(argv []string, environment []string) ArgvSections {
 		case strings.HasPrefix(arg, "-c:a") || strings.HasPrefix(arg, "-b:a") ||
 			arg == "-ar" || arg == "-ac" || arg == "-application" ||
 			arg == "-frame_duration" || arg == "-fec" || arg == "-dtx" ||
-			arg == "-map" && hasValue && strings.HasPrefix(value, "0:a"):
+			arg == ffmpegFlagMap && hasValue && strings.HasPrefix(value, "0:a"):
 			sections.Audio = append(sections.Audio, arg)
 			if hasValue && !strings.HasPrefix(arg, "-map") {
 				sections.Audio = append(sections.Audio, value)

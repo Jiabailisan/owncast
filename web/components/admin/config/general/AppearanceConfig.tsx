@@ -3,6 +3,7 @@ import React, { FC, useContext, useCallback, useEffect, useMemo, useState } from
 import { Alert, Button, Col, Collapse, Row, Slider, Space, Tooltip, Typography } from 'antd';
 import { useTranslation } from 'next-export-i18n';
 import { EditCustomStyles } from '../../EditCustomStyles';
+import { CustomPlayerConfig } from './CustomPlayerConfig';
 import s from './appearance.module.scss';
 import { postConfigUpdateToAPI, RESET_TIMEOUT } from '../../../../utils/config-constants';
 import {
@@ -279,6 +280,7 @@ export default function Appearance() {
 
   return (
     <>
+      <CustomPlayerConfig />
       <Space direction="vertical">
         <Title>Customize Appearance</Title>
         <Paragraph>The following colors are used across the user interface.</Paragraph>

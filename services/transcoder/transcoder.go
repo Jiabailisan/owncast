@@ -606,6 +606,7 @@ func (t *Transcoder) SetInternalHTTPHost(host string) {
 func (t *Transcoder) SetCodec(codecName string) {
 	t.codec = getCodec(codecName)
 }
+
 // finishWithError reports a start failure to the stream lifecycle instead of
 // crashing the server (previously this path panicked). The stream then goes
 // offline with a logged error, which matches the explicit failure semantics in

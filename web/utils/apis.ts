@@ -157,6 +157,10 @@ export const LIVE_STATUS = `${API_LOCATION}live/status`;
 export const LIVE_VIEWERS = `${API_LOCATION}live/viewers`;
 export const LIVE_FFMPEG = `${API_LOCATION}live/ffmpeg`;
 
+// Appearance customization paths (master spec 4.6/7.3/7.4).
+export const CUSTOM_PLAYER_PATH = `${API_LOCATION}config/customplayerpath`;
+export const CUSTOM_FRONTEND_DIR = `${API_LOCATION}config/customfrontenddir`;
+
 // Public, additive delivery endpoints (no admin auth).
 export const WEBRTC_METRICS = `${NEXT_PUBLIC_API_HOST}api/metrics/webrtc`;
 export const CUSTOM_PLAYER_ERROR = `${NEXT_PUBLIC_API_HOST}api/custom-player/error`;

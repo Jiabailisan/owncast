@@ -49,6 +49,14 @@ type RTPOutput struct {
 // one (the WebRTC leg API always does).
 const rtpMuxerPacketSize = 1200
 
+// Shared argv/encoder value constants (also used by codecs.go and process.go).
+const (
+	h264ProfileBaseline = "baseline"
+	h264ProfileMain     = "main"
+	h264ProfileHigh     = "high"
+	ffmpegFlagTune      = "-tune"
+)
+
 // rtpOutputFlags renders argv for one WebRTC RTP output. It is a separate
 // output context that follows the HLS output, so its options only apply to the
 // RTP muxers.
@@ -64,7 +72,8 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 		if codecName == "" {
 			codecName = t.codec.Name()
 		}
-		args = append(args,
+		args = append(
+			args,
 			"-c:v", codecName,
 			"-preset", t.codec.GetPresetForLevel(output.CPUUsageLevel),
 			"-tune", "zerolatency",
@@ -81,7 +90,8 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 	}
 	// In-band SPS/PPS on every IDR is mandatory for browser copy legs and for
 	// mid-stream joins on transcode legs.
-	args = append(args,
+	args = append(
+		args,
 		"-bsf:v", "dump_extra=freq=keyframe",
 		"-f", "rtp",
 		"-payload_type", strconv.Itoa(output.VideoPayloadType),
@@ -102,7 +112,8 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 	// so the encoder option cannot be selected unambiguously from the CLI and
 	// FFmpeg rejects it with "Unsupported FEC protocol". Loss recovery relies on
 	// the browser's NACK/PLC (see the "Not supported" documentation table).
-	audioArgs := []string{
+	audioArgs := make([]string, 0, 19)
+	audioArgs = append(audioArgs, []string{
 		ffmpegFlagMap, "0:a:0?",
 		"-c:a", "libopus",
 		"-b:a", strconv.Itoa(opusBitrate) + "k",
@@ -110,8 +121,9 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 		"-ac", "2",
 		"-application", "lowdelay",
 		"-frame_duration", strconv.Itoa(opusFrame),
-	}
-	audioArgs = append(audioArgs,
+	}...)
+	audioArgs = append(
+		audioArgs,
 		"-f", "rtp",
 		"-payload_type", strconv.Itoa(output.AudioPayloadType),
 		withRTPPacketSize(output.AudioURL),
@@ -125,14 +137,14 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 // browser concepts; libx264 accepts baseline/main/high.
 func normalizeH264Profile(profile string) string {
 	switch strings.ToLower(strings.TrimSpace(profile)) {
-	case "baseline", "constrained-baseline":
-		return "baseline"
-	case "main":
-		return "main"
-	case "high", "constrained-high":
-		return "high"
+	case h264ProfileBaseline, "constrained-baseline":
+		return h264ProfileBaseline
+	case h264ProfileMain:
+		return h264ProfileMain
+	case h264ProfileHigh, "constrained-high":
+		return h264ProfileHigh
 	default:
-		return "main"
+		return h264ProfileMain
 	}
 }
 

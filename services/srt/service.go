@@ -307,75 +307,94 @@ func (s *Service) applyConfigLocked(cfg models.SRTConfig) (bool, error) {
 	currentCfg := s.cfg
 	s.mu.Unlock()
 
-	listenerChanged := listenerSettingsChanged(currentCfg, cfg)
-	active := hasActiveSession(s)
-
-	// Live-only changes never require a rebind: swap the runtime snapshot and
-	// keep the listener (and any connected publisher) untouched.
-	if !listenerChanged {
-		if err := s.applyRuntime(cfg, cfg.Passphrase); err != nil {
-			return false, err
-		}
-		s.mu.Lock()
-		s.cfg = cfg
-		s.mu.Unlock()
-		return false, nil
+	if !listenerSettingsChanged(currentCfg, cfg) {
+		return s.applyLiveSettings(cfg)
 	}
-
-	if listenerChanged && currentState == StateRunning && active {
-		// Keep the bound listener (and its passphrase) consistent until the
-		// publisher disconnects; live settings still take effect immediately.
-		if err := s.applyRuntime(cfg, currentCfg.Passphrase); err != nil {
-			return false, err
-		}
-		s.mu.Lock()
-		pending := cfg
-		s.pendingCfg = &pending
-		s.mu.Unlock()
-		s.logger.Info("SRT listener configuration change deferred until the current stream ends")
-		return true, nil
+	if currentState == StateRunning && hasActiveSession(s) {
+		return s.deferListenerSettings(currentCfg, cfg)
 	}
-
 	if err := s.applyRuntime(cfg, cfg.Passphrase); err != nil {
 		return false, err
 	}
+	return s.applyListenerSettings(currentState, currentCfg, cfg)
+}
 
+// applyLiveSettings swaps the runtime configuration for settings that never
+// require rebinding, leaving the listener and any publisher untouched.
+func (s *Service) applyLiveSettings(cfg models.SRTConfig) (bool, error) {
+	if err := s.applyRuntime(cfg, cfg.Passphrase); err != nil {
+		return false, err
+	}
+	s.storeConfig(cfg)
+	return false, nil
+}
+
+// deferListenerSettings keeps the bound listener (and its passphrase)
+// consistent until the current publisher disconnects while applying the live
+// settings immediately.
+func (s *Service) deferListenerSettings(currentCfg, cfg models.SRTConfig) (bool, error) {
+	if err := s.applyRuntime(cfg, currentCfg.Passphrase); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	pending := cfg
+	s.pendingCfg = &pending
+	s.mu.Unlock()
+	s.logger.Info("SRT listener configuration change deferred until the current stream ends")
+	return true, nil
+}
+
+// applyListenerSettings applies a listener configuration change that is not
+// deferred: it rebinds, disables or restores the listener as appropriate.
+func (s *Service) applyListenerSettings(currentState State, currentCfg, cfg models.SRTConfig) (bool, error) {
 	switch {
 	case currentState == StateRunning && cfg.Enabled:
-		s.mu.Lock()
-		ctx := s.ctx
-		s.mu.Unlock()
+		ctx := s.serviceContext()
 		if ctx == nil {
 			return false, ErrServiceNotRunning
 		}
 		return false, s.rebindWithRollback(ctx, currentCfg, cfg)
 
 	case currentState == StateRunning && !cfg.Enabled:
-		s.stopListenerLocked()
-		s.mu.Lock()
-		s.cfg = cfg
-		s.state = StateDisabled
-		s.boundAddr = ""
-		s.mu.Unlock()
-		s.logger.Info("SRT ingest is disabled")
+		s.disableListener(cfg)
 		return false, nil
 
 	case currentState == StateDisabled && cfg.Enabled:
-		s.mu.Lock()
-		s.cfg = cfg
-		ctx := s.ctx
-		s.mu.Unlock()
+		ctx := s.serviceContext()
 		if ctx == nil {
 			return false, ErrServiceNotRunning
 		}
 		return false, s.bindAndServe(ctx, cfg)
 
 	default:
-		s.mu.Lock()
-		s.cfg = cfg
-		s.mu.Unlock()
+		s.storeConfig(cfg)
 		return false, nil
 	}
+}
+
+// serviceContext returns the service context created by Start.
+func (s *Service) serviceContext() context.Context {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ctx
+}
+
+// disableListener closes the bound listener and records the disabled state.
+func (s *Service) disableListener(cfg models.SRTConfig) {
+	s.stopListenerLocked()
+	s.mu.Lock()
+	s.cfg = cfg
+	s.state = StateDisabled
+	s.boundAddr = ""
+	s.mu.Unlock()
+	s.logger.Info("SRT ingest is disabled")
+}
+
+// storeConfig records the applied configuration without touching the listener.
+func (s *Service) storeConfig(cfg models.SRTConfig) {
+	s.mu.Lock()
+	s.cfg = cfg
+	s.mu.Unlock()
 }
 
 // Snapshot returns a point-in-time view for the admin live status API.

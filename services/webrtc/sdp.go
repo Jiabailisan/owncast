@@ -342,11 +342,13 @@ func buildLinkHeaders(cfg models.WebRTCConfig) []string {
 			}
 			headers = append(headers, fmt.Sprintf(
 				"<%s>; rel=%q; username=%q; credential=%q; credential-type=%q",
-				entry.URL, "ice-server", username, credential, "password"))
+				entry.URL, "ice-server", username, credential, "password",
+			))
 		case entry.Username != "" || entry.Credential != "":
 			headers = append(headers, fmt.Sprintf(
 				"<%s>; rel=%q; username=%q; credential=%q",
-				entry.URL, "ice-server", entry.Username, entry.Credential))
+				entry.URL, "ice-server", entry.Username, entry.Credential,
+			))
 		default:
 			headers = append(headers, fmt.Sprintf("<%s>; rel=%q", entry.URL, "ice-server"))
 		}

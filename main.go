@@ -222,10 +222,8 @@ func main() {
 	// after the stream service. It is disabled by default and HLS continues
 	// to work if it fails to start.
 	webRTCSvc := webrtc.New(webrtc.Deps{
-		Config: configRepository.GetWebRTCConfig(),
-		ClientIP: func(r *http.Request) string {
-			return utils.GetIPAddressFromRequest(r)
-		},
+		Config:   configRepository.GetWebRTCConfig(),
+		ClientIP: utils.GetIPAddressFromRequest,
 	})
 
 	// Stage 2: ActivityPub helper types (Signer → Builder → Resolver).

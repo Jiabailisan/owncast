@@ -11,6 +11,10 @@ import (
 // maxStreamIDLength is the protocol limit enforced by gosrt (and libsrt).
 const maxStreamIDLength = 512
 
+// defaultStreamApp is the application segment used when a streamid grammar
+// omits one; it is informational only.
+const defaultStreamApp = "live"
+
 // Streamid parsing errors. Their messages are stable, non-secret log reasons;
 // they are safe to log and are mapped to a generic wire rejection by the auth
 // pipeline (a caller never learns which key or format detail failed).
@@ -93,7 +97,7 @@ func parseRawStreamID(streamID string, enabledFormats []string) (ParsedStreamID,
 	}
 	return ParsedStreamID{
 		Format: models.SRTStreamIDRawKey,
-		App:    "live",
+		App:    defaultStreamApp,
 		Key:    streamID,
 		Mode:   StreamIDModePublish,
 	}, nil
@@ -105,19 +109,9 @@ func parsePublishStreamID(streamID string, enabledFormats []string) (ParsedStrea
 	}
 
 	rest := strings.TrimPrefix(streamID, "publish:")
-	rest = strings.Trim(rest, "/")
-	if rest == "" {
-		return ParsedStreamID{}, ErrStreamIDMalformed
-	}
-
-	app := "live"
-	key := rest
-	if strings.Contains(rest, "/") {
-		parts := strings.Split(rest, "/")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return ParsedStreamID{}, ErrStreamIDMalformed
-		}
-		app, key = parts[0], parts[1]
+	app, key, err := splitStreamAppKey(rest)
+	if err != nil {
+		return ParsedStreamID{}, err
 	}
 
 	if err := validateStreamKey(key); err != nil {
@@ -142,55 +136,18 @@ func parseAccessControlStreamID(streamID string, enabledFormats []string) (Parse
 		return ParsedStreamID{}, ErrStreamIDMalformed
 	}
 
-	var resource, mode string
-	haveResource := false
-	for _, pair := range strings.Split(body, ",") {
-		if pair == "" {
-			continue
-		}
-		key, value, ok := strings.Cut(pair, "=")
-		if !ok {
-			return ParsedStreamID{}, ErrStreamIDMalformed
-		}
-		switch key {
-		case "r":
-			resource = value
-			haveResource = true
-		case "m":
-			mode = value
-		default:
-			// Unknown keys are permitted by the SRT access-control grammar and
-			// ignored here.
-		}
+	resource, mode, err := parseAccessControlPairs(body)
+	if err != nil {
+		return ParsedStreamID{}, err
+	}
+	if err := validateAccessControlMode(mode); err != nil {
+		return ParsedStreamID{}, err
 	}
 
-	if !haveResource || resource == "" {
-		return ParsedStreamID{}, ErrStreamIDMalformed
+	app, key, err := splitStreamAppKey(resource)
+	if err != nil {
+		return ParsedStreamID{}, err
 	}
-
-	requestedMode := StreamIDModeRequest
-	if mode != "" {
-		requestedMode = StreamIDMode(mode)
-	}
-	if requestedMode != StreamIDModePublish {
-		return ParsedStreamID{}, ErrStreamIDSubscriber
-	}
-
-	resource = strings.Trim(resource, "/")
-	if resource == "" {
-		return ParsedStreamID{}, ErrStreamIDMalformed
-	}
-
-	app := "live"
-	key := resource
-	if strings.Contains(resource, "/") {
-		parts := strings.Split(resource, "/")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return ParsedStreamID{}, ErrStreamIDMalformed
-		}
-		app, key = parts[0], parts[1]
-	}
-
 	if err := validateStreamKey(key); err != nil {
 		return ParsedStreamID{}, err
 	}
@@ -201,6 +158,66 @@ func parseAccessControlStreamID(streamID string, enabledFormats []string) (Parse
 		Key:    key,
 		Mode:   StreamIDModePublish,
 	}, nil
+}
+
+// parseAccessControlPairs extracts the r (resource) and m (mode) keys from the
+// comma-separated SRT access-control content. Unknown keys are permitted by
+// the grammar and ignored.
+func parseAccessControlPairs(body string) (string, string, error) {
+	var resource, mode string
+	haveResource := false
+	for _, pair := range strings.Split(body, ",") {
+		if pair == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			return "", "", ErrStreamIDMalformed
+		}
+		switch key {
+		case "r":
+			resource = value
+			haveResource = true
+		case "m":
+			mode = value
+		}
+	}
+
+	if !haveResource || resource == "" {
+		return "", "", ErrStreamIDMalformed
+	}
+	return resource, mode, nil
+}
+
+// validateAccessControlMode enforces the publish intent. The SRT grammar
+// defaults an omitted m key to "request" (a subscriber), which an ingest
+// listener must reject.
+func validateAccessControlMode(mode string) error {
+	requestedMode := StreamIDModeRequest
+	if mode != "" {
+		requestedMode = StreamIDMode(mode)
+	}
+	if requestedMode != StreamIDModePublish {
+		return ErrStreamIDSubscriber
+	}
+	return nil
+}
+
+// splitStreamAppKey parses an optional "<app>/<key>" value. A value without a
+// slash is a bare key with the default application.
+func splitStreamAppKey(value string) (string, string, error) {
+	value = strings.Trim(value, "/")
+	if value == "" {
+		return "", "", ErrStreamIDMalformed
+	}
+	if !strings.Contains(value, "/") {
+		return defaultStreamApp, value, nil
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", ErrStreamIDMalformed
+	}
+	return parts[0], parts[1], nil
 }
 
 // validateStreamKey rejects keys that Owncast never generates and that could

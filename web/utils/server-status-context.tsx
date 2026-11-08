@@ -7,6 +7,13 @@ import { ConfigDetails, UpdateArgs } from '../types/config-section';
 import { DEFAULT_VARIANT_STATE } from './config-constants';
 
 const initialServerConfigState: ConfigDetails = {
+  appearance: {
+    activeFrontend: 'default',
+    customPlayerPath: '',
+    customFrontendDir: '',
+    customPlayerValid: false,
+    customFrontendValid: false,
+  },
   streamKeys: [],
   streamKeyOverridden: false,
   adminPassword: '',

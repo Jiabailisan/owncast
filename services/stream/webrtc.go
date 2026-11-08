@@ -120,6 +120,10 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 // falls back to transcode (or is disabled when copyFallback=disable). Failure is
 // non-fatal: HLS continues and the condition is surfaced as a live-status
 // warning.
+// The function is a linear plan assembly: one branch per ineligible/disabled
+// leg plus error handling for each step.
+//
+//nolint:cyclop // linear per-variant plan assembly
 func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant) []transcoder.RTPOutput {
 	if s.webRTC == nil {
 		return nil

@@ -31,7 +31,8 @@ func generateTS(t *testing.T, ffmpegPath string, bframes int) string {
 	} else {
 		args = append(args, "-bf", "3")
 	}
-	args = append(args,
+	args = append(
+		args,
 		"-c:v", "libx264", "-preset", "veryfast", "-profile:v", "main",
 		"-g", "30", "-pix_fmt", "yuv420p", "-t", "2",
 		"-c:a", "aac", "-b:a", "96k", "-shortest", "-f", "mpegts", out,

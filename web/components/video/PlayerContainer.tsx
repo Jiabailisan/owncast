@@ -8,6 +8,8 @@ import { Localization } from '../../types/localization';
 import { WHEPError } from '../../services/whep-client';
 import { ConnectWHEPRequest, WHEPSessionHandle } from '../../services/whep-client';
 import { Translation } from '../ui/Translation/Translation';
+import { CustomPlayerLoader } from '../../services/custom-player-service';
+import { CustomPlayerHost } from './custom/CustomPlayerHost';
 import { OwncastPlayer } from './OwncastPlayer/OwncastPlayer';
 import { WebRTCPlayer } from './webrtc/WebRTCPlayer';
 import styles from './PlayerContainer.module.scss';
@@ -29,6 +31,7 @@ export type PlayerContainerProps = {
   // Test/Storybook overrides. Production never sets these.
   forceProtocol?: Protocol;
   webRTCSessionFactory?: (request: ConnectWHEPRequest) => Promise<WHEPSessionHandle>;
+  customPlayerLoader?: CustomPlayerLoader;
   onProtocolChange?: (protocol: Protocol) => void;
 };
 
@@ -62,6 +65,7 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
   className,
   forceProtocol,
   webRTCSessionFactory,
+  customPlayerLoader,
   onProtocolChange,
 }) => {
   const clientConfig = useAtomValue(clientConfigStateAtom);
@@ -69,6 +73,7 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
   const [sessionFallback, setSessionFallback] = useState<boolean>(() => readSessionFallback());
   const [fallbackReason, setFallbackReason] = useState<WHEPError | null>(null);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const [customPlayerFailed, setCustomPlayerFailed] = useState(false);
   const previousOnlineRef = useRef(online);
 
   // A new stream start clears a previous WebRTC failure: the server or the
@@ -79,12 +84,20 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
       setSessionFallback(false);
       setFallbackReason(null);
       setNoticeDismissed(false);
+      setCustomPlayerFailed(false);
     }
     previousOnlineRef.current = online;
   }, [online]);
 
   const webRTCSupported = typeof window !== 'undefined' && typeof RTCPeerConnection !== 'undefined';
   const webRTCConfigured = Boolean(webrtcConfig?.enabled && webrtcConfig?.whepUrl);
+
+  // A valid custom player module replaces the whole player subtree (spec 7.3).
+  // If it fails to load/mount, fall back to the standard WebRTC/HLS selection.
+  const customPlayerUrl = clientConfig.player?.custom ? clientConfig.player?.url : undefined;
+  const useCustomPlayer = Boolean(
+    customPlayerUrl && forceProtocol === undefined && !customPlayerFailed,
+  );
 
   let protocol: Protocol = 'hls';
   if (forceProtocol === 'webrtc') {
@@ -127,6 +140,25 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
         </button>
       </div>
     ) : null;
+
+  if (useCustomPlayer && customPlayerUrl) {
+    return (
+      <div className={classNames(styles.container, className)} data-protocol="custom">
+        <CustomPlayerHost
+          playerUrl={customPlayerUrl}
+          hlsUrl={source}
+          whepUrl={webRTCConfigured ? webrtcConfig?.whepUrl : undefined}
+          variants={webrtcConfig?.variants}
+          online={online}
+          autoplay={autoplay}
+          initiallyMuted={initiallyMuted}
+          title={title}
+          loader={customPlayerLoader}
+          onFallback={() => setCustomPlayerFailed(true)}
+        />
+      </div>
+    );
+  }
 
   if (protocol === 'webrtc') {
     return (

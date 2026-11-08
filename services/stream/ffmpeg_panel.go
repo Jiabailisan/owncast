@@ -1,8 +1,6 @@
 package stream
 
 import (
-	"fmt"
-
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/services/transcoder"
 )
@@ -44,11 +42,11 @@ func (s *Service) FFmpegProcesses() []models.FFmpegProcessStatus {
 		RestartCount:  snapshot.RestartCount,
 		Argv:          argv,
 		Sections: map[string][]string{
-			"input":   sections.Input,
-			"video":   sections.Video,
-			"audio":   sections.Audio,
-			"output":  sections.Output,
-			"other":   sections.Other,
+			"input":       sections.Input,
+			"video":       sections.Video,
+			"audio":       sections.Audio,
+			"output":      sections.Output,
+			"other":       sections.Other,
 			"environment": sections.Environment,
 		},
 	}
@@ -78,12 +76,4 @@ func (s *Service) configuredSecrets() []string {
 		}
 	}
 	return secrets
-}
-
-// describeTranscoder is a small helper for status warnings.
-func describeTranscoder(tr *transcoder.Transcoder) string {
-	if tr == nil {
-		return "none"
-	}
-	return fmt.Sprintf("pid %d", tr.Snapshot().PID)
 }

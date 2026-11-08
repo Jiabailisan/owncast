@@ -15,6 +15,10 @@ import (
 // Bounds for the exposed SRT settings. They are enforced server-side and are
 // also the source for the admin form metadata in a later phase.
 const (
+	// srtLiveProfile is the only supported gosrt transmission/congestion
+	// profile for a live ingest listener.
+	srtLiveProfile = "live"
+
 	minPassphraseLength = 10
 	maxPassphraseLength = 64
 	minPayloadSize      = 188
@@ -49,6 +53,22 @@ func ValidateConfig(cfg models.SRTConfig) error {
 		return fmt.Errorf("bindAddress must be an IP address: %w", err)
 	}
 
+	if err := validateListenerSettings(cfg); err != nil {
+		return err
+	}
+	if err := validateLatencyAndBufferSettings(cfg); err != nil {
+		return err
+	}
+	if err := validateEncryptionSettings(cfg); err != nil {
+		return err
+	}
+	if err := validateNetworkSettings(cfg, bindAddr); err != nil {
+		return err
+	}
+	return validateDiagnosticsSettings(cfg)
+}
+
+func validateListenerSettings(cfg models.SRTConfig) error {
 	if cfg.Port < 0 || cfg.Port > 65535 {
 		return fmt.Errorf("port must be between 0 and 65535")
 	}
@@ -68,38 +88,42 @@ func ValidateConfig(cfg models.SRTConfig) error {
 	if cfg.AuthFailureRateLimit < 0 || cfg.AuthFailureRateLimit > maxRateLimit {
 		return fmt.Errorf("authFailureRateLimit must be between 0 and %d", maxRateLimit)
 	}
+	return nil
+}
 
+func validateLatencyAndBufferSettings(cfg models.SRTConfig) error {
 	if cfg.ReceiverLatencyMs < minReceiverLatency || cfg.ReceiverLatencyMs > maxLatency {
 		return fmt.Errorf("receiverLatencyMs must be between %d and %d", minReceiverLatency, maxLatency)
 	}
-
 	if cfg.PeerLatencyMs < minPeerLatency || cfg.PeerLatencyMs > maxLatency {
 		return fmt.Errorf("peerLatencyMs must be between %d and %d", minPeerLatency, maxLatency)
 	}
-
 	if cfg.FlowControlWindowPackets < minFlowControl || cfg.FlowControlWindowPackets > maxFlowControl {
 		return fmt.Errorf("flowControlWindowPackets must be between %d and %d", minFlowControl, maxFlowControl)
 	}
-
 	if cfg.MSS < minMSS || cfg.MSS > maxMSS {
 		return fmt.Errorf("mss must be between %d and %d", minMSS, maxMSS)
 	}
-
 	if cfg.PayloadSize < minPayloadSize || cfg.PayloadSize > maxPayloadSize {
 		return fmt.Errorf("payloadSize must be between %d and %d", minPayloadSize, maxPayloadSize)
 	}
 	if cfg.PayloadSize+headerOverhead > cfg.MSS {
 		return fmt.Errorf("payloadSize must be at most mss minus %d bytes of protocol headers", headerOverhead)
 	}
-
-	if cfg.Passphrase != "" && (len(cfg.Passphrase) < minPassphraseLength || len(cfg.Passphrase) > maxPassphraseLength) {
-		return fmt.Errorf("passphrase must be between %d and %d characters", minPassphraseLength, maxPassphraseLength)
-	}
-
 	if cfg.PeerIdleTimeoutMs < minPeerIdleTimeout || cfg.PeerIdleTimeoutMs > maxPeerIdleTimeout {
 		return fmt.Errorf("peerIdleTimeoutMs must be between %d and %d", minPeerIdleTimeout, maxPeerIdleTimeout)
 	}
+	return nil
+}
 
+func validateEncryptionSettings(cfg models.SRTConfig) error {
+	if cfg.Passphrase != "" && (len(cfg.Passphrase) < minPassphraseLength || len(cfg.Passphrase) > maxPassphraseLength) {
+		return fmt.Errorf("passphrase must be between %d and %d characters", minPassphraseLength, maxPassphraseLength)
+	}
+	return nil
+}
+
+func validateNetworkSettings(cfg models.SRTConfig, bindAddr netip.Addr) error {
 	if cfg.IPTTL < 0 || cfg.IPTTL > 255 {
 		return fmt.Errorf("ipTTL must be between 0 and 255")
 	}
@@ -109,15 +133,16 @@ func ValidateConfig(cfg models.SRTConfig) error {
 	if bindAddr.Is6() && (cfg.IPTTL > 0 || cfg.IPTOS > 0) {
 		return fmt.Errorf("ipTTL and ipTOS are IPv4 socket options and cannot be used with an IPv6 bindAddress")
 	}
+	return nil
+}
 
+func validateDiagnosticsSettings(cfg models.SRTConfig) error {
 	if cfg.MaxPendingHandshakes < 1 || cfg.MaxPendingHandshakes > maxHandshakePending {
 		return fmt.Errorf("maxPendingHandshakes must be between 1 and %d", maxHandshakePending)
 	}
-
 	if cfg.DebugStatsIntervalMs < 0 || cfg.DebugStatsIntervalMs > maxDebugStatsMs {
 		return fmt.Errorf("debugStatsIntervalMs must be between 0 and %d", maxDebugStatsMs)
 	}
-
 	return nil
 }
 
@@ -135,8 +160,8 @@ func BuildListenerConfig(cfg models.SRTConfig) (gosrt.Config, error) {
 
 	// Fixed live-ingest profile: these are forced by gosrt's Validate anyway
 	// and are shown read-only in the admin UI.
-	listenerCfg.Congestion = "live"
-	listenerCfg.TransmissionType = "live"
+	listenerCfg.Congestion = srtLiveProfile
+	listenerCfg.TransmissionType = srtLiveProfile
 	listenerCfg.TSBPDMode = true
 	listenerCfg.NAKReport = true
 	listenerCfg.TooLatePacketDrop = true

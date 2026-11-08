@@ -13,6 +13,10 @@ import (
 	"sync"
 )
 
+// valueUnknown is the codec/name fallback used when a stream cannot be
+// identified.
+const valueUnknown = "unknown"
+
 const (
 	// tsPacketSize is the fixed MPEG-TS packet size.
 	tsPacketSize = 188
@@ -29,17 +33,17 @@ const (
 
 // MPEG-TS stream type values we classify.
 const (
-	streamTypeH264        = 0x1b
-	streamTypeHEVC        = 0x24
-	streamTypeMPEG1Video  = 0x01
-	streamTypeMPEG2Video  = 0x02
-	streamTypeMPEG4Video  = 0x10
-	streamTypeAACADTS     = 0x0f
-	streamTypeAACLATM     = 0x11
-	streamTypeMP3a        = 0x03
-	streamTypeMP3b        = 0x04
-	streamTypeAC3         = 0x81
-	streamTypeEAC3        = 0x87
+	streamTypeH264       = 0x1b
+	streamTypeHEVC       = 0x24
+	streamTypeMPEG1Video = 0x01
+	streamTypeMPEG2Video = 0x02
+	streamTypeMPEG4Video = 0x10
+	streamTypeAACADTS    = 0x0f
+	streamTypeAACLATM    = 0x11
+	streamTypeMP3a       = 0x03
+	streamTypeMP3b       = 0x04
+	streamTypeAC3        = 0x81
+	streamTypeEAC3       = 0x87
 )
 
 // SourceInfo is the inspected source properties. Zero values mean "unknown".
@@ -90,7 +94,8 @@ func (i *Inspector) Write(p []byte) (int, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	buf := append(i.carry, p...)
+	i.carry = append(i.carry, p...)
+	buf := i.carry
 	consumed := 0
 	for len(buf)-consumed >= tsPacketSize {
 		// Resynchronise on the next packet boundary if needed.
@@ -165,7 +170,7 @@ func (i *Inspector) tablePayload(payload []byte, payloadStart bool) []byte {
 
 func (i *Inspector) parsePAT(payload []byte, payloadStart bool) {
 	table := i.tablePayload(payload, payloadStart)
-	if table == nil || len(table) < 12 || table[0] != 0x00 {
+	if len(table) < 12 || table[0] != 0x00 {
 		return
 	}
 	sectionLength := int(binary.BigEndian.Uint16(table[1:3]) & 0x0fff)
@@ -186,7 +191,7 @@ func (i *Inspector) parsePAT(payload []byte, payloadStart bool) {
 
 func (i *Inspector) parsePMT(payload []byte, payloadStart bool) {
 	table := i.tablePayload(payload, payloadStart)
-	if table == nil || len(table) < 12 || table[0] != 0x02 {
+	if len(table) < 12 || table[0] != 0x02 {
 		return
 	}
 	sectionLength := int(binary.BigEndian.Uint16(table[1:3]) & 0x0fff)
@@ -344,7 +349,7 @@ func videoCodecName(streamType byte) string {
 	case streamTypeMPEG4Video:
 		return "mpeg4"
 	default:
-		return "unknown"
+		return valueUnknown
 	}
 }
 
@@ -359,9 +364,10 @@ func audioCodecName(streamType byte) string {
 	case streamTypeEAC3:
 		return "eac3"
 	default:
-		return "unknown"
+		return valueUnknown
 	}
 }
+
 // unescapeEmulationPrevention removes H.264 emulation-prevention bytes
 // (0x03 after two 0x00 bytes) so bit-level parsing sees the original RBSP.
 func unescapeEmulationPrevention(data []byte) []byte {

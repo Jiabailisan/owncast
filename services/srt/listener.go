@@ -68,7 +68,7 @@ func (s *Service) acceptLoop(ctx context.Context, listener gosrt.Listener) {
 func (s *Service) handleRequest(request gosrt.ConnRequest) {
 	if !s.pendingHandshakes.TryAcquire() {
 		s.reject(request, wireRejectResource, reasonHandshakeCapExceeded, log.Fields{
-			"remote": remoteString(request.RemoteAddr()),
+			logFieldRemote: remoteString(request.RemoteAddr()),
 		})
 		return
 	}

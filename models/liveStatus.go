@@ -13,28 +13,28 @@ type LiveStatus struct {
 	StartTime     *time.Time `json:"startTime,omitempty"`
 	UptimeSeconds float64    `json:"uptimeSeconds"`
 
-	Source LiveSourceStatus `json:"source"`
-	Ingest LiveIngestStatus `json:"ingest"`
+	Source  LiveSourceStatus `json:"source"`
+	Ingest  LiveIngestStatus `json:"ingest"`
 	Viewers LiveViewerCounts `json:"viewers"`
 
-	FFmpeg  FFmpegStatus   `json:"ffmpeg"`
-	WebRTC  WebRTCStatus   `json:"webrtc"`
-	GeoIP   GeoIPStatus    `json:"geoip"`
+	FFmpeg   FFmpegStatus    `json:"ffmpeg"`
+	WebRTC   WebRTCStatus    `json:"webrtc"`
+	GeoIP    GeoIPStatus     `json:"geoip"`
 	Warnings []StatusWarning `json:"warnings"`
 }
 
 // LiveSourceStatus describes the inbound media source properties.
 type LiveSourceStatus struct {
-	Width             *int     `json:"width"`
-	Height            *int     `json:"height"`
-	FPS               *float64 `json:"fps"`
-	VideoCodec        string   `json:"videoCodec,omitempty"`
-	VideoProfile      string   `json:"videoProfile,omitempty"`
-	VideoLevel        string   `json:"videoLevel,omitempty"`
-	AudioCodec        string   `json:"audioCodec,omitempty"`
-	VideoBitrateKbps  *float64 `json:"videoBitrateKbps"`
-	AudioBitrateKbps  *float64 `json:"audioBitrateKbps"`
-	HasBFrames        *bool    `json:"hasBFrames"`
+	Width            *int     `json:"width"`
+	Height           *int     `json:"height"`
+	FPS              *float64 `json:"fps"`
+	VideoCodec       string   `json:"videoCodec,omitempty"`
+	VideoProfile     string   `json:"videoProfile,omitempty"`
+	VideoLevel       string   `json:"videoLevel,omitempty"`
+	AudioCodec       string   `json:"audioCodec,omitempty"`
+	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
+	AudioBitrateKbps *float64 `json:"audioBitrateKbps"`
+	HasBFrames       *bool    `json:"hasBFrames"`
 }
 
 // LiveIngestStatus mirrors models.IngestStatus for the admin payload.
@@ -64,17 +64,17 @@ type FFmpegStatus struct {
 
 // FFmpegProcessStatus is one supervised transcoder process.
 type FFmpegProcessStatus struct {
-	ID            string   `json:"id"`
-	Purpose       []string `json:"purpose"`
-	PID           int      `json:"pid"`
-	StartedAt     time.Time `json:"startedAt"`
-	UptimeSeconds float64  `json:"uptimeSeconds"`
-	RestartCount  int      `json:"restartCount"`
-	Speed         *float64 `json:"speed"`
-	DroppedFrames *int64   `json:"droppedFrames"`
-	DuplicateFrames *int64 `json:"duplicateFrames"`
-	CPUPercent    *float64 `json:"cpuPercent"`
-	RSSBytes      *int64   `json:"rssBytes"`
+	ID              string    `json:"id"`
+	Purpose         []string  `json:"purpose"`
+	PID             int       `json:"pid"`
+	StartedAt       time.Time `json:"startedAt"`
+	UptimeSeconds   float64   `json:"uptimeSeconds"`
+	RestartCount    int       `json:"restartCount"`
+	Speed           *float64  `json:"speed"`
+	DroppedFrames   *int64    `json:"droppedFrames"`
+	DuplicateFrames *int64    `json:"duplicateFrames"`
+	CPUPercent      *float64  `json:"cpuPercent"`
+	RSSBytes        *int64    `json:"rssBytes"`
 	// Argv is the exact executed command line, secrets redacted with ***.
 	Argv []string `json:"argv,omitempty"`
 	// Sections splits Argv into input/video/audio/output/other/environment
@@ -110,22 +110,22 @@ type StatusWarning struct {
 
 // LiveViewer is one row of the admin viewer table (spec 6.3).
 type LiveViewer struct {
-	ClientID        string     `json:"clientID"`
-	IPAddress       string     `json:"ipAddress"`
-	UserAgent       string     `json:"userAgent,omitempty"`
-	Country         string     `json:"country,omitempty"`
-	Region          string     `json:"region,omitempty"`
-	City            string     `json:"city,omitempty"`
-	LocationApprox  bool       `json:"locationApproximate,omitempty"`
-	Protocol        string     `json:"protocol"`
-	BitrateKbps     *float64   `json:"bitrateKbps"`
-	Resolution      string     `json:"resolution,omitempty"`
-	FPS             *float64   `json:"fps"`
-	PacketLossPct   *float64   `json:"packetLossPct"`
-	JitterMs        *float64   `json:"jitterMs"`
-	ConnectedAt     time.Time  `json:"connectedAt"`
-	DurationSeconds float64    `json:"durationSeconds"`
-	Source          string     `json:"source"`
+	ClientID        string    `json:"clientID"`
+	IPAddress       string    `json:"ipAddress"`
+	UserAgent       string    `json:"userAgent,omitempty"`
+	Country         string    `json:"country,omitempty"`
+	Region          string    `json:"region,omitempty"`
+	City            string    `json:"city,omitempty"`
+	LocationApprox  bool      `json:"locationApproximate,omitempty"`
+	Protocol        string    `json:"protocol"`
+	BitrateKbps     *float64  `json:"bitrateKbps"`
+	Resolution      string    `json:"resolution,omitempty"`
+	FPS             *float64  `json:"fps"`
+	PacketLossPct   *float64  `json:"packetLossPct"`
+	JitterMs        *float64  `json:"jitterMs"`
+	ConnectedAt     time.Time `json:"connectedAt"`
+	DurationSeconds float64   `json:"durationSeconds"`
+	Source          string    `json:"source"`
 }
 
 // LiveViewersPage is a page of the admin viewer table.

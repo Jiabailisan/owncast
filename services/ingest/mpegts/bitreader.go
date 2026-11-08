@@ -15,8 +15,6 @@ type bitReader struct {
 
 func newBitReader(data []byte) *bitReader { return &bitReader{data: data} }
 
-func (r *bitReader) bitsLeft() int { return len(r.data)*8 - r.pos }
-
 func (r *bitReader) readBit() (uint, error) {
 	if r.pos >= len(r.data)*8 {
 		return 0, errNoMoreData

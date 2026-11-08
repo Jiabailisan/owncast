@@ -19,6 +19,7 @@ type pionLogger struct {
 // during viewer teardown. Only genuine Pion errors surface at warn level; the
 // service itself logs the user-visible session lifecycle.
 func (l pionLogger) Trace(msg string) { log.WithField("pion", l.scope).Trace(msg) }
+
 func (l pionLogger) Tracef(format string, args ...any) {
 	log.WithField("pion", l.scope).Tracef(format, args...)
 }

@@ -2,6 +2,7 @@ package srt
 
 import (
 	"context"
+	"math"
 	"time"
 
 	gosrt "github.com/datarhei/gosrt"
@@ -191,8 +192,8 @@ func mapStatistics(previous, current gosrt.Statistics, previousPayload, currentP
 		packetLossPct = &value
 	}
 
-	retransmitted := int64(subtractCounter(current.Accumulated.PktRecvRetrans, previous.Accumulated.PktRecvRetrans))
-	dropped := int64(subtractCounter(current.Accumulated.PktRecvDrop, previous.Accumulated.PktRecvDrop))
+	retransmitted := counterDelta(current.Accumulated.PktRecvRetrans, previous.Accumulated.PktRecvRetrans)
+	dropped := counterDelta(current.Accumulated.PktRecvDrop, previous.Accumulated.PktRecvDrop)
 	rtt := current.Instantaneous.MsRTT
 
 	extra := map[string]float64{
@@ -218,6 +219,17 @@ func mapStatistics(previous, current gosrt.Statistics, previousPayload, currentP
 		DroppedPackets:       &dropped,
 		Extra:                extra,
 	}
+}
+
+// counterDelta returns current - previous as a signed int64 for the admin API.
+// The clamp guards the theoretical uint64 overflow; SRT counters are
+// monotonically increasing in practice.
+func counterDelta(current, previous uint64) int64 {
+	delta := subtractCounter(current, previous)
+	if delta > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(delta) //nolint:gosec // bounded by the clamp above.
 }
 
 // subtractCounter returns current - previous without underflowing when a

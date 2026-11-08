@@ -81,11 +81,11 @@ type SessionBase struct {
 // invoked exactly once when the session is closed; it must not block.
 func NewSessionBase(id string, protocol Protocol, remote net.Addr, keyID string, format InputFormat, onClose func(error)) *SessionBase {
 	return &SessionBase{
-		id:       id,
-		protocol: protocol,
-		remote:   remote,
-		keyID:    keyID,
-		format:   format,
+		id:        id,
+		protocol:  protocol,
+		remote:    remote,
+		keyID:     keyID,
+		format:    format,
 		done:      make(chan struct{}),
 		onClose:   onClose,
 		startedAt: time.Now(),

@@ -16,11 +16,11 @@ type WebRTCConfig struct {
 	AllowedOrigins []string `json:"allowedOrigins"`
 
 	// Limits.
-	MaxViewers            int    `json:"maxViewers"`
-	MaxViewersPerIP       int    `json:"maxViewersPerIP"`
-	SignalingRateLimit    int    `json:"signalingRateLimit"`
-	LimitExceededBehavior string `json:"limitExceededBehavior"`
-	SessionIdleTimeoutSeconds int `json:"sessionIdleTimeoutSeconds"`
+	MaxViewers                int    `json:"maxViewers"`
+	MaxViewersPerIP           int    `json:"maxViewersPerIP"`
+	SignalingRateLimit        int    `json:"signalingRateLimit"`
+	LimitExceededBehavior     string `json:"limitExceededBehavior"`
+	SessionIdleTimeoutSeconds int    `json:"sessionIdleTimeoutSeconds"`
 
 	// Network.
 	BindAddress    string   `json:"bindAddress"`
@@ -47,20 +47,20 @@ type WebRTCConfig struct {
 	ICEKeepaliveIntervalMs   int          `json:"iceKeepaliveIntervalMs"`
 
 	// Media.
-	H264Profile              string  `json:"h264Profile"`
-	H264Level                string  `json:"h264Level"`
-	KeyframeIntervalSeconds  float64 `json:"keyframeIntervalSeconds"`
-	OpusBitrateKbps          int     `json:"opusBitrateKbps"`
-	OpusFrameMs              int     `json:"opusFrameMs"`
-	OpusFEC                  bool    `json:"opusFEC"`
-	OpusDTX                  bool    `json:"opusDTX"`
-	RTPPacketSize            int     `json:"rtpPacketSize"`
-	NACK                     bool    `json:"nack"`
-	TWCC                     bool    `json:"twcc"`
-	BandwidthEstimation      bool    `json:"bandwidthEstimation"`
-	MaxBitratePerViewerKbps  int     `json:"maxBitratePerViewerKbps"`
-	MinBitratePerViewerKbps  int     `json:"minBitratePerViewerKbps"`
-	RTPReorderBufferMs       int     `json:"rtpReorderBufferMs"`
+	H264Profile             string  `json:"h264Profile"`
+	H264Level               string  `json:"h264Level"`
+	KeyframeIntervalSeconds float64 `json:"keyframeIntervalSeconds"`
+	OpusBitrateKbps         int     `json:"opusBitrateKbps"`
+	OpusFrameMs             int     `json:"opusFrameMs"`
+	OpusFEC                 bool    `json:"opusFEC"`
+	OpusDTX                 bool    `json:"opusDTX"`
+	RTPPacketSize           int     `json:"rtpPacketSize"`
+	NACK                    bool    `json:"nack"`
+	TWCC                    bool    `json:"twcc"`
+	BandwidthEstimation     bool    `json:"bandwidthEstimation"`
+	MaxBitratePerViewerKbps int     `json:"maxBitratePerViewerKbps"`
+	MinBitratePerViewerKbps int     `json:"minBitratePerViewerKbps"`
+	RTPReorderBufferMs      int     `json:"rtpReorderBufferMs"`
 
 	// Viewer fallback behavior (client reads this from /api/config).
 	FallbackToHLS bool `json:"fallbackToHls"`

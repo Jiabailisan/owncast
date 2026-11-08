@@ -1,0 +1,52 @@
+.customPlayerConfig {
+  max-width: 100%;
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  background: var(--theme-color-components-content-background, #fff);
+  border-radius: var(--theme-rounded-corners, 9px);
+}
+
+.title {
+  margin: 0 !important;
+}
+
+.description {
+  margin: 8px 0 12px !important;
+}
+
+.alert {
+  margin-bottom: 12px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.help {
+  margin: 4px 0 0 !important;
+  font-size: 0.85em;
+}
+
+.fieldError {
+  margin-top: 8px;
+}
+
+.activeHint {
+  display: inline-block;
+  margin-top: 8px;
+}
+
+.actions {
+  margin-top: 12px;
+}
+
+.precedence {
+  margin-top: 16px;
+}
+
+.precedenceList {
+  margin: 0;
+  padding-inline-start: 18px;
+}

@@ -14,6 +14,9 @@ import (
 	"github.com/owncast/owncast/services/ingest"
 )
 
+// logFieldRemote is the structured log field carrying the publisher address.
+const logFieldRemote = "remote"
+
 // authConfig is the immutable configuration snapshot read by the accept
 // callback. It holds everything needed to authenticate a connection so the
 // callback never takes the service mutex or touches the database (the key
@@ -56,7 +59,7 @@ func newAuthConfig(cfg models.SRTConfig, passphrase string) (*authConfig, error)
 // has already been rejected (or the handshake failed after Accept started).
 func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 	remote := req.RemoteAddr()
-	fields := log.Fields{"remote": remoteString(remote)}
+	fields := log.Fields{logFieldRemote: remoteString(remote)}
 
 	ip, ok := remoteIP(remote)
 	if !ok {
@@ -158,7 +161,7 @@ func (s *Service) reject(req gosrt.ConnRequest, wire gosrt.RejectionReason, reas
 	fields["reason"] = reason
 	fields["rejection_code"] = uint32(wire)
 	if req.RemoteAddr() != nil {
-		fields["remote"] = remoteString(req.RemoteAddr())
+		fields[logFieldRemote] = remoteString(req.RemoteAddr())
 	}
 	s.logger.WithFields(fields).Warn("SRT connection rejected")
 	req.Reject(wire)
@@ -187,7 +190,7 @@ func (s *Service) sessionClosed(sess *session, reason error) {
 
 	fields := log.Fields{
 		"session_id":    sess.ID(),
-		"remote":        remoteString(sess.RemoteAddr()),
+		logFieldRemote:  remoteString(sess.RemoteAddr()),
 		"key_id":        sess.StreamKeyID(),
 		"duration":      time.Since(sess.StartedAt()).String(),
 		"payload_bytes": sess.PayloadBytes(),
@@ -249,13 +252,13 @@ func streamIDFailureReason(err error, requireStreamID bool) string {
 	case errors.Is(err, ErrStreamIDSubscriber):
 		return reasonSubscriberMode
 	case errors.Is(err, ErrStreamIDFormatDisabled):
-		return string(ErrStreamIDFormatDisabled.Error())
+		return ErrStreamIDFormatDisabled.Error()
 	case errors.Is(err, ErrStreamIDMalformed):
-		return string(ErrStreamIDMalformed.Error())
+		return ErrStreamIDMalformed.Error()
 	case errors.Is(err, ErrStreamIDTooLong):
-		return string(ErrStreamIDTooLong.Error())
+		return ErrStreamIDTooLong.Error()
 	case errors.Is(err, ErrStreamIDInvalidKey):
-		return string(ErrStreamIDInvalidKey.Error())
+		return ErrStreamIDInvalidKey.Error()
 	default:
 		return reasonBadStreamKey
 	}

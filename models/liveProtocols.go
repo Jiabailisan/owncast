@@ -10,9 +10,9 @@ const (
 
 // LiveStatusState values.
 const (
-	LiveStateLive    = "live"
-	LiveStateWaiting = "waiting"
-	LiveStateOffline = "offline"
-	LiveStateError   = "error"
+	LiveStateLive     = "live"
+	LiveStateWaiting  = "waiting"
+	LiveStateOffline  = "offline"
+	LiveStateError    = "error"
 	LiveStateDegraded = "degraded"
 )

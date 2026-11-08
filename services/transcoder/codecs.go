@@ -80,7 +80,7 @@ func (c *Libx264Codec) Scaler() string {
 // ExtraArguments are the extra arguments used with this codec in the transcoder.
 func (c *Libx264Codec) ExtraArguments() []string {
 	return []string{
-		"-tune", "zerolatency", // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
+		ffmpegFlagTune, "zerolatency", // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
 	}
 }
 
@@ -95,7 +95,7 @@ func (c *Libx264Codec) VariantFlags(v *HLSVariant) []string {
 		fmt.Sprintf("-x264-params:v:%d", v.index),
 		"scenecut=0:open_gop=0", // How often the encoder checks the bitrate in order to meet average/max values
 		fmt.Sprintf("-bufsize:v:%d", v.index), fmt.Sprintf("%dk", v.getBufferSize()),
-		fmt.Sprintf("-profile:v:%d", v.index), "high", // Encoding profile
+		fmt.Sprintf("-profile:v:%d", v.index), h264ProfileHigh, // Encoding profile
 	}
 }
 
@@ -150,7 +150,7 @@ func (c *OmxCodec) Scaler() string {
 // ExtraArguments are the extra arguments used with this codec in the transcoder.
 func (c *OmxCodec) ExtraArguments() []string {
 	return []string{
-		"-tune", "zerolatency", // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
+		ffmpegFlagTune, "zerolatency", // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
 	}
 }
 

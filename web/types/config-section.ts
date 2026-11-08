@@ -1,4 +1,5 @@
 import { AutoplaySetting } from '../utils/autoplay';
+import { AppearanceAdminReport } from '../interfaces/appearance.model';
 // TS types for elements on the Config pages
 
 // for dropdown
@@ -151,6 +152,8 @@ export interface StreamKey {
 }
 
 export interface ConfigDetails {
+  // Computed appearance/custom-frontend status (master spec 4.6/7.3/7.4).
+  appearance?: AppearanceAdminReport;
   externalActions: ExternalAction[];
   styleContributors: PluginStyleInfo[];
   ffmpegPath: string;

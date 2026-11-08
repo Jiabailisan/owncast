@@ -1,17 +1,19 @@
 package mpegts
 
+import "fmt"
+
 // SPSInfo is the subset of an H.264 sequence parameter set needed for the
 // live status source details and for WebRTC copy eligibility.
 type SPSInfo struct {
-	ProfileIDC    uint
-	Constraint    uint
-	LevelIDC      uint
-	ChromaFormat  uint
-	Width         int
-	Height        int
-	HasFrameMBs   bool // frame_mbs_only_flag
-	FPS           float64
-	FPSValid      bool
+	ProfileIDC   uint
+	Constraint   uint
+	LevelIDC     uint
+	ChromaFormat uint
+	Width        int
+	Height       int
+	HasFrameMBs  bool // frame_mbs_only_flag
+	FPS          float64
+	FPSValid     bool
 }
 
 // profileName returns the human-readable H.264 profile name.
@@ -39,12 +41,16 @@ func profileName(profileIDC uint, constraint uint) string {
 	case 244:
 		return "high-4:4:4"
 	default:
-		return "unknown"
+		return valueUnknown
 	}
 }
 
 // ParseSPS decodes the fields we need from a raw H.264 SPS NAL unit (the NAL
 // unit type 7 payload, without start code and without the NAL header byte).
+// The SPS grammar is a fixed sequence of dozens of bit fields; splitting it
+// would make the parser harder to compare against the specification.
+//
+//nolint:cyclop // inherently long bitstream grammar parser
 func ParseSPS(nal []byte) (*SPSInfo, bool) {
 	r := newBitReader(nal)
 
@@ -193,16 +199,14 @@ func ParseSPS(nal []byte) (*SPSInfo, bool) {
 	}
 
 	// Cropping unit factors for the common chroma formats (H.264 7.4.2.1.1).
-	subWidthC, subHeightC := uint(2), uint(2)
+	var subWidthC, subHeightC uint
 	switch info.ChromaFormat {
-	case 1: // 4:2:0
-		subWidthC, subHeightC = 2, 2
 	case 2: // 4:2:2
 		subWidthC, subHeightC = 2, 1
 	case 3: // 4:4:4
 		subWidthC, subHeightC = 1, 1
-	default:
-		subWidthC, subHeightC = 1, 1
+	default: // 4:2:0 and unknown formats
+		subWidthC, subHeightC = 2, 2
 	}
 	frameHeightFactor := uint(2) - frameMbsOnly
 
@@ -249,6 +253,7 @@ func skipScalingList(r *bitReader, size int) error {
 	return nil
 }
 
+//nolint:cyclop // optional VUI blocks are a fixed grammar sequence
 func skipVUI(r *bitReader, info *SPSInfo) error {
 	if flag, err := r.readBit(); err != nil {
 		return err
@@ -320,7 +325,5 @@ func (s *SPSInfo) ProfileName() string { return profileName(s.ProfileIDC, s.Cons
 
 // Level returns the level in "major.minor" H.264 form, e.g. "4.0" or "3.1".
 func (s *SPSInfo) Level() string {
-	major := s.LevelIDC / 10
-	minor := s.LevelIDC % 10
-	return string(rune('0'+major)) + "." + string(rune('0'+minor))
+	return fmt.Sprintf("%d.%d", s.LevelIDC/10, s.LevelIDC%10)
 }
