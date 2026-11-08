@@ -2,7 +2,7 @@ package stream
 
 import (
 	"context"
-	"io"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,12 +12,22 @@ import (
 
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/notifications"
 	"github.com/owncast/owncast/services/transcoder"
 	"github.com/owncast/owncast/utils"
 )
 
-// Start brings up the storage backend, transcoder, RTMP listener, chat,
+var (
+	// errStreamStopped is the session close reason used when the whole stream
+	// service shuts down.
+	errStreamStopped = errors.New("stream service stopped")
+	// errStreamOffline is the session close reason used when the live stream
+	// ended.
+	errStreamOffline = errors.New("stream went offline")
+)
+
+// Start brings up the storage backend, transcoder, ingest listeners, chat,
 // webhooks, and the directory/notification subsystems. Must be called
 // exactly once after New().
 func (s *Service) Start(_ context.Context) error {
@@ -70,14 +80,16 @@ func (s *Service) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop releases anything the service is holding. Currently a no-op
-// because individual goroutines and ffmpeg children are tied to
-// stream-connect/disconnect rather than overall service lifetime, but the
-// hook is here for graceful-shutdown plumbing later: process exit
-// reclaims the goroutines and ffmpeg child today; future work cancels
-// onlineTimerCancelFunc, stops tickers, and closes the transcoder
-// cleanly.
+// Stop releases anything the service is holding. It force-disconnects the
+// active ingest session and stops the per-stream cleanup tickers. Process exit
+// still reclaims ffmpeg itself; the supervisor hardening in Phase 4 makes the
+// transcoder stop explicit.
 func (s *Service) Stop(_ context.Context) {
+	if s.sessions != nil {
+		s.sessions.DisconnectCurrent(errStreamStopped)
+	}
+	s.StopOfflineCleanupTimer()
+	s.stopOnlineCleanupTimer()
 }
 
 func (s *Service) createInitialOfflineState() error {
@@ -131,26 +143,34 @@ func (s *Service) resetDirectories() {
 	}
 }
 
-// setStreamAsConnected is the local engine's RTMP on-connect callback. It
-// reports the broadcast online (StreamConnected) and then spins up the
-// in-process transcoder + thumbnail generator fed by the inbound RTMP pipe.
-func (s *Service) setStreamAsConnected(rtmpOut *io.PipeReader) {
+// HandleIngestSession is the protocol-neutral on-connect callback used by
+// every ingest listener (RTMP and SRT). It reports the broadcast online
+// (StreamConnected) and then spins up the in-process transcoder + thumbnail
+// generator fed by the session's media bytes and input format.
+func (s *Service) HandleIngestSession(session ingest.Session) {
+	if session == nil {
+		return
+	}
+
 	broadcast := &models.CurrentBroadcast{
 		LatencyLevel:   s.configRepository.GetStreamLatencyLevel(),
 		OutputSettings: s.configRepository.GetStreamOutputVariants(),
 	}
+	s.currentSession = session
 	s.StreamConnected(broadcast)
 
 	segmentPath := config.HLSStoragePath
 
 	go func() {
-		s.transcoder = transcoder.NewTranscoder(s.cfg, s.configRepository)
-		s.transcoder.TranscoderCompleted = func(err error) {
+		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
+		tr.TranscoderCompleted = func(err error) {
 			s.StreamDisconnected(err)
 			s.transcoder = nil
 		}
-		s.transcoder.SetStdin(rtmpOut)
-		s.transcoder.Start(true)
+		tr.SetStdin(session.Reader())
+		tr.SetInputFormat(session.InputFormat())
+		s.transcoder = tr
+		tr.Start(true)
 	}()
 
 	selectedThumbnailVideoQualityIndex, isVideoPassthrough := s.configRepository.FindHighestVideoQualityIndex(broadcast.OutputSettings)
@@ -254,7 +274,10 @@ func (s *Service) applyStreamOffline() {
 	if s.thumbnailGen != nil {
 		s.thumbnailGen.Stop()
 	}
-	s.rtmp.Disconnect()
+	if s.sessions != nil {
+		s.sessions.DisconnectCurrent(errStreamOffline)
+	}
+	s.currentSession = nil
 
 	if s.yp != nil {
 		s.yp.Stop()

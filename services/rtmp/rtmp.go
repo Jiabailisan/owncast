@@ -12,13 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 )
 
 // Start binds the RTMP listener and runs the accept loop. Blocks until
 // the listener returns. setStreamAsConnected is invoked once per
 // authenticated connection; setBroadcaster is invoked when the inbound
 // metadata tag arrives.
-func (s *Service) Start(setStreamAsConnected func(*io.PipeReader), setBroadcaster func(models.Broadcaster)) {
+func (s *Service) Start(setStreamAsConnected func(ingest.Session), setBroadcaster func(models.Broadcaster)) {
 	s.setStreamAsConnected = setStreamAsConnected
 	s.setBroadcaster = setBroadcaster
 
@@ -59,27 +60,16 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 		}
 	}
 
-	if s.hasInboundConnection {
+	// Preserve the historical single-publisher behavior: check the shared
+	// arbiter before authenticating so a second publisher cannot overtake an
+	// existing stream.
+	if s.sessions.Current() != nil {
 		log.Errorln("stream already running; can not overtake an existing stream from", nc.RemoteAddr().String())
 		_ = nc.Close()
 		return
 	}
 
-	accessGranted := false
-	validStreamingKeys := s.configRepository.GetStreamKeys()
-
-	// If a stream key override was specified then use that instead.
-	if s.cfg.TemporaryStreamKey != "" {
-		validStreamingKeys = []models.StreamKey{{Key: &s.cfg.TemporaryStreamKey}}
-	}
-
-	for _, key := range validStreamingKeys {
-		if key.Key != nil && secretMatch(*key.Key, c.URL.Path) {
-			accessGranted = true
-			break
-		}
-	}
-
+	keyID, accessGranted := s.streamKeys.ValidateRTMPPath(c.URL.Path)
 	if !accessGranted {
 		log.Errorln("invalid streaming key; rejecting incoming stream from", nc.RemoteAddr().String())
 		_ = nc.Close()
@@ -87,18 +77,30 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 	}
 
 	rtmpOut, rtmpIn := io.Pipe()
-	s.pipe = rtmpIn
-	log.Infoln("Inbound stream connected from", nc.RemoteAddr().String())
-	s.setStreamAsConnected(rtmpOut)
 
-	s.hasInboundConnection = true
-	s.rtmpConnection = nc
+	var session *session
+	session = newSession(nc, rtmpOut, rtmpIn, keyID, func(error) {
+		_ = nc.Close()
+		_ = rtmpIn.Close()
+		s.sessions.Release(session)
+	})
+
+	if err := s.sessions.TryAcquire(session); err != nil {
+		log.Errorln("stream already running; can not overtake an existing stream from", nc.RemoteAddr().String())
+		_ = nc.Close()
+		_ = rtmpIn.Close()
+		return
+	}
+
+	s.setCurrentSession(session)
+	log.Infoln("Inbound stream connected from", nc.RemoteAddr().String())
+	s.setStreamAsConnected(session)
 
 	w := flv.NewMuxer(rtmpIn)
 
-	for s.hasInboundConnection {
+	for {
 		// If we don't get a readable packet in 10 seconds give up and disconnect.
-		if err := s.rtmpConnection.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		if err := nc.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 			log.Debugln(err)
 		}
 
@@ -106,42 +108,67 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 
 		// Broadcaster disconnected.
 		if err == io.EOF {
-			s.handleDisconnect(nc)
+			s.handleDisconnect(session)
 			return
 		}
 
-		// Read timeout.  Disconnect.
+		// Read timeout. Disconnect.
 		if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
 			log.Debugln("Timeout reading the inbound stream from the broadcaster.  Assuming that they disconnected and ending the stream.")
-			s.handleDisconnect(nc)
+			s.handleDisconnect(session)
+			return
+		}
+
+		if err != nil {
+			s.handleDisconnect(session)
 			return
 		}
 
 		if err := w.WritePacket(pkt); err != nil {
 			log.Errorln("unable to write rtmp packet", err)
-			s.handleDisconnect(nc)
+			s.handleDisconnect(session)
 			return
 		}
 	}
 }
 
-func (s *Service) handleDisconnect(conn net.Conn) {
-	if !s.hasInboundConnection {
+func (s *Service) handleDisconnect(session *session) {
+	if session == nil || session.IsClosed() {
 		return
 	}
 
 	log.Infoln("Inbound stream disconnected.")
-	_ = conn.Close()
-	_ = s.pipe.Close()
-	s.hasInboundConnection = false
+	session.Close(nil)
 }
 
 // Disconnect will force disconnect the current inbound RTMP connection.
 func (s *Service) Disconnect() {
-	if s.rtmpConnection == nil {
+	session := s.currentSessionOrNil()
+	if session == nil {
 		return
 	}
 
 	log.Traceln("Inbound stream disconnect requested.")
-	s.handleDisconnect(s.rtmpConnection)
+	session.Close(errStreamDisconnectedByAdmin)
+}
+
+func (s *Service) setCurrentSession(session *session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.currentSession = session
+}
+
+func (s *Service) currentSessionOrNil() *session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentSession
+}
+
+// CurrentSession returns the live inbound session, if any.
+func (s *Service) CurrentSession() ingest.Session {
+	session := s.currentSessionOrNil()
+	if session == nil {
+		return nil
+	}
+	return session
 }

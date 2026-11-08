@@ -14,7 +14,7 @@ import (
 	apcrypto "github.com/owncast/owncast/services/activitypub/crypto"
 	"github.com/owncast/owncast/services/activitypub/persistence/followersrepository"
 	"github.com/owncast/owncast/services/chat"
-	"github.com/owncast/owncast/services/rtmp"
+	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/stream"
 	"github.com/owncast/owncast/services/webhooks"
 )
@@ -29,7 +29,7 @@ import (
 // need to consume move to services/<domain>/.
 type Admin struct {
 	stream                *stream.Service
-	rtmp                  *rtmp.Service
+	sessions              *ingest.Arbiter
 	activitypub           *activitypub.Service
 	webhooks              *webhooks.Service
 	chat                  *chat.Service
@@ -58,7 +58,7 @@ type Admin struct {
 // more admin handlers migrate.
 type Deps struct {
 	Stream                *stream.Service
-	Rtmp                  *rtmp.Service
+	Sessions              *ingest.Arbiter
 	Activitypub           *activitypub.Service
 	Webhooks              *webhooks.Service
 	Chat                  *chat.Service
@@ -83,7 +83,7 @@ type Deps struct {
 func New(deps Deps) *Admin {
 	return &Admin{
 		stream:                  deps.Stream,
-		rtmp:                    deps.Rtmp,
+		sessions:                deps.Sessions,
 		activitypub:             deps.Activitypub,
 		webhooks:                deps.Webhooks,
 		chat:                    deps.Chat,

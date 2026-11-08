@@ -18,7 +18,7 @@ import (
 	"github.com/owncast/owncast/services/chat"
 	"github.com/owncast/owncast/services/datastore"
 	"github.com/owncast/owncast/services/geoip"
-	"github.com/owncast/owncast/services/rtmp"
+	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/transcoder"
 	"github.com/owncast/owncast/services/webhooks"
 	"github.com/owncast/owncast/yp"
@@ -86,9 +86,14 @@ type Service struct {
 	// geoIPClient performs the asynchronous viewer-geolocation lookup.
 	geoIPClient *geoip.Client
 
-	// rtmp is the inbound RTMP ingest service. Start hands it
-	// stream-lifecycle callbacks; admin disconnect goes through it too.
-	rtmp *rtmp.Service
+	// sessions is the cross-protocol single-publisher arbiter. The stream
+	// service uses it to force-disconnect the active ingest session and to
+	// report which protocol/key is live.
+	sessions *ingest.Arbiter
+
+	// currentSession is the authenticated inbound session that started the
+	// current live stream (RTMP or SRT). Nil between streams.
+	currentSession ingest.Session
 
 	// activitypub is the federation subsystem; the stream service uses
 	// it to broadcast go-live notifications to followers when a stream
@@ -123,9 +128,11 @@ type Service struct {
 }
 
 // Deps is the explicit-dependency contract the service requires at
-// construction time.
+// construction time. Each protocol's ingest service is supplied as an
+// IngestListener so the engine starts all of them identically.
 type Deps struct {
-	Rtmp             *rtmp.Service
+	Ingest           []IngestListener
+	Sessions         *ingest.Arbiter
 	Activitypub      *activitypub.Service
 	Webhooks         *webhooks.Service
 	Chat             *chat.Service
@@ -141,7 +148,7 @@ func New(deps Deps) *Service {
 	s := &Service{
 		geoIPClient:      geoip.NewClient(),
 		fileWriter:       transcoder.NewFileWriterReceiverService(deps.Config),
-		rtmp:             deps.Rtmp,
+		sessions:         deps.Sessions,
 		activitypub:      deps.Activitypub,
 		webhooks:         deps.Webhooks,
 		chat:             deps.Chat,
@@ -150,11 +157,12 @@ func New(deps Deps) *Service {
 		configRepository: deps.ConfigRepository,
 		cfg:              deps.Config,
 	}
-	// The local engine binds the in-process RTMP listener and routes inbound
-	// connections back through the service's StreamEvents handlers.
+	// The local engine binds every in-process ingest listener (RTMP, and SRT
+	// when enabled) and routes inbound sessions back through the service's
+	// StreamEvents handlers.
 	s.engine = &localStreamEngine{
-		rtmp:          deps.Rtmp,
-		onConnect:     s.setStreamAsConnected,
+		listeners:     deps.Ingest,
+		onConnect:     s.HandleIngestSession,
 		onBroadcaster: s.BroadcasterSet,
 	}
 	return s

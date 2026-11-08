@@ -1,7 +1,6 @@
 package rtmp
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/nareix/joy5/format/flv/flvio"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/models"
 )
@@ -82,16 +80,3 @@ func getVideoCodec(codec interface{}) string {
 	return unknownString
 }
 
-func secretMatch(configStreamKey string, path string) bool {
-	prefix := "/live/"
-
-	if !strings.HasPrefix(path, prefix) {
-		log.Debug("RTMP path does not start with " + prefix)
-		return false
-	}
-
-	streamingKey := path[len(prefix):]
-
-	matches := subtle.ConstantTimeCompare([]byte(streamingKey), []byte(configStreamKey)) == 1
-	return matches
-}

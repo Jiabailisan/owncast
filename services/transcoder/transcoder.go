@@ -17,6 +17,7 @@ import (
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/logging"
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/utils"
 )
 
@@ -45,7 +46,12 @@ type Transcoder struct {
 	// and codec selection consulted at Start.
 	configRepository models.EngineConfig
 
-	stdin *io.PipeReader
+	stdin io.Reader
+
+	// inputFormat describes the container arriving on stdin (FLV for RTMP,
+	// MPEG-TS for SRT). Its ExtraArgs are emitted before -i pipe:0; they are
+	// empty for RTMP so the default argv is byte-identical to before.
+	inputFormat ingest.InputFormat
 
 	// commandExec holds the live ffmpeg child process while the
 	// transcoder is running. Set in Start, killed in Stop.
@@ -254,8 +260,11 @@ func (t *Transcoder) getFlags() *execInfo {
 	ffmpegFlags = append(ffmpegFlags, []string{
 		"-fflags", "+genpts", // Generate presentation time stamp if missing
 		"-flags", "+cgop", // Force closed GOPs
-		"-i", t.input,
 	}...)
+	// Protocol-neutral input descriptor: empty for FLV (RTMP), "-f mpegts"
+	// for SRT. Keeping RTMP's flags unchanged preserves the golden argv.
+	ffmpegFlags = append(ffmpegFlags, t.inputFormat.ExtraArgs...)
+	ffmpegFlags = append(ffmpegFlags, "-i", t.input)
 
 	ffmpegFlags = append(ffmpegFlags, t.getVariantsString()...)
 	ffmpegFlags = append(ffmpegFlags, []string{
@@ -347,6 +356,7 @@ func NewTranscoder(cfg *config.Config, configRepository models.EngineConfig) *Tr
 	transcoder.playlistOutputPath = config.HLSStoragePath
 
 	transcoder.input = "pipe:0" // stdin
+	transcoder.inputFormat = ingest.FLVInputFormat()
 
 	for index, quality := range transcoder.currentStreamOutputSettings {
 		variant := getVariantFromConfigQuality(quality, index)
@@ -501,8 +511,21 @@ func (t *Transcoder) SetInput(input string) {
 }
 
 // SetStdin sets the Stdin of the ffmpeg command.
-func (t *Transcoder) SetStdin(pipe *io.PipeReader) {
-	t.stdin = pipe
+func (t *Transcoder) SetStdin(stdin io.Reader) {
+	t.stdin = stdin
+}
+
+// SetInputFormat sets the descriptor of the container arriving on stdin.
+// Callers should always set it for protocol-neutral ingest; the zero value
+// behaves like the FLV/RTMP default.
+func (t *Transcoder) SetInputFormat(format ingest.InputFormat) {
+	t.inputFormat = format
+}
+
+// InputFormat returns the container descriptor this transcoder was configured
+// with.
+func (t *Transcoder) InputFormat() ingest.InputFormat {
+	return t.inputFormat
 }
 
 // SetOutputPath sets the root directory that should include playlists and video segments.

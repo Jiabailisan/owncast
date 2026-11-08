@@ -1,63 +1,64 @@
 // Package rtmp is the inbound RTMP ingest service. It listens on the
-// configured RTMP port, authenticates incoming streams against the
-// configured stream keys, and pipes the FLV-muxed bytes to the stream
-// service via callbacks supplied to Start.
-//
-// The stream service holds a *Service and calls Start(...) once at
-// startup; admin handlers hold one to force-disconnect via Disconnect().
+// configured RTMP port, authenticates incoming streams with the shared
+// ingest.StreamKeyValidator, reserves the cross-protocol publisher slot in
+// ingest.Arbiter, and pipes the FLV-muxed bytes to the stream service via the
+// callback supplied to Start.
 package rtmp
 
 import (
-	"io"
-	"net"
+	"sync"
 
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 )
 
 // Service owns the RTMP listener and the single in-flight inbound
-// connection (RTMP allows one broadcaster at a time). Construct with
-// New() and start with Start(...).
+// connection (RTMP allows one broadcaster at a time; the cross-protocol
+// single-publisher rule lives in ingest.Arbiter).
 type Service struct {
-	// hasInboundConnection is set true while an authenticated RTMP source
-	// is connected. Used both as a single-broadcaster guard and as the
-	// loop condition for the packet pump.
-	hasInboundConnection bool
+	// setStreamAsConnected is invoked once at authenticated-connect time with
+	// the authenticated session. Set by Start.
+	setStreamAsConnected func(ingest.Session)
 
-	// pipe is the write end of the FLV bytestream handed to the stream
-	// service via setStreamAsConnected. Closed on disconnect.
-	pipe *io.PipeWriter
-
-	// rtmpConnection is the live net.Conn of the broadcaster. Held so
-	// Disconnect() can force-close it and so the read deadline can be
-	// reset between packets.
-	rtmpConnection net.Conn
-
-	// setStreamAsConnected is invoked once at authenticated-connect time
-	// with the read end of the FLV pipe. Set by Start.
-	setStreamAsConnected func(*io.PipeReader)
-
-	// setBroadcaster is invoked when the inbound onMetaData arrives with
-	// the parsed broadcaster details. Set by Start.
+	// setBroadcaster is invoked when the inbound onMetaData arrives with the
+	// parsed broadcaster details. Set by Start.
 	setBroadcaster func(models.Broadcaster)
 
-	// configRepository is consulted at listener bind for the RTMP port and at
-	// connect time for the list of valid stream keys.
+	// configRepository is consulted at listener bind for the RTMP port.
 	configRepository models.EngineConfig
 
 	// cfg supplies the optional temporary stream key override set at
 	// startup via the --streamkey CLI flag.
 	cfg *config.Config
+
+	// streamKeys validates the RTMP path against the configured stream keys.
+	streamKeys *ingest.StreamKeyValidator
+
+	// sessions is the cross-protocol single-publisher arbiter.
+	sessions *ingest.Arbiter
+
+	// mu guards currentSession.
+	mu sync.RWMutex
+	// currentSession is the live inbound session, if any.
+	currentSession *session
 }
 
 // Deps is the explicit dependency contract for the RTMP service.
 type Deps struct {
 	ConfigRepository models.EngineConfig
 	Config           *config.Config
+	StreamKeys       *ingest.StreamKeyValidator
+	Sessions         *ingest.Arbiter
 }
 
 // New constructs an idle RTMP service. Call Start(...) to bind the
 // listener and begin accepting connections.
 func New(deps Deps) *Service {
-	return &Service{configRepository: deps.ConfigRepository, cfg: deps.Config}
+	return &Service{
+		configRepository: deps.ConfigRepository,
+		cfg:              deps.Config,
+		streamKeys:       deps.StreamKeys,
+		sessions:         deps.Sessions,
+	}
 }

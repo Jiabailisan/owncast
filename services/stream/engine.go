@@ -1,28 +1,24 @@
 package stream
 
 import (
-	"io"
-
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 )
 
 // StreamEngine drives broadcaster ingest and transcoding. The local
-// implementation runs RTMP ingest plus ffmpeg in-process (today's behavior);
-// a future remote implementation manages a separate engine process. Core
-// holds a StreamEngine and reacts to what it reports through StreamEvents, so
-// core never needs to know where ingest and transcoding actually happen.
+// implementation runs every configured ingest protocol (RTMP, SRT) plus ffmpeg
+// in-process; a future remote implementation manages a separate engine
+// process. The stream service reacts to what it reports through StreamEvents,
+// so the lifecycle owner never needs to know where ingest happens.
 type StreamEngine interface {
-	// Start begins accepting an inbound broadcast.
+	// Start begins accepting inbound broadcasts.
 	Start() error
 	// Stop force-disconnects any inbound broadcast and tears the engine down.
 	Stop() error
 }
 
 // StreamEvents are the always-on, core-side reactions an engine drives as a
-// broadcast comes and goes. The local engine triggers these in-process; a
-// remote engine will call the same methods from its signaling channel, so
-// core's handling of a stream going live/offline is identical regardless of
-// where ingest happened.
+// broadcast comes and goes.
 type StreamEvents interface {
 	// StreamConnected reports a broadcast going live, carrying the settings
 	// it is being transcoded with.
@@ -34,39 +30,45 @@ type StreamEvents interface {
 	StreamDisconnected(err error)
 }
 
+// IngestListener is the slice of an ingest service the local engine drives.
+// Both the RTMP and SRT services satisfy it structurally.
+type IngestListener interface {
+	// Start binds the listener and reports authenticated sessions to
+	// onConnect, plus optional source metadata to onBroadcaster.
+	Start(onConnect func(ingest.Session), onBroadcaster func(models.Broadcaster))
+	// Disconnect force-disconnects the current publisher, if any.
+	Disconnect()
+}
+
+// localStreamEngine is the in-process engine: it binds every configured ingest
+// listener and hands each inbound session to the stream service's connect
+// handler, which spins up the transcoder.
+type localStreamEngine struct {
+	listeners     []IngestListener
+	onConnect     func(ingest.Session)
+	onBroadcaster func(models.Broadcaster)
+}
+
 // Compile-time guarantees for the local wiring.
 var (
 	_ StreamEngine = (*localStreamEngine)(nil)
 	_ StreamEvents = (*Service)(nil)
 )
 
-// rtmpListener is the slice of the RTMP service the local engine drives.
-// Keeping it an interface (which *rtmp.Service satisfies structurally) lets
-// the engine be exercised without binding a real socket.
-type rtmpListener interface {
-	Start(onConnect func(*io.PipeReader), onBroadcaster func(models.Broadcaster))
-	Disconnect()
-}
-
-// localStreamEngine is the in-process engine: it binds the RTMP listener and
-// hands each inbound connection to the stream service's connect handler, which
-// spins up the transcoder. This is today's single-process path expressed
-// behind the StreamEngine seam; a remote engine replaces it in a later release.
-type localStreamEngine struct {
-	rtmp          rtmpListener
-	onConnect     func(*io.PipeReader)
-	onBroadcaster func(models.Broadcaster)
-}
-
-// Start binds the RTMP listener and begins accepting connections. The accept
-// loop runs in its own goroutine, matching the prior inline behavior.
+// Start binds all ingest listeners and begins accepting connections. Each
+// accept loop runs in its own goroutine.
 func (e *localStreamEngine) Start() error {
-	go e.rtmp.Start(e.onConnect, e.onBroadcaster)
+	for _, listener := range e.listeners {
+		current := listener
+		go current.Start(e.onConnect, e.onBroadcaster)
+	}
 	return nil
 }
 
-// Stop force-disconnects the current inbound broadcaster, if any.
+// Stop force-disconnects the current inbound publisher on every protocol.
 func (e *localStreamEngine) Stop() error {
-	e.rtmp.Disconnect()
+	for _, listener := range e.listeners {
+		listener.Disconnect()
+	}
 	return nil
 }

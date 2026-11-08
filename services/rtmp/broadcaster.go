@@ -31,5 +31,11 @@ func (s *Service) setCurrentBroadcasterInfo(t flvio.Tag, remoteAddr string) {
 		},
 	}
 
+	// Attach the metadata to the session as well as the legacy callback so
+	// the protocol-neutral status layer can read it from the session.
+	if session := s.currentSessionOrNil(); session != nil {
+		session.SetBroadcaster(&broadcaster)
+	}
+
 	s.setBroadcaster(broadcaster)
 }

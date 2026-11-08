@@ -34,6 +34,7 @@ import (
 	"github.com/owncast/owncast/services/chat"
 	"github.com/owncast/owncast/services/datastore"
 	"github.com/owncast/owncast/services/dispatcher"
+	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/rtmp"
 	"github.com/owncast/owncast/services/stalefeaturedcheckservice"
 	"github.com/owncast/owncast/services/stream"
@@ -190,6 +191,11 @@ func main() {
 	cacheContainer := cache.New()
 	defer cacheContainer.Stop()
 
+	// Protocol-neutral ingest foundation shared by every ingest service: the
+	// stream-key validator and the atomic single-publisher arbiter.
+	streamKeys := ingest.NewStreamKeyValidator(configRepository.GetStreamKeys, cfg.TemporaryStreamKey)
+	sessions := ingest.NewArbiter()
+
 	// Stage 2: ActivityPub helper types (Signer → Builder → Resolver).
 	// Signer is the seed; Builder depends on Signer for actor public-key
 	// embedding; Resolver depends on both for signing outbound IRI
@@ -220,6 +226,8 @@ func main() {
 	rtmpSvc := rtmp.New(rtmp.Deps{
 		ConfigRepository: configRepository,
 		Config:           cfg,
+		StreamKeys:       streamKeys,
+		Sessions:         sessions,
 	})
 
 	// Shared in-process event dispatcher. Constructed before its producers
@@ -267,7 +275,10 @@ func main() {
 	apSvc.Start()
 
 	streamSvc := stream.New(stream.Deps{
-		Rtmp:             rtmpSvc,
+		// Every ingest protocol is started by the same local engine. SRT is
+		// appended here when it is enabled (Phase 2 wiring).
+		Ingest:           []stream.IngestListener{rtmpSvc},
+		Sessions:         sessions,
 		Activitypub:      apSvc,
 		Webhooks:         webhooksSvc,
 		Chat:             chatSvc,
@@ -361,7 +372,7 @@ func main() {
 
 	adminHandlers := admin.New(admin.Deps{
 		Stream:                  streamSvc,
-		Rtmp:                    rtmpSvc,
+		Sessions:                sessions,
 		Activitypub:             apSvc,
 		Webhooks:                webhooksSvc,
 		Chat:                    chatSvc,
