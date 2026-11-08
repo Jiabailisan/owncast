@@ -137,6 +137,42 @@ func (e AutoplayMode) Valid() bool {
 	}
 }
 
+// Defines values for OutputConfigProcessModel.
+const (
+	OutputConfigProcessModelIsolated OutputConfigProcessModel = "isolated"
+	OutputConfigProcessModelShared   OutputConfigProcessModel = "shared"
+)
+
+// Valid indicates whether the value is a known member of the OutputConfigProcessModel enum.
+func (e OutputConfigProcessModel) Valid() bool {
+	switch e {
+	case OutputConfigProcessModelIsolated:
+		return true
+	case OutputConfigProcessModelShared:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OutputConfigRequestProcessModel.
+const (
+	OutputConfigRequestProcessModelIsolated OutputConfigRequestProcessModel = "isolated"
+	OutputConfigRequestProcessModelShared   OutputConfigRequestProcessModel = "shared"
+)
+
+// Valid indicates whether the value is a known member of the OutputConfigRequestProcessModel enum.
+func (e OutputConfigRequestProcessModel) Valid() bool {
+	switch e {
+	case OutputConfigRequestProcessModelIsolated:
+		return true
+	case OutputConfigRequestProcessModelShared:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlaybackClientHealthMeasurementStatus.
 const (
 	Unmeasurable PlaybackClientHealthMeasurementStatus = "unmeasurable"
@@ -1194,6 +1230,47 @@ type ModerationUserDetails struct {
 // NotificationConfig defines model for NotificationConfig.
 type NotificationConfig struct {
 	Browser *BrowserConfig `json:"browser,omitempty"`
+}
+
+// OutputConfig FFmpeg output settings
+type OutputConfig struct {
+	ProcessModel OutputConfigProcessModel `json:"processModel"`
+}
+
+// OutputConfigProcessModel defines model for OutputConfig.ProcessModel.
+type OutputConfigProcessModel string
+
+// OutputConfigRequest Raw output settings update body
+type OutputConfigRequest struct {
+	ProcessModel OutputConfigRequestProcessModel `json:"processModel"`
+}
+
+// OutputConfigRequestProcessModel defines model for OutputConfigRequest.ProcessModel.
+type OutputConfigRequestProcessModel string
+
+// OutputConfigState Persisted output settings, defaults and pending restart state
+type OutputConfigState struct {
+	// Config FFmpeg output settings
+	Config OutputConfig `json:"config"`
+
+	// Defaults FFmpeg output settings
+	Defaults OutputConfig `json:"defaults"`
+
+	// PendingRestart Settings that need a service restart to take effect
+	PendingRestart PendingRestart `json:"pendingRestart"`
+}
+
+// OutputConfigUpdateResponse Result of an output settings update
+type OutputConfigUpdateResponse struct {
+	// Config FFmpeg output settings
+	Config OutputConfig `json:"config"`
+
+	// Defaults FFmpeg output settings
+	Defaults OutputConfig `json:"defaults"`
+
+	// PendingRestart Settings that need a service restart to take effect
+	PendingRestart PendingRestart `json:"pendingRestart"`
+	Success        bool           `json:"success"`
 }
 
 // PaginatedFederatedActivity defines model for PaginatedFederatedActivity.
@@ -2399,6 +2476,9 @@ type SetNSFWJSONRequestBody = AdminConfigValue
 
 // SetCustomOfflineMessageJSONRequestBody defines body for SetCustomOfflineMessage for application/json ContentType.
 type SetCustomOfflineMessageJSONRequestBody = AdminConfigValue
+
+// UpdateOutputConfigJSONRequestBody defines body for UpdateOutputConfig for application/json ContentType.
+type UpdateOutputConfigJSONRequestBody = OutputConfigRequest
 
 // SetExtraPageContentJSONRequestBody defines body for SetExtraPageContent for application/json ContentType.
 type SetExtraPageContentJSONRequestBody = AdminConfigValue

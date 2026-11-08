@@ -44,7 +44,10 @@ const (
 	responseKeySuccess        = "success"
 	responseKeyMessage        = "message"
 	responseKeyEnabled        = "enabled"
+	responseKeyConfig         = "config"
+	responseKeyDefaults       = "defaults"
 	responseKeyPendingRestart = "pendingRestart"
+	fieldNameProcessModel     = "processModel"
 	warningCodeProbeFailed    = "ffmpeg_probe_failed"
 	preflightTargetAll        = "all"
 	preflightTargetSRT        = "srt"
@@ -387,20 +390,20 @@ func (a *Admin) srtConfigState(config models.SRTConfig, changedRestartFields []s
 		pending = pendingRestart{Pending: true, Fields: changedRestartFields}
 	}
 	return map[string]any{
-		"config":         srtConfigPublic(config),
-		"defaults":       srtConfigPublic(models.DefaultSRTConfig()),
-		"pendingRestart": pending,
-		"listener":       a.srtListenerState(),
+		responseKeyConfig:         srtConfigPublic(config),
+		responseKeyDefaults:       srtConfigPublic(models.DefaultSRTConfig()),
+		responseKeyPendingRestart: pending,
+		"listener":                a.srtListenerState(),
 	}
 }
 
 // webrtcConfigState builds the GET response for the WebRTC configuration.
 func (a *Admin) webrtcConfigState(config models.WebRTCConfig, pendingFields []string) map[string]any {
 	return map[string]any{
-		"config":         webrtcConfigPublic(config),
-		"defaults":       webrtcConfigPublic(models.DefaultWebRTCConfig()),
-		"pendingRestart": newPendingRestart(pendingFields),
-		"service":        a.webrtcServiceState(config),
+		responseKeyConfig:         webrtcConfigPublic(config),
+		responseKeyDefaults:       webrtcConfigPublic(models.DefaultWebRTCConfig()),
+		responseKeyPendingRestart: newPendingRestart(pendingFields),
+		"service":                 a.webrtcServiceState(config),
 	}
 }
 

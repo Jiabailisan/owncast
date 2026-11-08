@@ -305,6 +305,15 @@ type ServerInterface interface {
 	// SetCustomOfflineMessage Change the offline message
 	// (POST /admin/config/offlinemessage)
 	SetCustomOfflineMessage(w http.ResponseWriter, r *http.Request)
+	// GetOutputConfig Get the FFmpeg output settings
+	// (GET /admin/config/output)
+	GetOutputConfig(w http.ResponseWriter, r *http.Request)
+
+	// (OPTIONS /admin/config/output)
+	UpdateOutputConfigOptions(w http.ResponseWriter, r *http.Request)
+	// UpdateOutputConfig Update the FFmpeg process model
+	// (PUT /admin/config/output)
+	UpdateOutputConfig(w http.ResponseWriter, r *http.Request)
 
 	// (OPTIONS /admin/config/pagecontent)
 	SetExtraPageContentOptions(w http.ResponseWriter, r *http.Request)
@@ -1349,6 +1358,23 @@ func (_ Unimplemented) SetCustomOfflineMessageOptions(w http.ResponseWriter, r *
 // SetCustomOfflineMessage Change the offline message
 // (POST /admin/config/offlinemessage)
 func (_ Unimplemented) SetCustomOfflineMessage(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetOutputConfig Get the FFmpeg output settings
+// (GET /admin/config/output)
+func (_ Unimplemented) GetOutputConfig(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (OPTIONS /admin/config/output)
+func (_ Unimplemented) UpdateOutputConfigOptions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateOutputConfig Update the FFmpeg process model
+// (PUT /admin/config/output)
+func (_ Unimplemented) UpdateOutputConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3653,6 +3679,48 @@ func (siw *ServerInterfaceWrapper) SetCustomOfflineMessage(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetCustomOfflineMessage(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOutputConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetOutputConfig(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOutputConfig(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOutputConfigOptions operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOutputConfigOptions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOutputConfigOptions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOutputConfig operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOutputConfig(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOutputConfig(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7145,6 +7213,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/admin/config/customfrontenddir", wrapper.SetCustomFrontendDir)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/config/output", wrapper.GetOutputConfig)
+	})
+	r.Group(func(r chi.Router) {
+		r.Options(options.BaseURL+"/admin/config/output", wrapper.UpdateOutputConfigOptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/admin/config/output", wrapper.UpdateOutputConfig)
 	})
 	r.Group(func(r chi.Router) {
 		r.Options(options.BaseURL+"/admin/config/appearance", wrapper.SetCustomColorVariableValuesOptions)

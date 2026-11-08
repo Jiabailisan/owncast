@@ -2367,6 +2367,71 @@ paths:
         '204':
           $ref: '#/components/responses/204'
 
+  /admin/config/output:
+    get:
+      summary: Get the FFmpeg output settings
+      description: >-
+        Returns the persisted output process model, the model default and the
+        pending-restart state. processModel is an applyMode restart-stream
+        setting: a saved value takes effect at the next stream start.
+      operationId: GetOutputConfig
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: Current output configuration state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutputConfigState'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        default:
+          $ref: '#/components/responses/Default'
+    put:
+      summary: Update the FFmpeg process model
+      description: >-
+        Validates and persists the output process model. shared runs one FFmpeg
+        process for all HLS and WebRTC legs; isolated runs one HLS process and
+        one WebRTC process for independent failure domains and input flags. The
+        change is applyMode restart-stream: it takes effect at the next stream
+        start and is never applied to the running stream. When a stream is live
+        the response reports pendingRestart.pending=true.
+      operationId: UpdateOutputConfig
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutputConfigRequest'
+      responses:
+        '200':
+          description: Output configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutputConfigUpdateResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        default:
+          $ref: '#/components/responses/Default'
+    options:
+      operationId: UpdateOutputConfigOptions
+      x-internal: true
+      tags: ['Objects', 'Internal', 'Admin']
+      responses:
+        '204':
+          $ref: '#/components/responses/204'
+
   /admin/config/appearance:
     post:
       summary: Set style/color/css values
@@ -5787,6 +5852,47 @@ components:
         at:
           type: string
       required: [message, at]
+    OutputConfig:
+      type: object
+      description: FFmpeg output settings
+      properties:
+        processModel:
+          type: string
+          enum: [shared, isolated]
+      required: [processModel]
+    OutputConfigRequest:
+      type: object
+      description: Raw output settings update body
+      properties:
+        processModel:
+          type: string
+          enum: [shared, isolated]
+      required: [processModel]
+    OutputConfigState:
+      type: object
+      description: Persisted output settings, defaults and pending restart state
+      properties:
+        config:
+          $ref: '#/components/schemas/OutputConfig'
+        defaults:
+          $ref: '#/components/schemas/OutputConfig'
+        pendingRestart:
+          $ref: '#/components/schemas/PendingRestart'
+      required: [config, defaults, pendingRestart]
+    OutputConfigUpdateResponse:
+      type: object
+      description: Result of an output settings update
+      properties:
+        success:
+          type: boolean
+        config:
+          $ref: '#/components/schemas/OutputConfig'
+        defaults:
+          $ref: '#/components/schemas/OutputConfig'
+        pendingRestart:
+          $ref: '#/components/schemas/PendingRestart'
+      required: [success, config, defaults, pendingRestart]
+
     AppearanceAdminReport:
       type: object
       description: Computed appearance/custom frontend status for the admin UI
