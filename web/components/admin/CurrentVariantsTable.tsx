@@ -1,10 +1,11 @@
 // Updating a variant will post ALL the variants in an array as an update to the API.
 
 import { FC, useContext, useState } from 'react';
-import { Typography, Table, Modal, Button, Alert } from 'antd';
+import { Typography, Table, Modal, Button, Alert, Tag, Space } from 'antd';
 import { ColumnsType } from 'antd/lib/table';
 import dynamic from 'next/dynamic';
 import { useTranslation } from 'next-export-i18n';
+import { Translation } from '../ui/Translation/Translation';
 import { ServerStatusContext } from '../../utils/server-status-context';
 import { AlertMessageContext } from '../../utils/alert-message-context';
 import { UpdateArgs, VideoVariant } from '../../types/config-section';
@@ -25,6 +26,11 @@ import {
   STATUS_PROCESSING,
   STATUS_SUCCESS,
 } from '../../utils/input-statuses';
+import {
+  serializeVariantsForSave,
+  webRTCEnabledForVariant,
+  webRTCOutputModeForVariant,
+} from '../../utils/variant-outputs';
 import { Localization } from '../../types/localization';
 import { FormStatusIndicator } from './FormStatusIndicator';
 
@@ -78,7 +84,7 @@ export const CurrentVariantsTable: FC = () => {
 
     await postConfigUpdateToAPI({
       apiPath: API_VIDEO_VARIANTS,
-      data: { value: postValue },
+      data: { value: serializeVariantsForSave(postValue) },
       onSuccess: () => {
         setFieldInConfigState({
           fieldName: 'videoQualityVariants',
@@ -161,6 +167,52 @@ export const CurrentVariantsTable: FC = () => {
           : ENCODER_PRESET_TOOLTIPS[level]?.split(' ')[0] || 'Warning: please edit & reset',
     },
     {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.VideoVariantForm.outputsColumn}
+          defaultText="WebRTC output"
+        />
+      ),
+      key: 'outputs',
+      render: (_, variant: VideoVariant) => {
+        const webrtcEnabled = webRTCEnabledForVariant(variant);
+        if (!webrtcEnabled) {
+          return (
+            <Tag data-testid="variant-webrtc-off">
+              <Translation
+                translationKey={Localization.Admin.VideoVariantForm.webrtcOff}
+                defaultText="Off"
+              />
+            </Tag>
+          );
+        }
+        const mode = webRTCOutputModeForVariant(variant);
+        const modeKey =
+          mode === 'copy'
+            ? Localization.Admin.VideoVariantForm.modeCopy
+            : mode === 'transcode'
+              ? Localization.Admin.VideoVariantForm.modeTranscode
+              : Localization.Admin.VideoVariantForm.modeInherit;
+        const modeDefault =
+          mode === 'copy' ? 'Copy' : mode === 'transcode' ? 'Transcode' : 'Follow HLS';
+        return (
+          <Space wrap size={4}>
+            <Tag color="blue" data-testid="variant-webrtc-mode">
+              <Translation translationKey={modeKey} defaultText={modeDefault} />
+            </Tag>
+            {variant.outputs?.webrtc?.copyFallback === 'disable' && (
+              <Tag color="orange">
+                <Translation
+                  translationKey={Localization.Admin.VideoVariantForm.fallbackDisable}
+                  defaultText="Disable on failure"
+                />
+              </Tag>
+            )}
+          </Space>
+        );
+      },
+    },
+    {
       title: '',
       dataIndex: '',
       key: 'edit',
@@ -220,6 +272,25 @@ export const CurrentVariantsTable: FC = () => {
       {showSecondVariantRecommendation() && (
         <Alert message={ENCODER_RECOMMENDATION_THRESHOLD.HELP_TEXT} type="info" closable />
       )}
+
+      <Alert
+        type="info"
+        showIcon
+        closable
+        className="variant-outputs-note"
+        message={
+          <Translation
+            translationKey={Localization.Admin.VideoVariantForm.implicitEnableNote}
+            defaultText="When WebRTC delivery is enabled globally and no output variant has an explicit mapping, every HLS variant is exposed over WebRTC. As soon as any variant has an explicit mapping, only the enabled variants are delivered."
+          />
+        }
+        description={
+          <Translation
+            translationKey={Localization.Admin.VideoVariantForm.copyNote}
+            defaultText="Copy requires H.264 video without B-frames. SRT sources are inspected automatically; RTMP sources fall back to transcoding."
+          />
+        }
+      />
 
       <FormStatusIndicator status={submitStatus} />
 

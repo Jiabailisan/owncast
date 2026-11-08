@@ -20,6 +20,7 @@ import {
   FRAMERATE_TOOLTIPS,
 } from '../../utils/config-constants';
 import { ToggleSwitch } from './ToggleSwitch';
+import { VariantOutputSettings } from './VariantOutputSettings';
 
 const { Panel } = Collapse;
 
@@ -242,6 +243,10 @@ export const VideoVariantForm: FC<VideoVariantFormProps> = ({
           </div>
         </Col>
       </Row>
+      <VariantOutputSettings
+        value={dataState.outputs}
+        onChange={outputs => onUpdateField({ fieldName: 'outputs', value: outputs })}
+      />
       <Collapse className="advanced-settings">
         <Panel header="Advanced Settings" key="1">
           <Row gutter={16}>

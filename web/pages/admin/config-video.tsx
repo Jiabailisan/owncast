@@ -4,6 +4,7 @@ import { CodecSelector as VideoCodecSelector } from '../../components/admin/Code
 import { VideoLatency } from '../../components/admin/VideoLatency';
 import { CurrentVariantsTable } from '../../components/admin/CurrentVariantsTable';
 import { AutoplaySelector } from '../../components/admin/AutoplaySelector';
+import { ProcessModelCard } from '../../components/admin/ProcessModelCard';
 
 import { AdminLayout } from '../../components/layouts/AdminLayout';
 
@@ -35,6 +36,10 @@ export default function ConfigVideoSettings() {
           </div>
         </Col>
         <Col md={24} lg={12}>
+          <div className="form-module process-model-module">
+            <ProcessModelCard />
+          </div>
+
           <div className="form-module latency-module">
             <VideoLatency />
           </div>

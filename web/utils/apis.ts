@@ -161,6 +161,9 @@ export const LIVE_FFMPEG = `${API_LOCATION}live/ffmpeg`;
 export const CUSTOM_PLAYER_PATH = `${API_LOCATION}config/customplayerpath`;
 export const CUSTOM_FRONTEND_DIR = `${API_LOCATION}config/customfrontenddir`;
 
+// Output process model (master spec 3.4). GET/PUT {processModel}.
+export const OUTPUT_CONFIG = `${API_LOCATION}config/output`;
+
 // Public, additive delivery endpoints (no admin auth).
 export const WEBRTC_METRICS = `${NEXT_PUBLIC_API_HOST}api/metrics/webrtc`;
 export const CUSTOM_PLAYER_ERROR = `${NEXT_PUBLIC_API_HOST}api/custom-player/error`;

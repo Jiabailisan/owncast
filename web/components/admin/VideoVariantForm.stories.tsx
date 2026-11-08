@@ -28,3 +28,14 @@ export const VideoPassthroughEnabled: Story = {
     onUpdateField: () => null,
   },
 };
+
+// Per-variant WebRTC output mapping enabled in copy mode (spec 4.4).
+export const WebRTCCopyOutputEnabled: Story = {
+  args: {
+    dataState: {
+      ...DEFAULT_VARIANT_STATE,
+      outputs: { webrtc: { enabled: true, mode: 'copy', copyFallback: 'transcode' } },
+    },
+    onUpdateField: () => null,
+  },
+};

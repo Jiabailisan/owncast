@@ -55,6 +55,33 @@ export interface SocialHandle {
   url: string;
 }
 
+export type VariantOutputMode = 'inherit' | 'transcode' | 'copy';
+
+export type VariantCopyFallback = 'transcode' | 'disable';
+
+export type OutputProcessModel = 'shared' | 'isolated';
+
+// Per-protocol settings for one output variant (master spec 4.4). Mirrors
+// models.ProtocolOutputSettings: zero values inherit the variant/global
+// settings, and the whole block is additive (omitted = legacy behavior).
+export interface ProtocolOutputSettings {
+  // Defaults: true for HLS (legacy), false for WebRTC.
+  enabled?: boolean;
+  mode?: VariantOutputMode;
+  copyFallback?: VariantCopyFallback;
+  videoBitrate?: number;
+  audioBitrate?: number;
+  framerate?: number;
+  cpuUsageLevel?: CpuUsageLevel;
+  scaledWidth?: number;
+  scaledHeight?: number;
+}
+
+export interface VariantOutputs {
+  hls?: ProtocolOutputSettings;
+  webrtc?: ProtocolOutputSettings;
+}
+
 export interface VideoVariant {
   key?: number; // unique identifier generated on client side just for ant table rendering
   cpuUsageLevel: CpuUsageLevel;
@@ -69,6 +96,9 @@ export interface VideoVariant {
   scaledHeight: number;
 
   name: string;
+
+  // Additive delivery mapping (spec 4.4). Omitted on legacy variants.
+  outputs?: VariantOutputs;
 }
 export interface VideoSettingsFields {
   latencyLevel: number;
