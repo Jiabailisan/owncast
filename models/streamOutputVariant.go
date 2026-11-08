@@ -28,6 +28,11 @@ type StreamOutputVariant struct {
 	Framerate int `yaml:"framerate" json:"framerate"`
 	// CPUUsageLevel represents a codec preset to configure CPU usage.
 	CPUUsageLevel int `json:"cpuUsageLevel"`
+
+	// Outputs maps this variant onto delivery protocols. It is additive:
+	// when nil or a block is nil the legacy behavior applies (HLS enabled,
+	// WebRTC disabled), so existing stored configurations are unchanged.
+	Outputs *VariantOutputs `json:"outputs,omitempty"`
 }
 
 // GetFramerate returns the framerate or default.
