@@ -87,6 +87,11 @@ type Transcoder struct {
 	// configurations, keeping the golden argv unchanged.
 	rtpOutputs []RTPOutput
 
+	// rtpOnly builds a WebRTC-only process: no HLS variants or output, only
+	// the RTP legs. Used by the isolated process model so the HLS process argv
+	// stays byte-identical while WebRTC gets its own decoder and input flags.
+	rtpOnly bool
+
 	// state is the inspectable live-process state for the admin FFmpeg panel.
 	state processState
 }
@@ -175,7 +180,9 @@ func (t *Transcoder) Start(shouldLog bool) {
 	if shouldLog {
 		log.Infof("Processing video using codec %s with %d output qualities configured.", t.codec.DisplayName(), len(t.variants))
 	}
-	t.createVariantDirectories()
+	if !t.rtpOnly {
+		t.createVariantDirectories()
+	}
 	command := flags.String()
 
 	if t.cfg.EnableDebugFeatures {
@@ -292,14 +299,37 @@ func (t *Transcoder) getFlags() *execInfo {
 	// get surfaced to the owncast log.
 	ffmpegFlags = append(ffmpegFlags, "-hide_banner", "-nostats", "-loglevel", "level+info")
 	ffmpegFlags = append(ffmpegFlags, t.codec.GlobalFlags()...)
-	ffmpegFlags = append(ffmpegFlags, []string{
-		"-fflags", "+genpts", // Generate presentation time stamp if missing
-		"-flags", "+cgop", // Force closed GOPs
-	}...)
+	if t.rtpOnly {
+		// Isolated WebRTC process: bias input processing toward latency. The
+		// HLS process keeps the original input flags, so HLS detection and the
+		// golden argv are unaffected.
+		ffmpegFlags = append(ffmpegFlags, []string{
+			"-fflags", "+genpts+nobuffer",
+			"-analyzeduration", "1000000",
+			"-probesize", "1000000",
+		}...)
+	} else {
+		ffmpegFlags = append(ffmpegFlags, []string{
+			"-fflags", "+genpts", // Generate presentation time stamp if missing
+			"-flags", "+cgop", // Force closed GOPs
+		}...)
+	}
 	// Protocol-neutral input descriptor: empty for FLV (RTMP), "-f mpegts"
 	// for SRT. Keeping RTMP's flags unchanged preserves the golden argv.
 	ffmpegFlags = append(ffmpegFlags, t.inputFormat.ExtraArgs...)
 	ffmpegFlags = append(ffmpegFlags, "-i", t.input)
+
+	// RTP-only process: the RTP legs are the whole command.
+	if t.rtpOnly {
+		for _, output := range t.rtpOutputs {
+			ffmpegFlags = append(ffmpegFlags, t.rtpOutputFlags(output)...)
+		}
+
+		return &execInfo{
+			binPath: t.ffmpegPath,
+			command: ffmpegFlags,
+		}
+	}
 
 	ffmpegFlags = append(ffmpegFlags, t.getVariantsString()...)
 	ffmpegFlags = append(ffmpegFlags, []string{
@@ -350,6 +380,15 @@ func (t *Transcoder) getFlags() *execInfo {
 func (t *Transcoder) SetRTPOutputs(outputs []RTPOutput) {
 	t.rtpOutputs = outputs
 }
+
+// SetRTPOnly makes this process produce only the WebRTC RTP legs (isolated
+// process model). The HLS variant/output sections are not rendered.
+func (t *Transcoder) SetRTPOnly(rtpOnly bool) {
+	t.rtpOnly = rtpOnly
+}
+
+// RTPOnly reports whether this process is a WebRTC-only process.
+func (t *Transcoder) RTPOnly() bool { return t.rtpOnly }
 
 // RTPOutputs returns the configured RTP legs.
 func (t *Transcoder) RTPOutputs() []RTPOutput {
@@ -411,7 +450,14 @@ func NewTranscoder(cfg *config.Config, configRepository models.EngineConfig) *Tr
 	transcoder.input = "pipe:0" // stdin
 	transcoder.inputFormat = ingest.FLVInputFormat()
 
+	// Only variants enabled for HLS are delivered over HLS (spec 4.4 output
+	// mapping). HLS variant indices are renumbered sequentially among the
+	// enabled variants because they index the FFmpeg output streams and
+	// var_stream_map; WebRTC variant indices stay the configured positions.
 	for index, quality := range transcoder.currentStreamOutputSettings {
+		if !quality.HLSEnabled() {
+			continue
+		}
 		variant := getVariantFromConfigQuality(quality, index)
 		transcoder.AddVariant(variant)
 	}

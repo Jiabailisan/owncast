@@ -103,6 +103,19 @@ type Service struct {
 	// webRTCLegs tracks the variant indices whose media legs are open for the
 	// current stream so they are closed exactly once on disconnect.
 	webRTCLegs []int
+	// legsMu guards legsByVariant.
+	legsMu sync.RWMutex
+	// legsByVariant maps variant index to its open media leg (isolated-model
+	// restart rebasing).
+	legsByVariant map[int]WebRTCMediaLeg
+	// ingestTeeMu guards ingestTee (isolated process model only).
+	ingestTeeMu sync.Mutex
+	// ingestTee fans the ingest bytes out to both FFmpeg processes.
+	ingestTee *ingestTee
+	// webRTCProcessMu guards webRTCProcess (isolated process model only).
+	webRTCProcessMu sync.RWMutex
+	// webRTCProcess is the WebRTC-only FFmpeg process.
+	webRTCProcess *transcoder.Transcoder
 	// webRTCMu guards webRTCWarnings.
 	webRTCMu sync.RWMutex
 	// webRTCWarnings are the leg-planning warnings for the current stream.

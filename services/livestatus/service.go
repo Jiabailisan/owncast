@@ -142,6 +142,9 @@ func (s *Service) Status() models.LiveStatus {
 
 	status.GeoIP = geoIPStatusFromProvider(s.geoIP)
 	status.Warnings = append(status.Warnings, geoIPWarnings(status.GeoIP)...)
+	// WebRTC leg-planning warnings: copy fallbacks, process restarts and
+	// capacity/domain notes surfaced by the stream lifecycle.
+	status.Warnings = append(status.Warnings, s.stream.WebRTCWarnings()...)
 
 	return status
 }

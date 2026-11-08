@@ -20,14 +20,31 @@ func (s *Service) getTranscoder() *transcoder.Transcoder {
 }
 
 // FFmpegProcesses returns the supervised transcoder processes feeding the
-// active stream, for the admin FFmpeg panel (spec 6.4). The argv is the exact
-// argv passed to exec with configured secrets redacted.
+// active stream, for the admin FFmpeg panel (spec 6.4). Each entry's argv is the
+// exact argv passed to exec with configured secrets redacted. The isolated
+// process model reports both the HLS and WebRTC processes.
 func (s *Service) FFmpegProcesses() []models.FFmpegProcessStatus {
-	tr := s.getTranscoder()
-	if tr == nil {
+	transcoders := []*transcoder.Transcoder{}
+	if tr := s.getTranscoder(); tr != nil {
+		transcoders = append(transcoders, tr)
+	}
+	if tr := s.getWebRTCTranscoder(); tr != nil {
+		transcoders = append(transcoders, tr)
+	}
+	if len(transcoders) == 0 {
 		return []models.FFmpegProcessStatus{}
 	}
 
+	processes := make([]models.FFmpegProcessStatus, 0, len(transcoders))
+	for _, tr := range transcoders {
+		processes = append(processes, s.transcoderProcessStatus(tr))
+	}
+	return processes
+}
+
+// transcoderProcessStatus converts one transcoder snapshot into the panel
+// payload: exact argv, secrets redacted, structured sections.
+func (s *Service) transcoderProcessStatus(tr *transcoder.Transcoder) models.FFmpegProcessStatus {
 	snapshot := tr.Snapshot()
 	secrets := s.configuredSecrets()
 	argv := transcoder.RedactArgv(snapshot.Argv, secrets)
@@ -53,7 +70,7 @@ func (s *Service) FFmpegProcesses() []models.FFmpegProcessStatus {
 	if !snapshot.Running {
 		process.Purpose = append(process.Purpose, "exited")
 	}
-	return []models.FFmpegProcessStatus{process}
+	return process
 }
 
 // configuredSecrets collects the secret values that must never appear in the

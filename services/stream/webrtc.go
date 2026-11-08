@@ -23,6 +23,9 @@ type WebRTCMediaLeg interface {
 	VideoURL() string
 	AudioURL() string
 	Close() error
+	// MarkRestart tells the forwarder a new RTP producer starts: sequence
+	// numbers/timestamps are rebased (isolated process model restarts).
+	MarkRestart()
 }
 
 // WebRTCProvider is the subset of the WebRTC delivery service the stream
@@ -100,18 +103,20 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 	if session.Protocol() != ingest.ProtocolSRT || !hasWebRTCCopyIntent(variants) {
 		return session.Broadcaster()
 	}
-	if broadcaster := session.Broadcaster(); broadcaster != nil {
-		return broadcaster
-	}
-
+	// A copy decision needs the B-frame verdict, not just the first metadata
+	// tick. Wait (bounded) until the inspector has observed enough slices to
+	// decide, otherwise fall back to transcode.
 	deadline := time.Now().Add(webRTCSourceWaitTimeout)
-	for time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
-		if broadcaster := session.Broadcaster(); broadcaster != nil {
+	for {
+		broadcaster := session.Broadcaster()
+		if broadcaster != nil && broadcaster.StreamDetails.HasBFrames != nil {
 			return broadcaster
 		}
+		if time.Now().After(deadline) {
+			return broadcaster
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	return session.Broadcaster()
 }
 
 // configureWebRTC resolves the WebRTC plan for the stream that is starting and
@@ -205,6 +210,7 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 			continue
 		}
 		s.webRTCLegs = append(s.webRTCLegs, index)
+		s.registerWebRTCLeg(index, leg)
 
 		outputs = append(outputs, transcoder.RTPOutput{
 			VariantIndex:     index,
@@ -253,6 +259,7 @@ func (s *Service) closeWebRTC() {
 		_ = s.webRTC.CloseMediaLeg(index)
 	}
 	s.webRTCLegs = nil
+	s.clearWebRTCLegs()
 	_ = s.webRTC.SetVariants(nil)
 	s.setWebRTCWarnings(nil)
 }

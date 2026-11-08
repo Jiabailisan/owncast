@@ -93,6 +93,8 @@ func (s *Service) Stop(_ context.Context) {
 	if tr := s.getTranscoder(); tr != nil {
 		tr.Stop()
 	}
+	s.stopWebRTCProcess()
+	s.closeIngestTee()
 	if s.offlineTranscoder != nil {
 		s.offlineTranscoder.Stop()
 	}
@@ -173,13 +175,30 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	s.setCurrentSession(session)
 	s.StreamConnected(broadcast)
 
+	// For an SRT stream with a pending copy decision, read ahead so the
+	// MPEG-TS inspector can publish source metadata before the plan is fixed.
+	// The buffered bytes are replayed into FFmpeg, so nothing is lost.
+	mediaReader := session.Reader()
+	if session.Protocol() == ingest.ProtocolSRT &&
+		hasWebRTCCopyIntent(effectiveWebRTCVariants(broadcast.OutputSettings)) {
+		prefetch := newPrefetchReader(mediaReader)
+		prefetch.Prefetch(1 << 20)
+		mediaReader = prefetch
+	}
+
 	// Prepare WebRTC delivery first: the transcoder plan includes the RTP
 	// legs for the variants WebRTC exposes.
 	rtpOutputs := s.configureWebRTC(session, broadcast.OutputSettings)
+	processModel := s.configRepository.GetOutputProcessModel()
 
 	segmentPath := config.HLSStoragePath
 
 	go func() {
+		if processModel == models.OutputProcessModelIsolated && len(rtpOutputs) > 0 {
+			s.runIsolatedTranscoders(session, mediaReader, rtpOutputs)
+			return
+		}
+
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
 		purpose := []string{"hls"}
 		if len(rtpOutputs) > 0 {
@@ -190,7 +209,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 			s.StreamDisconnected(err)
 			s.setTranscoder(nil)
 		}
-		tr.SetStdin(session.Reader())
+		tr.SetStdin(mediaReader)
 		tr.SetInputFormat(session.InputFormat())
 		tr.SetRTPOutputs(rtpOutputs)
 		s.setTranscoder(tr)
@@ -308,6 +327,8 @@ func (s *Service) applyStreamOffline() {
 	if s.sessions != nil {
 		s.sessions.DisconnectCurrent(errStreamOffline)
 	}
+	s.stopWebRTCProcess()
+	s.closeIngestTee()
 	s.closeWebRTC()
 	s.setCurrentSession(nil)
 
