@@ -1,5 +1,4 @@
 import { Meta, StoryObj } from '@storybook/nextjs';
-import { useEffect } from 'react';
 
 import { CustomPlayerHost } from './CustomPlayerHost';
 
