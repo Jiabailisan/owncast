@@ -18,8 +18,8 @@ import (
 	"github.com/owncast/owncast/services/livestatus"
 	"github.com/owncast/owncast/services/srt"
 	"github.com/owncast/owncast/services/stream"
-	"github.com/owncast/owncast/services/webrtc"
 	"github.com/owncast/owncast/services/webhooks"
+	"github.com/owncast/owncast/services/webrtc"
 )
 
 // Admin carries the dependencies of admin HTTP handlers that need
