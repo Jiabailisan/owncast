@@ -3,6 +3,7 @@ package srt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
@@ -178,6 +179,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.wg = &sync.WaitGroup{}
 	s.startedAt = time.Now()
 	s.lastError = ""
+	s.pendingCfg = nil
 	if !cfg.Enabled {
 		s.state = StateDisabled
 		s.mu.Unlock()
@@ -284,11 +286,22 @@ func (s *Service) ApplyConfig(cfg models.SRTConfig) error {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 
-	return s.applyConfigLocked(cfg)
+	deferred, err := s.applyConfigLocked(cfg)
+	if err != nil {
+		return err
+	}
+	if !deferred {
+		s.mu.Lock()
+		s.pendingCfg = nil
+		s.mu.Unlock()
+	}
+	return nil
 }
 
-// applyConfigLocked implements ApplyConfig; the caller holds lifecycleMu.
-func (s *Service) applyConfigLocked(cfg models.SRTConfig) error {
+// applyConfigLocked implements ApplyConfig; the caller holds lifecycleMu. It
+// reports whether the listener setting was deferred until the current stream
+// ends.
+func (s *Service) applyConfigLocked(cfg models.SRTConfig) (bool, error) {
 	s.mu.Lock()
 	currentState := s.state
 	currentCfg := s.cfg
@@ -301,74 +314,67 @@ func (s *Service) applyConfigLocked(cfg models.SRTConfig) error {
 	// keep the listener (and any connected publisher) untouched.
 	if !listenerChanged {
 		if err := s.applyRuntime(cfg, cfg.Passphrase); err != nil {
-			return err
+			return false, err
 		}
 		s.mu.Lock()
 		s.cfg = cfg
-		s.pendingCfg = nil
 		s.mu.Unlock()
-		return nil
+		return false, nil
 	}
 
 	if listenerChanged && currentState == StateRunning && active {
 		// Keep the bound listener (and its passphrase) consistent until the
 		// publisher disconnects; live settings still take effect immediately.
 		if err := s.applyRuntime(cfg, currentCfg.Passphrase); err != nil {
-			return err
+			return false, err
 		}
 		s.mu.Lock()
 		pending := cfg
 		s.pendingCfg = &pending
 		s.mu.Unlock()
 		s.logger.Info("SRT listener configuration change deferred until the current stream ends")
-		return nil
+		return true, nil
 	}
 
 	if err := s.applyRuntime(cfg, cfg.Passphrase); err != nil {
-		return err
+		return false, err
 	}
 
 	switch {
 	case currentState == StateRunning && cfg.Enabled:
-		s.stopListenerLocked()
 		s.mu.Lock()
-		s.cfg = cfg
-		s.pendingCfg = nil
 		ctx := s.ctx
 		s.mu.Unlock()
 		if ctx == nil {
-			return ErrServiceNotRunning
+			return false, ErrServiceNotRunning
 		}
-		return s.bindAndServe(ctx, cfg)
+		return false, s.rebindWithRollback(ctx, currentCfg, cfg)
 
 	case currentState == StateRunning && !cfg.Enabled:
 		s.stopListenerLocked()
 		s.mu.Lock()
 		s.cfg = cfg
-		s.pendingCfg = nil
 		s.state = StateDisabled
 		s.boundAddr = ""
 		s.mu.Unlock()
 		s.logger.Info("SRT ingest is disabled")
-		return nil
+		return false, nil
 
 	case currentState == StateDisabled && cfg.Enabled:
 		s.mu.Lock()
 		s.cfg = cfg
-		s.pendingCfg = nil
 		ctx := s.ctx
 		s.mu.Unlock()
 		if ctx == nil {
-			return ErrServiceNotRunning
+			return false, ErrServiceNotRunning
 		}
-		return s.bindAndServe(ctx, cfg)
+		return false, s.bindAndServe(ctx, cfg)
 
 	default:
 		s.mu.Lock()
 		s.cfg = cfg
-		s.pendingCfg = nil
 		s.mu.Unlock()
-		return nil
+		return false, nil
 	}
 }
 
@@ -448,6 +454,39 @@ func (s *Service) bindAndServe(ctx context.Context, cfg models.SRTConfig) error 
 	return nil
 }
 
+// rebindWithRollback stops the current listener and binds the new
+// configuration. If the new bind fails and previousCfg was a working listener
+// configuration, it re-binds previousCfg so the service keeps serving the
+// previous working configuration; the original error is still returned (the
+// admin API reports 409 and keeps the persisted configuration) and is recorded
+// in Snapshot.LastError for the admin live status page.
+func (s *Service) rebindWithRollback(ctx context.Context, previousCfg, nextCfg models.SRTConfig) error {
+	s.stopListenerLocked()
+
+	if err := s.bindAndServe(ctx, nextCfg); err == nil {
+		return nil
+	} else if !previousCfg.Enabled {
+		return err
+	} else {
+		bindErr := err
+
+		if restoreErr := s.applyRuntime(previousCfg, previousCfg.Passphrase); restoreErr != nil {
+			s.setFailure(fmt.Errorf("srt: rebind failed (%w) and restoring runtime failed: %w", bindErr, restoreErr))
+			return bindErr
+		}
+		if restoreErr := s.bindAndServe(ctx, previousCfg); restoreErr != nil {
+			s.setFailure(fmt.Errorf("srt: rebind failed (%w) and restoring the previous listener failed: %w", bindErr, restoreErr))
+			return bindErr
+		}
+
+		s.mu.Lock()
+		s.lastError = bindErr.Error()
+		s.mu.Unlock()
+		s.logger.WithError(bindErr).Warn("SRT listener rebind failed; restored the previous working listener")
+		return bindErr
+	}
+}
+
 // stopListenerLocked closes the bound listener and waits for its accept loop.
 // The caller holds lifecycleMu. The listener config is left in place; callers
 // update it explicitly.
@@ -502,15 +541,24 @@ func (s *Service) applyPending() {
 
 	s.mu.Lock()
 	next := s.pendingCfg
-	s.pendingCfg = nil
 	s.mu.Unlock()
 	if next == nil {
 		return
 	}
 
 	s.logger.Info("applying deferred SRT listener configuration")
-	if err := s.applyConfigLocked(*next); err != nil {
-		s.logger.WithError(err).Error("failed to apply deferred SRT listener configuration")
+	deferred, err := s.applyConfigLocked(*next)
+	if err != nil {
+		s.mu.Lock()
+		s.pendingCfg = nil
+		s.mu.Unlock()
+		s.logger.WithError(err).Error("failed to apply deferred SRT listener configuration; previous listener kept")
+		return
+	}
+	if !deferred {
+		s.mu.Lock()
+		s.pendingCfg = nil
+		s.mu.Unlock()
 	}
 }
 

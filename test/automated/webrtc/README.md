@@ -70,3 +70,26 @@ ffmpeg -re -i test-data/sample-720p30-nob.flv -c copy -f mpegts "srt://127.0.0.1
 
 Set `OWNCAST_EXPECT_INPUT_PROTOCOL=rtmp` (or `srt`) per stage so a mismatch
 between the publisher and the asserted protocol fails loudly.
+## QA wiring (task-9, qa-engineer)
+
+`test/automated/webrtc/run.sh` owns the lifecycle around this harness and is the
+canonical stage used by `tools/scripts/run-all-tests.sh`:
+
+1. builds current HEAD and starts a managed Owncast on isolated ports
+   (18081/11936; `QA_NETNS=1` runs everything inside an unprivileged network
+   namespace so concurrent agents cannot collide, including SRT UDP 8890);
+2. enables WebRTC through the admin config API (PUT bare config + restart), then
+   for T4 also enables SRT and binds 127.0.0.1:18990;
+3. runs `go test -tags=integration -count=1 -timeout 6m ./test/automated/webrtc/...`
+   first as the WHEP contract suite, then again with a live RTMP publisher
+   (`OWNCAST_WHEP_EXPECT_LIVE=1 OWNCAST_EXPECT_INPUT_PROTOCOL=rtmp`) and once
+   more with a live SRT publisher (`...=srt`);
+4. reports PASS/FAIL/BLOCKED per stage under
+   `artifacts/integration/<timestamp>/webrtc-e2e/`; capacity/rate-limit/
+   strict-domain cases stay BLOCKED until the runner configures the required
+   server settings (they are env-gated in the Go harness).
+
+Known evidence limitation encoded in the stage: no public/admin per-viewer
+NACK/PLI counter API exists, so the harness asserts RTCP PLI acceptance, not
+counter values (server-side forwarder counters are covered by services/webrtc
+tests).

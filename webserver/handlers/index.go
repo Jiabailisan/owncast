@@ -30,9 +30,13 @@ import (
 func (h *Handlers) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	middleware.EnableCors(w)
 
-	if appearance := h.resolveAppearance(); appearance.Mode == settings.FrontendCustomFrontend {
-		h.serveCustomFrontend(w, r, appearance.FrontendDir)
-		return
+	// /admin always keeps the built-in bundle so an operator can never lock
+	// themselves out with a broken custom viewer directory.
+	if !strings.HasPrefix(r.URL.Path, "/admin") {
+		if appearance := h.resolveAppearance(); appearance.Mode == settings.FrontendCustomFrontend {
+			h.serveCustomFrontend(w, r, appearance.FrontendDir)
+			return
+		}
 	}
 
 	isIndexRequest := r.URL.Path == "/" || filepath.Base(r.URL.Path) == "index.html" || filepath.Base(r.URL.Path) == ""

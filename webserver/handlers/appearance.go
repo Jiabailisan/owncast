@@ -24,7 +24,12 @@ import (
 const customPlayerModulePath = "/custom-player/player.js"
 
 // resolveAppearance validates and resolves the configured appearance paths.
+// It is nil-safe so partial handler sets used by tests behave like an
+// unconfigured server.
 func (h *Handlers) resolveAppearance() settings.AppearanceState {
+	if h.configRepository == nil {
+		return settings.ResolveAppearance(settings.AppearancePaths{})
+	}
 	return settings.ResolveAppearance(settings.AppearancePaths{
 		CustomPlayerPath:  h.configRepository.GetCustomPlayerPath(),
 		CustomFrontendDir: h.configRepository.GetCustomFrontendDir(),
@@ -104,7 +109,7 @@ func (h *Handlers) serveCustomFrontend(w http.ResponseWriter, r *http.Request, d
 // cleanFrontendRequestPath converts a URL path into a safe slash-separated
 // relative path. Path traversal and null bytes are rejected by returning "".
 func cleanFrontendRequestPath(urlPath string) string {
-	if strings.ContainsAny(urlPath, "\x00\r\n") {
+	if strings.ContainsAny(urlPath, "\\\x00\r\n") {
 		return ""
 	}
 	cleaned := path.Clean("/" + strings.TrimPrefix(urlPath, "/"))

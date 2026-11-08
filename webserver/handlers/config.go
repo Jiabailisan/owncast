@@ -297,7 +297,7 @@ func buildPublicPlayerConfig(state settings.AppearanceState) *playerConfigRespon
 	player := &playerConfigResponse{}
 	if state.Mode == settings.FrontendCustomPlayer {
 		player.Custom = true
-		player.URL = "/custom-player/player.js"
+		player.URL = customPlayerModulePath
 	}
 	return player
 }

@@ -307,3 +307,119 @@ func TestServiceDisabledDoesNotBindSocket(t *testing.T) {
 	}
 	_ = socket.Close()
 }
+
+// occupyUDPPort reserves and returns a loopback UDP port that another socket
+// cannot bind while the returned PacketConn stays open. gosrt sets SO_REUSEADDR
+// on its own socket but the blocker does not, so the bind attempt still fails
+// with EADDRINUSE on Linux.
+func occupyUDPPort(t *testing.T) (int, net.PacketConn) {
+	t.Helper()
+	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve UDP port: %v", err)
+	}
+	return conn.LocalAddr().(*net.UDPAddr).Port, conn
+}
+
+// T11: a failed listener rebind must not leave the service dead. The service
+// restores the previous working listener, keeps serving on the old address and
+// reports the failure in LastError (the admin API reports 409 and keeps the
+// persisted config).
+func TestServiceFailedRebindRestoresPreviousListener(t *testing.T) {
+	firstPort := freeUDPPort(t)
+
+	cfg := testAuthConfig()
+	cfg.Enabled = true
+	cfg.Port = firstPort
+
+	svc, _, sessions := startLoopbackService(t, cfg)
+	if got := svc.Snapshot().Port; got != firstPort {
+		t.Fatalf("bound port = %d, want %d", got, firstPort)
+	}
+
+	blockedPort, blocker := occupyUDPPort(t)
+	defer func() { _ = blocker.Close() }()
+
+	next := cfg
+	next.Port = blockedPort
+	if err := svc.ApplyConfig(next); err == nil {
+		t.Fatal("expected the rebind to the occupied port to fail")
+	}
+
+	status := svc.Snapshot()
+	if !status.Listening || status.State != StateRunning {
+		t.Fatalf("service must stay running on the previous listener: %+v", status)
+	}
+	if status.Port != firstPort {
+		t.Fatalf("port = %d, want the previous working port %d", status.Port, firstPort)
+	}
+	if status.LastError == "" {
+		t.Fatal("LastError should describe the failed rebind")
+	}
+	if status.PendingRestart {
+		t.Fatal("a rolled-back rebind must not stay pending")
+	}
+
+	conn, err := dialSRT(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(firstPort)), "testkey", "")
+	if err != nil {
+		t.Fatalf("previous listener no longer accepts publishers: %v", err)
+	}
+	_ = conn.Close()
+	select {
+	case <-sessions:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publisher was not accepted on the restored listener")
+	}
+}
+
+// T11: a deferred (pending) listener change that fails to bind when the stream
+// ends must also restore the previous working listener.
+func TestServiceDeferredFailedRebindRestoresPreviousListener(t *testing.T) {
+	firstPort := freeUDPPort(t)
+
+	cfg := testAuthConfig()
+	cfg.Enabled = true
+	cfg.Port = firstPort
+
+	svc, _, sessions := startLoopbackService(t, cfg)
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(firstPort))
+
+	conn, err := dialSRT(t, address, "testkey", "")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	select {
+	case <-sessions:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publisher was not accepted")
+	}
+
+	blockedPort, blocker := occupyUDPPort(t)
+	defer func() { _ = blocker.Close() }()
+
+	next := cfg
+	next.Port = blockedPort
+	if err := svc.ApplyConfig(next); err != nil {
+		t.Fatalf("ApplyConfig while live should defer, not fail: %v", err)
+	}
+	if !svc.Snapshot().PendingRestart {
+		t.Fatal("expected the listener change to be pending while live")
+	}
+
+	_ = conn.Close()
+	waitFor(t, 15*time.Second, func() bool {
+		current := svc.Snapshot()
+		return !current.PendingRestart && current.LastError != "" && current.Listening
+	}, "failed deferred rebind rollback")
+
+	status := svc.Snapshot()
+	if status.Port != firstPort {
+		t.Fatalf("port = %d, want the previous working port %d", status.Port, firstPort)
+	}
+
+	restored, err := dialSRT(t, address, "testkey", "")
+	if err != nil {
+		t.Fatalf("previous listener no longer accepts publishers: %v", err)
+	}
+	_ = restored.Close()
+}

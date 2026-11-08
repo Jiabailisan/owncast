@@ -50,6 +50,8 @@ func (a *Admin) GetServerConfig(w http.ResponseWriter, r *http.Request) {
 			CustomStyles:        configRepository.GetCustomStyles(),
 			CustomJavascript:    configRepository.GetCustomJavascript(),
 			AppearanceVariables: configRepository.GetCustomColorVariableValues(),
+			CustomPlayerPath:    configRepository.GetCustomPlayerPath(),
+			CustomFrontendDir:   configRepository.GetCustomFrontendDir(),
 		},
 		FFmpegPath:                ffmpeg,
 		AdminPassword:             configRepository.GetAdminPassword(),
