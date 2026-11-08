@@ -204,6 +204,10 @@ func browserOffer(t *testing.T) (*webrtc.PeerConnection, string) {
 	// A Pion receiver otherwise drops NACK retransmissions (same RTP sequence
 	// number means the same SRTP index, which the replay window rejects).
 	settingEngine.DisableSRTPReplayProtection(true)
+	// QA patch: together with the server-side loopback ICE fix, the viewer must
+	// also gather loopback candidates; otherwise this test client offers none and
+	// the ICE/DTLS handshake over 127.0.0.1 never completes.
+	settingEngine.SetIncludeLoopbackCandidate(true)
 
 	mediaEngine := &webrtc.MediaEngine{}
 	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {

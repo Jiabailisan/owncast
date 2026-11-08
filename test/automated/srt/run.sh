@@ -10,5 +10,8 @@
 # Exit codes: 0 pass (blocked reported), 1 fail, 3 blocked at this HEAD.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# This runner lives inside the Owncast repo; the workspace root is one level up.
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$REPO_ROOT" ]]; then REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"; fi
+WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 exec "$WORKSPACE_ROOT/tools/scripts/run-srt-e2e.sh" "$@"

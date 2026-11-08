@@ -185,7 +185,8 @@ if [[ "$CONFIG_API" == "200" ]]; then
 		WEBRTC_ENABLED=1
 		status_pass "webrtc-enable" "already enabled in configuration"
 	else
-		node "$CONFIG_MERGE" "$RUN_DIR/webrtc-config-get.json" "$RUN_DIR/webrtc-config-put.json" enabled=true >/dev/null 2>&1 || true
+		node "$CONFIG_MERGE" "$RUN_DIR/webrtc-config-get.json" "$RUN_DIR/webrtc-config-put.json" \
+			enabled=true bindAddress=127.0.0.1 >/dev/null 2>&1 || true
 		PUT="$(api_code PUT /config/webrtc "$RUN_DIR/webrtc-config-put-response.json" "$RUN_DIR/webrtc-config-put.json")"
 		if [[ "$PUT" == "200" ]] && restart_server; then
 			api_code GET /config/webrtc "$RUN_DIR/webrtc-config-get.json" >/dev/null 2>&1 || true
@@ -256,13 +257,10 @@ run_go_harness() { # run_go_harness <tag> [extra env assignments]
 	return "$rc"
 }
 
-echo ""
-echo "== WHEP contract (Pion Go harness) =="
-if [[ "$WEBRTC_ENABLED" == "1" ]]; then
-	run_go_harness "whep-contract" ""
-else
-	status_blocked "whep-contract" "WebRTC not enabled (config API missing or enablement failed)"
-fi
+# WHEP contract/media assertions run once a live stream exists (T3 below): the
+# server's webrtc-enabled variant view is populated with the stream plan, so a
+# WHEP 201 before any plan exists can legitimately answer
+# webrtc_variant_not_found.
 
 # --- WHEP answer must carry ICE candidates (loopback bind regression) -------
 # Pion filters loopback candidates unless the engine opts in; with a loopback
@@ -306,7 +304,7 @@ a=rtpmap:111 opus/48000/2
 a=fmtp:111 minptime=10;useinbandfec=1
 a=ssrc:1002 cname:qa
 SDP
-if [[ "$WEBRTC_ENABLED" == "1" ]]; then
+check_whep_candidates() {
 	WHEP_CODE="$(curl -s -m 20 -D "$RUN_DIR/whep-canned-headers.txt" -o "$RUN_DIR/whep-canned-answer.sdp" \
 		-w '%{http_code}' -X POST -H 'Content-Type: application/sdp' \
 		--data-binary "@$WHEP_SDP" "$BASE/webrtc/whep?variant=0" 2>/dev/null || echo 000)"
@@ -328,12 +326,10 @@ if [[ "$WEBRTC_ENABLED" == "1" ]]; then
 	else
 		status_fail "whep-answer-candidates" "WHEP POST -> $WHEP_CODE (expected 201)"
 	fi
-else
-	status_blocked "whep-answer-candidates" "WebRTC not enabled"
-fi
+}
 
 echo ""
-echo "== T3: RTMP -> WebRTC media delivery =="
+echo "== T3: RTMP -> WebRTC (publisher + WHEP contract + media) =="
 if [[ "$WEBRTC_ENABLED" == "1" && "$DO_MEDIA" == "1" ]]; then
 	"$FF" -hide_banner -loglevel error -re -stream_loop -1 -i "$SAMPLE_FLV" \
 		-c copy -f flv "rtmp://127.0.0.1:$RTMP_PORT/live/abc123" >"$RUN_DIR/publisher-rtmp.log" 2>&1 &
@@ -342,6 +338,8 @@ if [[ "$WEBRTC_ENABLED" == "1" && "$DO_MEDIA" == "1" ]]; then
 	RC=$?
 	if [[ "$RC" == "0" ]]; then
 		status_pass "t3-publisher" "RTMP publisher online"
+		run_go_harness "whep-contract" ""
+		check_whep_candidates
 		run_go_harness "t3-rtmp-webrtc" "OWNCAST_WHEP_EXPECT_LIVE=1 OWNCAST_EXPECT_INPUT_PROTOCOL=rtmp"
 	else
 		status_blocked "t3-publisher" "RTMP publisher did not go online (publisher-rtmp.log)"
@@ -350,7 +348,14 @@ if [[ "$WEBRTC_ENABLED" == "1" && "$DO_MEDIA" == "1" ]]; then
 	kill "$PUB_PID" 2>/dev/null || true; wait "$PUB_PID" 2>/dev/null || true; PUB_PID=""
 	wait_offline 20 || true
 else
-	status_skip "t3-rtmp-webrtc" "WebRTC disabled or --no-media"
+	status_skip "t3-publisher" "WebRTC disabled or --no-media"
+	if [[ "$WEBRTC_ENABLED" == "1" ]]; then
+		run_go_harness "whep-contract-no-stream" ""
+		status_blocked "t3-rtmp-webrtc" "media test requires a publisher (do not pass --no-media)"
+	else
+		status_blocked "whep-contract" "WebRTC not enabled (config API missing or enablement failed)"
+		status_blocked "t3-rtmp-webrtc" "WebRTC not enabled"
+	fi
 fi
 
 echo ""
