@@ -93,6 +93,7 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 	}
 
 	s.setCurrentSession(session)
+	session.startStatsSampler()
 	log.Infoln("Inbound stream connected from", nc.RemoteAddr().String())
 	s.setStreamAsConnected(session)
 

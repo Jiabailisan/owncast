@@ -20,6 +20,14 @@ type InboundStreamDetails struct {
 	AudioBitrate   int     `json:"audioBitrate"`
 	VideoFramerate float32 `json:"framerate"`
 	VideoOnly      bool    `json:"-"`
+
+	// Additive source-properties fields. They are populated for SRT from the
+	// MPEG-TS/H.264 inspector (RTMP carries profile only in onMetaData when
+	// the encoder provides it) and drive the live status source panel and the
+	// WebRTC copy-eligibility check (spec C4).
+	VideoProfile string `json:"videoProfile,omitempty"`
+	VideoLevel   string `json:"videoLevel,omitempty"`
+	HasBFrames   *bool  `json:"hasBFrames,omitempty"`
 }
 
 // RTMPStreamMetadata is the raw metadata that comes in with a RTMP connection.

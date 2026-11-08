@@ -14,4 +14,8 @@ type Status struct {
 	SessionMaxViewerCount int    `json:"sessionMaxViewerCount"`
 
 	Online bool `json:"online"`
+
+	// InputProtocol is the protocol of the active ingest session ("rtmp" or
+	// "srt"), empty while offline. Additive public field (spec 7.2).
+	InputProtocol string `json:"inputProtocol,omitempty"`
 }

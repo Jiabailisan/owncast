@@ -47,8 +47,13 @@ type Session interface {
 	// (RTMP onMetaData). It is nil for SRT until the MPEG-TS/H.264 inspector
 	// fills it in.
 	Broadcaster() *models.Broadcaster
+	// SetBroadcaster records source metadata (RTMP onMetaData or the SRT
+	// MPEG-TS inspector).
+	SetBroadcaster(*models.Broadcaster)
 	// Close terminates the session. It is idempotent.
 	Close(reason error)
+	// Age returns how long the session has been established.
+	Age() time.Duration
 	// Done is closed when the session has terminated.
 	Done() <-chan struct{}
 }

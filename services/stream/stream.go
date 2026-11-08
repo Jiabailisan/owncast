@@ -156,7 +156,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 		LatencyLevel:   s.configRepository.GetStreamLatencyLevel(),
 		OutputSettings: s.configRepository.GetStreamOutputVariants(),
 	}
-	s.currentSession = session
+	s.setCurrentSession(session)
 	s.StreamConnected(broadcast)
 
 	segmentPath := config.HLSStoragePath
@@ -176,6 +176,13 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	selectedThumbnailVideoQualityIndex, isVideoPassthrough := s.configRepository.FindHighestVideoQualityIndex(broadcast.OutputSettings)
 	s.thumbnailGen = transcoder.NewThumbnailGenerator(s.cfg, s.configRepository)
 	s.thumbnailGen.Start(segmentPath, selectedThumbnailVideoQualityIndex, isVideoPassthrough)
+}
+
+// setCurrentSession replaces the active ingest session under the lock.
+func (s *Service) setCurrentSession(session ingest.Session) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.currentSession = session
 }
 
 // StreamConnected records a broadcast going live and runs the always-on
@@ -277,7 +284,7 @@ func (s *Service) applyStreamOffline() {
 	if s.sessions != nil {
 		s.sessions.DisconnectCurrent(errStreamOffline)
 	}
-	s.currentSession = nil
+	s.setCurrentSession(nil)
 
 	if s.yp != nil {
 		s.yp.Stop()

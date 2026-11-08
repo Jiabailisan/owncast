@@ -91,6 +91,9 @@ type Service struct {
 	// report which protocol/key is live.
 	sessions *ingest.Arbiter
 
+	// sessionMu guards currentSession, which is replaced on connect and
+	// cleared on disconnect while status handlers read it.
+	sessionMu sync.RWMutex
 	// currentSession is the authenticated inbound session that started the
 	// current live stream (RTMP or SRT). Nil between streams.
 	currentSession ingest.Session
