@@ -70,11 +70,11 @@ const (
 // the transcoder package; this is only the SDP side.
 func canonicalH264Fmtp(profile string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(profile)) {
-	case "", "constrained-baseline", "constrained_baseline", "baseline":
+	case "", h264ProfileConstrainedBaseline, "constrained_baseline", h264ProfileBaseline:
 		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", nil
-	case "main":
+	case h264ProfileMain:
 		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f", nil
-	case "high":
+	case h264ProfileHigh:
 		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f", nil
 	default:
 		return "", fmt.Errorf("%w: unknown h264 profile %q", ErrInvalidConfig, profile)
@@ -86,9 +86,9 @@ func canonicalH264Fmtp(profile string) (string, error) {
 // viewer offers several.
 func h264ProfileIDC(profile string) byte {
 	switch strings.ToLower(strings.TrimSpace(profile)) {
-	case "main":
+	case h264ProfileMain:
 		return 0x4d
-	case "high":
+	case h264ProfileHigh:
 		return 0x64
 	default:
 		return 0x42

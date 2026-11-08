@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -91,6 +92,12 @@ func (e *engine) buildSettingEngine(ctx context.Context, loggerFactory pionloggi
 		return nil, err
 	}
 	se.SetNetworkTypes(networkTypes)
+	// A loopback bind address (used for local testing and same-host setups) only
+	// produces loopback candidates, which Pion filters out by default. Without
+	// this the SDP answer carries no candidates and viewers cannot connect.
+	if bindAddr, parseErr := netip.ParseAddr(e.cfg.BindAddress); parseErr == nil && bindAddr.IsLoopback() {
+		se.SetIncludeLoopbackCandidate(true)
+	}
 	se.SetICETimeouts(
 		time.Duration(e.cfg.ICEDisconnectedTimeoutMs)*time.Millisecond,
 		time.Duration(e.cfg.ICEFailedTimeoutMs)*time.Millisecond,

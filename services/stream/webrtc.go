@@ -1,21 +1,21 @@
 package stream
 
 import (
-	"math"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/transcoder"
+	"github.com/owncast/owncast/services/webrtc"
 )
 
-// Default video fallbacks used when a variant is a copy variant and therefore
-// carries no encoder settings of its own.
-const (
-	defaultWebRTCVideoBitrateKbps = 2500
-	defaultWebRTCFrameRate        = 30
-	minimumWebRTCGOPFrames        = 1
-)
+// webRTCSourceWaitTimeout bounds how long the stream waits for SRT source
+// metadata before planning WebRTC legs. The MPEG-TS inspector usually publishes
+// within about a second; without metadata any copy intent falls back to
+// transcode, which is the safe default.
+const webRTCSourceWaitTimeout = 2500 * time.Millisecond
 
 // WebRTCMediaLeg is the loopback RTP leg contract exposed by the WebRTC
 // delivery service. One leg carries one video and one audio RTP stream.
@@ -71,71 +71,136 @@ func effectiveWebRTCVariants(variants []models.StreamOutputVariant) []models.Str
 	return full
 }
 
-// webrtcGOPFrames converts the configured keyframe interval to a frame count
-// for the encoder. Copy variants have no encoder settings; the source GOP then
-// bounds the join latency and is reported as a warning.
-func webrtcGOPFrames(keyframeIntervalSeconds float64, framerate int) int {
-	if framerate <= 0 {
-		framerate = defaultWebRTCFrameRate
+// hasWebRTCCopyIntent reports whether any WebRTC-enabled variant asks for copy
+// delivery (explicitly or by inheriting a passthrough HLS variant). Copy
+// eligibility needs source metadata, so only these streams wait for it.
+func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
+	for _, variant := range variants {
+		if !variant.WebRTCEnabled() {
+			continue
+		}
+		mode := ""
+		if variant.Outputs != nil && variant.Outputs.WebRTC != nil {
+			mode = variant.Outputs.WebRTC.Mode
+		}
+		if mode == models.OutputModeCopy {
+			return true
+		}
+		if (mode == "" || mode == models.OutputModeInherit) && variant.IsVideoPassthrough {
+			return true
+		}
 	}
-	if keyframeIntervalSeconds <= 0 {
-		keyframeIntervalSeconds = 1
-	}
-	gop := int(math.Round(keyframeIntervalSeconds * float64(framerate)))
-	if gop < minimumWebRTCGOPFrames {
-		gop = minimumWebRTCGOPFrames
-	}
-	return gop
+	return false
 }
 
-// configureWebRTC prepares the per-variant WebRTC media legs for the stream
-// that is starting and returns the RTP outputs the transcoder must produce.
-// Failure is non-fatal: the HLS stream continues and the failure is logged.
-func (s *Service) configureWebRTC(variants []models.StreamOutputVariant) []transcoder.RTPOutput {
+// waitForSourceInfo blocks briefly for SRT source metadata when a copy decision
+// is pending. RTMP metadata cannot provide profile/B-frame information, so RTMP
+// never waits (copy intent falls back to transcode by design).
+func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant) *models.Broadcaster {
+	if session.Protocol() != ingest.ProtocolSRT || !hasWebRTCCopyIntent(variants) {
+		return session.Broadcaster()
+	}
+	if broadcaster := session.Broadcaster(); broadcaster != nil {
+		return broadcaster
+	}
+
+	deadline := time.Now().Add(webRTCSourceWaitTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		if broadcaster := session.Broadcaster(); broadcaster != nil {
+			return broadcaster
+		}
+	}
+	return session.Broadcaster()
+}
+
+// configureWebRTC resolves the WebRTC plan for the stream that is starting and
+// returns the RTP outputs the transcoder must produce. Copy-eligible legs are
+// decided from the source metadata (spec C4/T7); anything unknown or ineligible
+// falls back to transcode (or is disabled when copyFallback=disable). Failure is
+// non-fatal: HLS continues and the condition is surfaced as a live-status
+// warning.
+func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant) []transcoder.RTPOutput {
 	if s.webRTC == nil {
 		return nil
 	}
 
 	webrtcVariants := effectiveWebRTCVariants(variants)
-	hasWebRTC := false
-	for index := range webrtcVariants {
-		if webrtcVariants[index].WebRTCEnabled() {
-			hasWebRTC = true
-			break
-		}
-	}
-	if !hasWebRTC {
-		return nil
-	}
-	if err := s.webRTC.SetVariants(webrtcVariants); err != nil {
-		log.Errorln("webrtc: unable to publish variants; continuing with HLS only:", err)
-		return nil
-	}
-
 	webrtcConfig := s.configRepository.GetWebRTCConfig()
-	videoCodec := s.configRepository.GetVideoCodec()
 
-	outputs := make([]transcoder.RTPOutput, 0, len(webrtcVariants))
+	broadcaster := s.waitForSourceInfo(session, webrtcVariants)
+	source := webrtc.SourceInfo{Protocol: string(session.Protocol())}
+	if broadcaster != nil {
+		source = webrtc.SourceInfoFromDetails(string(session.Protocol()), broadcaster.StreamDetails)
+	}
+
+	warnings := make([]models.StatusWarning, 0, len(webrtcVariants))
+	decisions := make(map[int]webrtc.LegDecision, len(webrtcVariants))
+	hasEnabled := false
 	for index := range webrtcVariants {
 		variant := webrtcVariants[index]
 		if !variant.WebRTCEnabled() {
+			continue
+		}
+		decision, err := webrtc.ResolveWebRTCLeg(source, variant, webrtcConfig)
+		if err != nil {
+			log.Errorln("webrtc: invalid output variant; falling back to transcode:", err)
+			decision = webrtc.LegDecision{
+				Enabled:          true,
+				Mode:             models.OutputModeTranscode,
+				VideoBitrateKbps: webrtc.DefaultWebRTCVideoBitrateKbps,
+				GOPFrames:        webrtc.MinimumWebRTCGOPFrames,
+				H264Profile:      webrtcConfig.H264Profile,
+			}
+		}
+		for _, warning := range decision.Warnings {
+			warnings = append(warnings, models.StatusWarning{Code: "webrtc_leg", Message: warning})
+			log.Warnln("webrtc leg warning:", warning)
+		}
+		for _, reason := range decision.IneligibilityReasons {
+			warnings = append(warnings, models.StatusWarning{Code: "webrtc_copy_ineligible", Message: reason})
+			log.Infoln("webrtc copy ineligible:", reason)
+		}
+
+		if !decision.Enabled {
+			// Disable the leg in the published variant set but keep the slice
+			// position so WHEP variant indices stay stable.
+			if webrtcVariants[index].Outputs != nil && webrtcVariants[index].Outputs.WebRTC != nil {
+				webrtcVariants[index].Outputs.WebRTC.Enabled = models.BoolPtr(false)
+			}
+			continue
+		}
+		decisions[index] = decision
+		hasEnabled = true
+	}
+	if !hasEnabled {
+		s.setWebRTCWarnings(warnings)
+		return nil
+	}
+
+	if err := s.webRTC.SetVariants(webrtcVariants); err != nil {
+		log.Errorln("webrtc: unable to publish variants; continuing with HLS only:", err)
+		warnings = append(warnings, models.StatusWarning{Code: "webrtc_variants", Message: err.Error()})
+		s.setWebRTCWarnings(warnings)
+		return nil
+	}
+
+	videoCodec := s.configRepository.GetVideoCodec()
+	outputs := make([]transcoder.RTPOutput, 0, len(decisions))
+	for index := range webrtcVariants {
+		variant := webrtcVariants[index]
+		decision, ok := decisions[index]
+		if !ok {
 			continue
 		}
 
 		leg, err := s.webRTC.OpenMediaLeg(index)
 		if err != nil {
 			log.Errorln("webrtc: unable to open media leg for variant", index, ":", err)
+			warnings = append(warnings, models.StatusWarning{Code: "webrtc_media_leg", Message: err.Error()})
 			continue
 		}
 		s.webRTCLegs = append(s.webRTCLegs, index)
-
-		videoBitrate := variant.VideoBitrate
-		if videoBitrate <= 0 || variant.IsVideoPassthrough {
-			// Copy-eligible variants have no encoder bitrate of their own;
-			// WebRTC v1 transcodes them. Runtime copy eligibility is tracked
-			// for Phase 4 and reported as a warning today.
-			videoBitrate = defaultWebRTCVideoBitrateKbps
-		}
 
 		outputs = append(outputs, transcoder.RTPOutput{
 			VariantIndex:     index,
@@ -143,9 +208,10 @@ func (s *Service) configureWebRTC(variants []models.StreamOutputVariant) []trans
 			AudioURL:         leg.AudioURL(),
 			VideoPayloadType: 96,
 			AudioPayloadType: 111,
-			VideoBitrateKbps: videoBitrate,
-			GOPFrames:        webrtcGOPFrames(webrtcConfig.KeyframeIntervalSeconds, variant.GetFramerate()),
-			H264Profile:      webrtcConfig.H264Profile,
+			VideoBitrateKbps: decision.VideoBitrateKbps,
+			GOPFrames:        decision.GOPFrames,
+			CopyVideo:        decision.Copy,
+			H264Profile:      decision.H264Profile,
 			VideoCodec:       videoCodec,
 			CPUUsageLevel:    variant.CPUUsageLevel,
 			OpusBitrateKbps:  webrtcConfig.OpusBitrateKbps,
@@ -154,7 +220,24 @@ func (s *Service) configureWebRTC(variants []models.StreamOutputVariant) []trans
 			OpusDTX:          webrtcConfig.OpusDTX,
 		})
 	}
+	s.setWebRTCWarnings(warnings)
 	return outputs
+}
+
+// setWebRTCWarnings records the current stream's WebRTC warnings for the live
+// status payload.
+func (s *Service) setWebRTCWarnings(warnings []models.StatusWarning) {
+	s.webRTCMu.Lock()
+	defer s.webRTCMu.Unlock()
+	s.webRTCWarnings = warnings
+}
+
+// WebRTCWarnings returns the warnings produced by WebRTC leg planning for the
+// current stream.
+func (s *Service) WebRTCWarnings() []models.StatusWarning {
+	s.webRTCMu.RLock()
+	defer s.webRTCMu.RUnlock()
+	return append([]models.StatusWarning(nil), s.webRTCWarnings...)
 }
 
 // closeWebRTC tears down all WebRTC media legs for the ended stream.
@@ -167,4 +250,5 @@ func (s *Service) closeWebRTC() {
 	}
 	s.webRTCLegs = nil
 	_ = s.webRTC.SetVariants(nil)
+	s.setWebRTCWarnings(nil)
 }

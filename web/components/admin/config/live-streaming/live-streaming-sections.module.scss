@@ -2,12 +2,21 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+
+  // The admin layout itself keeps a fixed 240px sider and overflows on small
+  // viewports; clip here so the Live Streaming page never adds horizontal
+  // overflow on top of that pre-existing layout behavior. Inner content still
+  // wraps (see the responsive rules below) so nothing important is lost.
+  overflow-x: clip;
 }
 
 .section {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
 }
 
 .listenerAlert {
@@ -15,6 +24,7 @@
 }
 
 .listenerPort {
+  overflow-wrap: anywhere;
   font-family: monospace;
 }
 
@@ -27,12 +37,13 @@
 }
 
 .statusControls {
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .lastUpdated {
   color: rgb(0 0 0 / 55%);
   font-size: 0.85em;
+  overflow-wrap: anywhere;
 }
 
 .sectionHeading {
@@ -41,6 +52,7 @@
 }
 
 .diagnosticsCard {
+  min-width: 0;
   background: var(--theme-color-components-content-background, #fff);
 }
 
@@ -48,11 +60,27 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
   margin-top: 12px;
+  overflow-wrap: anywhere;
 }
 
 .portList {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+@media (width <= 768px) {
+  .page {
+    gap: 6px;
+  }
+
+  .section {
+    gap: 10px;
+  }
+
+  .sectionHeading {
+    margin-top: 6px;
+  }
 }

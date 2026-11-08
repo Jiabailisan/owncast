@@ -103,6 +103,10 @@ type Service struct {
 	// webRTCLegs tracks the variant indices whose media legs are open for the
 	// current stream so they are closed exactly once on disconnect.
 	webRTCLegs []int
+	// webRTCMu guards webRTCWarnings.
+	webRTCMu sync.RWMutex
+	// webRTCWarnings are the leg-planning warnings for the current stream.
+	webRTCWarnings []models.StatusWarning
 
 	// sessionMu guards currentSession, which is replaced on connect and
 	// cleared on disconnect while status handlers read it.

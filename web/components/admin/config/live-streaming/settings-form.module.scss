@@ -2,10 +2,13 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
 }
 
 .section {
+  min-width: 0;
   padding: 16px 20px;
+  overflow-wrap: break-word;
   background: var(--theme-color-components-content-background, #fff);
   border-radius: var(--theme-rounded-corners, 9px);
 
@@ -19,6 +22,7 @@
 }
 
 .settingField {
+  min-width: 0;
   padding: 12px 0;
   border-bottom: 1px solid rgb(0 0 0 / 6%);
 
@@ -29,12 +33,16 @@
 
 .settingHeader {
   display: flex;
-  gap: 12px;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-start;
   justify-content: space-between;
 }
 
 .settingLabel {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 600;
 }
 
@@ -63,7 +71,9 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  max-width: 480px;
+  width: 100%;
+  min-width: 0;
+  max-width: min(480px, 100%);
   margin-top: 6px;
 }
 
@@ -100,7 +110,10 @@
   bottom: 0;
   z-index: 5;
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-start;
+  min-width: 0;
   padding: 12px 16px;
   background: var(--theme-color-background-main, #e2e8f0);
   border-top: 1px solid rgb(0 0 0 / 10%);
@@ -115,7 +128,28 @@
 
 .turnRow {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: 8px;
   align-items: center;
+}
+
+@media (width <= 768px) {
+  .section {
+    padding: 10px 12px;
+  }
+
+  .settingBadges {
+    justify-content: flex-start;
+  }
+
+  .saveBar {
+    padding: 10px 8px;
+
+    // Ant's Space needs explicit wrapping once the row is narrower than the
+    // two buttons plus the modified counter.
+    :global(.ant-space) {
+      flex-wrap: wrap;
+      row-gap: 8px;
+    }
+  }
 }

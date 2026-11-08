@@ -58,3 +58,6 @@ web/public/workbox-*.js
 # past .gitignore and got committed, breaking the lefthook bootstrap.
 /bin
 bin/
+
+# Frontend dev build output (local typecheck/distDir caches).
+web/.next-frontend/

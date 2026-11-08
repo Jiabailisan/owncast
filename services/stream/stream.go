@@ -175,7 +175,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 
 	// Prepare WebRTC delivery first: the transcoder plan includes the RTP
 	// legs for the variants WebRTC exposes.
-	rtpOutputs := s.configureWebRTC(broadcast.OutputSettings)
+	rtpOutputs := s.configureWebRTC(session, broadcast.OutputSettings)
 
 	segmentPath := config.HLSStoragePath
 

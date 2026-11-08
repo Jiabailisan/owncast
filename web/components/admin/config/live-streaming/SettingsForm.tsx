@@ -192,7 +192,7 @@ export const SettingsForm: FC<SettingsFormProps> = ({
       ))}
 
       <div className={styles.saveBar}>
-        <Space>
+        <Space wrap>
           <Button
             type="primary"
             loading={saving}
