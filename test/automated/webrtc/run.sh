@@ -234,6 +234,74 @@ else
 	status_blocked "whep-contract" "WebRTC not enabled (config API missing or enablement failed)"
 fi
 
+# --- WHEP answer must carry ICE candidates (loopback bind regression) -------
+# Pion filters loopback candidates unless the engine opts in; with a loopback
+# bindAddress a regression here silently breaks every viewer (connection stuck
+# at "new"). A canned H.264+Opus offer is enough to inspect the answer SDP.
+echo ""
+echo "== WHEP answer ICE candidates =="
+WHEP_SDP="$RUN_DIR/whep-canned-offer.sdp"
+cat >"$WHEP_SDP" <<'SDP'
+v=0
+o=- 4611731400430051336 1 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1
+a=msid-semantic: WMS *
+m=video 9 UDP/TLS/RTP/SAVPF 96
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:qaoffr
+a=ice-pwd:qaofferofferqaofferofferq
+a=fingerprint:sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00
+a=setup:actpass
+a=mid:0
+a=sendonly
+a=rtcp-mux
+a=rtpmap:96 H264/90000
+a=rtcp-fb:96 nack
+a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f
+a=ssrc:1001 cname:qa
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:qaoffr
+a=ice-pwd:qaofferofferqaofferofferq
+a=fingerprint:sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00
+a=setup:actpass
+a=mid:1
+a=sendonly
+a=rtcp-mux
+a=rtpmap:111 opus/48000/2
+a=fmtp:111 minptime=10;useinbandfec=1
+a=ssrc:1002 cname:qa
+SDP
+if [[ "$WEBRTC_ENABLED" == "1" ]]; then
+	WHEP_CODE="$(curl -s -m 20 -D "$RUN_DIR/whep-canned-headers.txt" -o "$RUN_DIR/whep-canned-answer.sdp" \
+		-w '%{http_code}' -X POST -H 'Content-Type: application/sdp' \
+		--data-binary "@$WHEP_SDP" "$BASE/webrtc/whep?variant=0" 2>/dev/null || echo 000)"
+	if [[ "$WHEP_CODE" == "201" ]]; then
+		if grep -qE '^a=candidate:' "$RUN_DIR/whep-canned-answer.sdp"; then
+			status_pass "whep-answer-candidates" "201 answer carries ICE candidate(s): $(grep -cE '^a=candidate:' "$RUN_DIR/whep-canned-answer.sdp" | tr -d ' ') candidate line(s)"
+		else
+			status_fail "whep-answer-candidates" "201 answer has NO a=candidate lines - loopback ICE candidate regression (services/webrtc/engine.go loopback bind fix)"
+		fi
+		LOCATION="$(grep -i '^location:' "$RUN_DIR/whep-canned-headers.txt" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r')"
+		if [[ -n "$LOCATION" ]]; then
+			curl -s -o /dev/null -m 10 -X DELETE "$BASE$LOCATION" 2>/dev/null || true
+			status_pass "whep-session-delete" "DELETE $LOCATION completed"
+		else
+			status_fail "whep-session-delete" "201 answer missing Location header"
+		fi
+	elif [[ "$WHEP_CODE" =~ ^4[0-9][0-9]$ ]]; then
+		status_blocked "whep-answer-candidates" "canned offer rejected with $WHEP_CODE (offer-shape limitation; real-offer media/candidate assertions are covered by the Pion Go harness) - see whep-canned-answer.sdp"
+	else
+		status_fail "whep-answer-candidates" "WHEP POST -> $WHEP_CODE (expected 201)"
+	fi
+else
+	status_blocked "whep-answer-candidates" "WebRTC not enabled"
+fi
+
 echo ""
 echo "== T3: RTMP -> WebRTC media delivery =="
 if [[ "$WEBRTC_ENABLED" == "1" && "$DO_MEDIA" == "1" ]]; then

@@ -11,11 +11,11 @@ const text = {
   'Admin.Appearance.activeFrontendDefault': 'Default viewer',
   'Admin.Appearance.activeFrontendCustomPlayer': 'Custom player',
   'Admin.Appearance.activeFrontendCustomFrontend': 'Custom frontend',
-  'Admin.Appearance.ignoredCustomPlayer':
-    'Ignored while a custom frontend directory is active.',
+  'Admin.Appearance.ignoredCustomPlayer': 'Ignored while a custom frontend directory is active.',
   'Admin.Appearance.customFrontendOverridesCss':
     'Custom CSS and Custom JavaScript are not served while a custom frontend is active.',
-  'Admin.Appearance.customPlayerLoadErrorTitle': 'The custom player failed to load for some viewers',
+  'Admin.Appearance.customPlayerLoadErrorTitle':
+    'The custom player failed to load for some viewers',
   'Admin.Appearance.precedenceTitle': 'How these settings interact',
   'Admin.Appearance.saveButton': 'Save',
   'Admin.Appearance.savedMessage': 'Saved',
@@ -122,9 +122,7 @@ describe('CustomPlayerConfig (Appearance)', () => {
     expect(
       screen.getByText(/The custom player failed to load for some viewers/i),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Failed to fetch dynamically imported module/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Failed to fetch dynamically imported module/)).toBeInTheDocument();
   });
 
   test('saves the trimmed custom player path and refreshes the report', async () => {

@@ -7,9 +7,7 @@
 // docs). The server CSP allows same-origin modules and forbids eval/inline
 // scripts, which is why a native dynamic import is the only supported path.
 
-import {
-  CUSTOM_PLAYER_ERROR,
-} from '../utils/apis';
+import { CUSTOM_PLAYER_ERROR } from '../utils/apis';
 import {
   OwncastPlayerAutoplay,
   OwncastPlayerContext,
@@ -63,9 +61,7 @@ export async function loadCustomPlayerModule(
       : loaded;
 
   if (typeof candidate !== 'function') {
-    throw new Error(
-      'The custom player module must default-export a mount(el, context) function.',
-    );
+    throw new Error('The custom player module must default-export a mount(el, context) function.');
   }
   return candidate as OwncastPlayerMount;
 }
@@ -85,9 +81,7 @@ export function mapAutoplayForCustomPlayer(
   return 'unmuted-when-allowed';
 }
 
-export function mapVariantsForCustomPlayer(
-  variants?: WebRTCVariantInfo[],
-): OwncastPlayerVariant[] {
+export function mapVariantsForCustomPlayer(variants?: WebRTCVariantInfo[]): OwncastPlayerVariant[] {
   return (variants || []).map(variant => ({
     index: variant.index,
     name: variant.name,
@@ -108,9 +102,7 @@ export interface BuildCustomPlayerContextArgs {
 }
 
 // Build the context object handed to the configured module.
-export function buildCustomPlayerContext(
-  args: BuildCustomPlayerContextArgs,
-): OwncastPlayerContext {
+export function buildCustomPlayerContext(args: BuildCustomPlayerContextArgs): OwncastPlayerContext {
   const {
     hlsUrl,
     whepUrl,

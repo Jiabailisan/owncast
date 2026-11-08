@@ -17,10 +17,9 @@ export interface RequestOptions {
 class AppearanceService {
   // GET /api/admin/serverconfig -> appearance block.
   public static async getReport(options: RequestOptions = {}): Promise<AppearanceAdminReport> {
-    const serverConfig = await adminRequest<{ appearance?: AppearanceAdminReport }>(
-      SERVER_CONFIG,
-      { signal: options.signal },
-    );
+    const serverConfig = await adminRequest<{ appearance?: AppearanceAdminReport }>(SERVER_CONFIG, {
+      signal: options.signal,
+    });
     if (!serverConfig || !serverConfig.appearance) {
       throw new Error('The server did not return appearance information.');
     }

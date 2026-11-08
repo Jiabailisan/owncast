@@ -29,10 +29,30 @@
 			"urlPlaceholder": "https://myserver.com/action (required)"
 		},
 		"Appearance": {
+			"activeFrontendCustomPlayer": "<strong><em>Missing translation Admin.Appearance.activeFrontendCustomPlayer: Please report</em></strong>",
+			"activeFrontendLabel": "<strong><em>Missing translation Admin.Appearance.activeFrontendLabel: Please report</em></strong>",
 			"alsoSetByPlugin": "also set by {{plugins}}",
 			"alsoSetByPluginTooltip": "Your value takes priority here. Use Reset to Defaults to fall back to the color from {{plugins}}.",
+			"customFrontendDirHelp": "<strong><em>Missing translation Admin.Appearance.customFrontendDirHelp: Please report</em></strong>",
+			"customFrontendDirLabel": "<strong><em>Missing translation Admin.Appearance.customFrontendDirLabel: Please report</em></strong>",
+			"customFrontendDirPlaceholder": "<strong><em>Missing translation Admin.Appearance.customFrontendDirPlaceholder: Please report</em></strong>",
+			"customFrontendOverridesCss": "<strong><em>Missing translation Admin.Appearance.customFrontendOverridesCss: Please report</em></strong>",
+			"customPlayerDescription": "<strong><em>Missing translation Admin.Appearance.customPlayerDescription: Please report</em></strong>",
+			"customPlayerLoadErrorDescription": "<strong><em>Missing translation Admin.Appearance.customPlayerLoadErrorDescription: Please report</em></strong>",
+			"customPlayerLoadErrorTitle": "<strong><em>Missing translation Admin.Appearance.customPlayerLoadErrorTitle: Please report</em></strong>",
+			"customPlayerPathHelp": "<strong><em>Missing translation Admin.Appearance.customPlayerPathHelp: Please report</em></strong>",
+			"customPlayerPathLabel": "<strong><em>Missing translation Admin.Appearance.customPlayerPathLabel: Please report</em></strong>",
+			"customPlayerPathPlaceholder": "<strong><em>Missing translation Admin.Appearance.customPlayerPathPlaceholder: Please report</em></strong>",
+			"customPlayerTitle": "<strong><em>Missing translation Admin.Appearance.customPlayerTitle: Please report</em></strong>",
+			"ignoredCustomPlayer": "<strong><em>Missing translation Admin.Appearance.ignoredCustomPlayer: Please report</em></strong>",
 			"pluginStylingActive": "Plugin styling is active",
-			"pluginStylingDescription": "These plugins are applying their own styles to your site, combined with the colors you set here: {{plugins}}. Your settings are applied on top, so they win where they overlap. If the page doesn't look the way you expect, use Reset to Defaults below to let the plugin styling show through, or disable the plugin from the Plugins page."
+			"pluginStylingDescription": "These plugins are applying their own styles to your site, combined with the colors you set here: {{plugins}}. Your settings are applied on top, so they win where they overlap. If the page doesn't look the way you expect, use Reset to Defaults below to let the plugin styling show through, or disable the plugin from the Plugins page.",
+			"precedenceCustomFrontend": "<strong><em>Missing translation Admin.Appearance.precedenceCustomFrontend: Please report</em></strong>",
+			"precedenceCustomPlayer": "<strong><em>Missing translation Admin.Appearance.precedenceCustomPlayer: Please report</em></strong>",
+			"precedenceDefault": "<strong><em>Missing translation Admin.Appearance.precedenceDefault: Please report</em></strong>",
+			"precedenceTitle": "<strong><em>Missing translation Admin.Appearance.precedenceTitle: Please report</em></strong>",
+			"saveButton": "<strong><em>Missing translation Admin.Appearance.saveButton: Please report</em></strong>",
+			"savedMessage": "<strong><em>Missing translation Admin.Appearance.savedMessage: Please report</em></strong>"
 		},
 		"Autoplay": {
 			"description": "Choose whether the stream starts playing on its own when a viewer opens your page.",

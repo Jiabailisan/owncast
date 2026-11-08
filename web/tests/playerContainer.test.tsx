@@ -123,12 +123,7 @@ describe('PlayerContainer protocol selection', () => {
     store.set(clientConfigStateAtom, { ...makeEmptyClientConfig(), ...customPlayerConfig() });
     render(
       <Provider store={store}>
-        <PlayerContainer
-          source="/hls/stream.m3u8"
-          online
-          title="Test stream"
-          forceProtocol="hls"
-        />
+        <PlayerContainer source="/hls/stream.m3u8" online title="Test stream" forceProtocol="hls" />
       </Provider>,
     );
     expect(screen.getByTestId('hls-player')).toBeInTheDocument();

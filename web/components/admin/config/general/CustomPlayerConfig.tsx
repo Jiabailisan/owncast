@@ -4,10 +4,7 @@ import { useTranslation } from 'next-export-i18n';
 import { format } from 'date-fns';
 
 import AppearanceService from '../../../../services/appearance-service';
-import {
-  ActiveFrontend,
-  AppearanceAdminReport,
-} from '../../../../interfaces/appearance.model';
+import { ActiveFrontend, AppearanceAdminReport } from '../../../../interfaces/appearance.model';
 import { Localization } from '../../../../types/localization';
 import { ServerStatusContext } from '../../../../utils/server-status-context';
 import styles from './custom-player-config.module.scss';
