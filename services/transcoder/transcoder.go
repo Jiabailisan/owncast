@@ -79,6 +79,14 @@ type Transcoder struct {
 	currentLatencyLevel         models.LatencyLevel
 	appendToStream              bool
 	isEvent                     bool
+
+	// rtpOutputs are the WebRTC media legs rendered after the HLS output in
+	// the same ffmpeg process (shared process model). Empty for HLS-only
+	// configurations, keeping the golden argv unchanged.
+	rtpOutputs []RTPOutput
+
+	// state is the inspectable live-process state for the admin FFmpeg panel.
+	state processState
 }
 
 // HLSVariant is a combination of settings that results in a single HLS stream.
@@ -179,6 +187,10 @@ func (t *Transcoder) Start(shouldLog bool) {
 		log.Panicln(err, command)
 	}
 
+	// Record the exact argv and process identity for the admin FFmpeg panel.
+	argv := append([]string{flags.binPath}, flags.command...)
+	t.recordStarted(argv, t.commandExec.Process.Pid)
+
 	transcoderLog := logging.GetTranscoderLogWriter(t.cfg.LogDirectory)
 	fmt.Fprintf(transcoderLog, "ffmpeg started on %s\nCommand line:\n%s\n", time.Now().Format(time.RFC3339), command)
 
@@ -194,6 +206,7 @@ func (t *Transcoder) Start(shouldLog bool) {
 	}()
 
 	err = t.commandExec.Wait()
+	t.recordStopped()
 	if t.TranscoderCompleted != nil {
 		t.TranscoderCompleted(err)
 	}
@@ -297,10 +310,28 @@ func (t *Transcoder) getFlags() *execInfo {
 		localListenerAddress + "/%v/stream.m3u8", // Send HLS playlists back to us over HTTP
 	}...)
 
+	// Additional WebRTC RTP output legs (multi-output). Each is a separate
+	// output context following the HLS output, so the HLS argv above is
+	// untouched when no legs are configured.
+	for _, output := range t.rtpOutputs {
+		ffmpegFlags = append(ffmpegFlags, t.rtpOutputFlags(output)...)
+	}
+
 	return &execInfo{
 		binPath: t.ffmpegPath,
 		command: ffmpegFlags,
 	}
+}
+
+// SetRTPOutputs configures the WebRTC RTP legs emitted by this ffmpeg process
+// alongside the HLS output. Setting an empty slice preserves HLS-only argv.
+func (t *Transcoder) SetRTPOutputs(outputs []RTPOutput) {
+	t.rtpOutputs = outputs
+}
+
+// RTPOutputs returns the configured RTP legs.
+func (t *Transcoder) RTPOutputs() []RTPOutput {
+	return t.rtpOutputs
 }
 
 func getVariantFromConfigQuality(quality models.StreamOutputVariant, index int) HLSVariant {

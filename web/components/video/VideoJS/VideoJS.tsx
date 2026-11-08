@@ -36,29 +36,32 @@ export const VideoJS: FC<VideoJSProps> = ({ options, onReady }) => {
     vjs.addLanguage(langCode, updates);
   };
 
+  // video.js is an imperative widget: recreate the player when the media
+  // source changes and always dispose it on unmount. Without this, switching
+  // between WebRTC and HLS (or reconnecting a player) leaked players and could
+  // leave two audio tracks playing.
+  const source = options?.sources?.[0]?.src || '';
+
   React.useEffect(() => {
-    // Make sure Video.js player is only initialized once
-    if (!playerRef.current) {
-      const videoElement = videoRef.current;
-
-      addShortcutsToLanguage(videojs, 'en');
-      const finalOptions = {
-        ...options,
-        noUITitleAttributes: true, // Prevents videojs from adding a title attribute to UI elements, thus preventing "double tooltips".
-      };
-      // eslint-disable-next-line no-multi-assign
-      const player: VideoJsPlayer = (playerRef.current = videojs(videoElement, finalOptions, () => {
-        console.debug('player is ready');
-        return onReady && onReady(player, videojs);
-      }));
-
-      player.autoplay(options.autoplay);
-      player.src(options.sources);
+    const videoElement = videoRef.current;
+    if (!videoElement) {
+      return undefined;
     }
-  }, [options, videoRef]);
 
-  React.useEffect(() => {
-    videojs.getPlayer(videoRef.current).on('xhr-hooks-ready', () => {
+    addShortcutsToLanguage(videojs, 'en');
+    const finalOptions = {
+      ...options,
+      noUITitleAttributes: true, // Prevents videojs from adding a title attribute to UI elements, thus preventing "double tooltips".
+    };
+    const player: VideoJsPlayer = (playerRef.current = videojs(videoElement, finalOptions, () => {
+      console.debug('player is ready');
+      return onReady && onReady(player, videojs);
+    }));
+
+    player.autoplay(options.autoplay);
+    player.src(options.sources);
+
+    const onXhrHooksReady = () => {
       const cachebusterRequestHook = o => {
         const { uri } = o;
         let updatedURI = uri;
@@ -75,11 +78,31 @@ export const VideoJS: FC<VideoJSProps> = ({ options, onReady }) => {
           uri: updatedURI,
         };
       };
-      (
-        videojs.getPlayer(videoRef.current).tech({ IWillNotUseThisInPlugins: true }) as any
-      )?.vhs.xhr.onRequest(cachebusterRequestHook);
-    });
-  }, []);
+      (player.tech({ IWillNotUseThisInPlugins: true }) as any)?.vhs?.xhr?.onRequest(
+        cachebusterRequestHook,
+      );
+    };
+    player.on('xhr-hooks-ready', onXhrHooksReady);
+
+    return () => {
+      try {
+        player.off('xhr-hooks-ready', onXhrHooksReady);
+      } catch (e) {
+        console.warn('Unable to remove video.js listener during cleanup', e);
+      }
+      if (playerRef.current === player) {
+        playerRef.current = null;
+      }
+      try {
+        player.dispose();
+      } catch (e) {
+        console.warn('Unable to dispose video.js player', e);
+      }
+    };
+    // Recreate only when the media source changes: the player components build
+    // a fresh options object on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   return (
     <div data-vjs-player>

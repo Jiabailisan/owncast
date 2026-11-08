@@ -1,4 +1,5 @@
 import { AutoplaySetting } from '../utils/autoplay';
+import { WHEPIceServer } from './whep.model';
 
 export interface ClientConfig {
   name: string;
@@ -35,6 +36,33 @@ export interface ClientConfig {
   notifications: Notifications;
   authentication: Authentication;
   socketHostOverride?: string;
+  // Additive delivery config. Absent/disabled on servers that predate SRT and
+  // WebRTC so the default viewer behavior is unchanged.
+  webrtc?: WebRTCClientConfig;
+  player?: CustomPlayerConfig;
+}
+
+// Public WebRTC playback config from GET /api/config.
+export interface WebRTCVariantInfo {
+  index: number;
+  name: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+}
+
+export interface WebRTCClientConfig {
+  enabled: boolean;
+  whepUrl?: string;
+  variants: WebRTCVariantInfo[];
+  iceServers: WHEPIceServer[];
+  fallbackToHls: boolean;
+}
+
+// Custom player module switch from GET /api/config (spec 7.3).
+export interface CustomPlayerConfig {
+  custom: boolean;
+  url?: string;
 }
 
 interface Authentication {
@@ -107,6 +135,17 @@ export function makeEmptyClientConfig(): ClientConfig {
     },
     authentication: {
       indieAuthEnabled: false,
+    },
+    webrtc: {
+      enabled: false,
+      whepUrl: '',
+      variants: [],
+      iceServers: [],
+      fallbackToHls: true,
+    },
+    player: {
+      custom: false,
+      url: '',
     },
   };
 }

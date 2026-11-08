@@ -42,6 +42,9 @@ type Service struct {
 	// storage is the active HLS storage provider (local filesystem or S3).
 	storage models.StorageProvider
 
+	// transcoderMu guards transcoder, which the connect goroutine replaces
+	// while status handlers read it for the FFmpeg panel.
+	transcoderMu sync.RWMutex
 	// transcoder holds the active ffmpeg child while a stream is online.
 	// Replaced when a stream comes up, nil'd when it goes down.
 	transcoder *transcoder.Transcoder
@@ -91,6 +94,13 @@ type Service struct {
 	// report which protocol/key is live.
 	sessions *ingest.Arbiter
 
+	// webRTC is the optional WebRTC delivery service. Nil when delivery is not
+	// wired; the stream then produces HLS only.
+	webRTC WebRTCProvider
+	// webRTCLegs tracks the variant indices whose media legs are open for the
+	// current stream so they are closed exactly once on disconnect.
+	webRTCLegs []int
+
 	// sessionMu guards currentSession, which is replaced on connect and
 	// cleared on disconnect while status handlers read it.
 	sessionMu sync.RWMutex
@@ -136,6 +146,7 @@ type Service struct {
 type Deps struct {
 	Ingest           []IngestListener
 	Sessions         *ingest.Arbiter
+	WebRTC           WebRTCProvider
 	Activitypub      *activitypub.Service
 	Webhooks         *webhooks.Service
 	Chat             *chat.Service
@@ -152,6 +163,7 @@ func New(deps Deps) *Service {
 		geoIPClient:      geoip.NewClient(),
 		fileWriter:       transcoder.NewFileWriterReceiverService(deps.Config),
 		sessions:         deps.Sessions,
+		webRTC:           deps.WebRTC,
 		activitypub:      deps.Activitypub,
 		webhooks:         deps.Webhooks,
 		chat:             deps.Chat,

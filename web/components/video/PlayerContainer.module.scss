@@ -1,0 +1,37 @@
+.container {
+  position: relative;
+  width: 100%;
+}
+
+.notice {
+  position: absolute;
+  right: 16px;
+  bottom: 72px;
+  left: 16px;
+  z-index: 12;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  color: var(--theme-color-components-text-on-dark, #fff);
+  font-size: 0.9em;
+  background: rgb(0 0 0 / 72%);
+  border-radius: var(--theme-rounded-corners, 9px);
+
+  @media (width <= 768px) {
+    right: 8px;
+    bottom: 64px;
+    left: 8px;
+  }
+}
+
+.noticeDismiss {
+  padding: 0 6px;
+  color: inherit;
+  font-size: 1.2em;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}

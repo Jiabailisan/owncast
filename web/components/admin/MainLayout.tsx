@@ -241,6 +241,10 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
       key: '/admin/config-video',
     },
     {
+      label: <Link href="/admin/config/live-streaming">Live Streaming</Link>,
+      key: '/admin/config/live-streaming',
+    },
+    {
       label: <Link href="/admin/config-chat">Chat</Link>,
       key: '/admin/config-chat',
     },

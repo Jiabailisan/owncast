@@ -1,3 +1,6 @@
+import type { FieldError } from '../interfaces/settings-metadata.model';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const semverGt = require('semver/functions/gt');
 
 /* eslint-disable prefer-destructuring */
@@ -143,6 +146,21 @@ export const UPDATE_STREAM_KEYS = `${API_LOCATION}config/streamkeys`;
 
 export const API_YP_RESET = `${API_LOCATION}yp/reset`;
 
+// SRT/WebRTC configuration and live stream status
+// (docs/architecture/api-contract.md).
+export const SETTINGS_METADATA = `${API_LOCATION}config/settings-metadata`;
+export const SRT_CONFIG = `${API_LOCATION}config/srt`;
+export const WEBRTC_CONFIG = `${API_LOCATION}config/webrtc`;
+export const CONFIG_PREFLIGHT = `${API_LOCATION}config/preflight`;
+export const WEBRTC_TEST_DOMAIN = `${API_LOCATION}config/webrtc/test-domain`;
+export const LIVE_STATUS = `${API_LOCATION}live/status`;
+export const LIVE_VIEWERS = `${API_LOCATION}live/viewers`;
+export const LIVE_FFMPEG = `${API_LOCATION}live/ffmpeg`;
+
+// Public, additive delivery endpoints (no admin auth).
+export const WEBRTC_METRICS = `${NEXT_PUBLIC_API_HOST}api/metrics/webrtc`;
+export const CUSTOM_PLAYER_ERROR = `${NEXT_PUBLIC_API_HOST}api/custom-player/error`;
+
 const GITHUB_RELEASE_URL = 'https://api.github.com/repos/owncast/owncast/releases/latest';
 
 interface FetchOptions {
@@ -211,6 +229,129 @@ export async function fetchData<T = any>(url: string, options?: FetchOptions): P
     throw new Error(extractAPIErrorMessage(response.status, json, text));
   }
   return json;
+}
+
+export interface APIErrorOptions {
+  status?: number;
+  code?: string;
+  fieldErrors?: FieldError[];
+  retryAfterSeconds?: number | null;
+}
+
+// Typed API error used by the new SRT/WebRTC surfaces. Unlike fetchData (which
+// throws a bare Error with a single message), this carries field-level
+// validation errors, a machine-readable code and Retry-After so forms and the
+// live-status poller can react precisely.
+export class APIError extends Error {
+  status: number;
+
+  code?: string;
+
+  fieldErrors: FieldError[];
+
+  retryAfterSeconds: number | null;
+
+  constructor(message: string, options: APIErrorOptions = {}) {
+    super(message);
+    this.name = 'APIError';
+    this.status = options.status ?? 0;
+    this.code = options.code;
+    this.fieldErrors = options.fieldErrors || [];
+    this.retryAfterSeconds = options.retryAfterSeconds ?? null;
+  }
+}
+
+export interface AdminRequestOptions extends FetchOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+// adminRequest is the structured sibling of fetchData: same admin Basic-auth
+// and CSRF behavior, but it parses the validation envelope, honors
+// Retry-After, supports cancellation/timeout and throws APIError.
+export async function adminRequest<T = any>(
+  url: string,
+  options?: AdminRequestOptions,
+): Promise<T> {
+  const { data, method = 'GET', auth = true, signal, timeoutMs = 20000 } = options || {};
+
+  const canAbort = typeof AbortController !== 'undefined';
+  const controller = canAbort ? new AbortController() : null;
+  let timedOut = false;
+  let externallyAborted = false;
+
+  const onExternalAbort = () => {
+    externallyAborted = true;
+    controller?.abort();
+  };
+  if (signal) {
+    if (signal.aborted) onExternalAbort();
+    else signal.addEventListener('abort', onExternalAbort);
+  }
+  const timer =
+    timeoutMs > 0 && controller
+      ? setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs)
+      : null;
+
+  try {
+    const requestOptions: RequestInit = {
+      method,
+      headers: {},
+      ...(controller ? { signal: controller.signal } : {}),
+    };
+    const headers = requestOptions.headers as Record<string, string>;
+
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
+      headers[ADMIN_CSRF_HEADER] = '1';
+    }
+    if (data !== undefined && data !== null) {
+      requestOptions.body = JSON.stringify(data);
+    }
+    if (auth && ADMIN_USERNAME && ADMIN_STREAMKEY) {
+      const encoded = btoa(`${ADMIN_USERNAME}:${ADMIN_STREAMKEY}`);
+      headers.Authorization = `Basic ${encoded}`;
+      requestOptions.mode = 'cors';
+      requestOptions.credentials = 'include';
+    }
+
+    const response = await fetch(url, requestOptions);
+    const text = await response.text();
+    let json: any = {};
+    if (text) {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        // Non-JSON error bodies are handled by extractAPIErrorMessage below.
+      }
+    }
+
+    if (!response.ok) {
+      const fieldErrors: FieldError[] = Array.isArray(json?.fieldErrors) ? json.fieldErrors : [];
+      const retryHeader = response.headers?.get?.('Retry-After') ?? null;
+      const retryAfterSeconds = retryHeader ? Number(retryHeader) || null : null;
+      throw new APIError(extractAPIErrorMessage(response.status, json, text), {
+        status: response.status,
+        code: typeof json?.code === 'string' ? json.code : undefined,
+        fieldErrors,
+        retryAfterSeconds,
+      });
+    }
+
+    return json as T;
+  } catch (error) {
+    if (error instanceof APIError) throw error;
+    if (timedOut) throw new APIError('Request timed out', { code: 'timeout' });
+    if (externallyAborted) throw new APIError('Request aborted', { code: 'network' });
+    throw new APIError((error as Error)?.message || 'Network request failed', {
+      code: 'network',
+    });
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onExternalAbort);
+  }
 }
 
 // fetchText mirrors fetchData's admin auth handling but returns the raw

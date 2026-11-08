@@ -75,13 +75,18 @@ type FFmpegProcessStatus struct {
 	DuplicateFrames *int64 `json:"duplicateFrames"`
 	CPUPercent    *float64 `json:"cpuPercent"`
 	RSSBytes      *int64   `json:"rssBytes"`
+	// Argv is the exact executed command line, secrets redacted with ***.
+	Argv []string `json:"argv,omitempty"`
+	// Sections splits Argv into input/video/audio/output/other/environment
+	// groups for the collapsible admin FFmpeg panel (spec 6.4).
+	Sections map[string][]string `json:"sections,omitempty"`
 }
 
 // WebRTCStatus reports WebRTC availability and capacity.
 type WebRTCStatus struct {
-	Enabled  bool           `json:"enabled"`
-	Capacity WebRTCCapacity `json:"capacity"`
-	Warnings []string       `json:"warnings"`
+	Enabled  bool            `json:"enabled"`
+	Capacity WebRTCCapacity  `json:"capacity"`
+	Warnings []StatusWarning `json:"warnings"`
 }
 
 // WebRTCCapacity is the viewer capacity gate state.

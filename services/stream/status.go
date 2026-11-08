@@ -83,13 +83,6 @@ func (s *Service) GetIngestStatus() *models.IngestStatus {
 	return status
 }
 
-// FFmpegProcesses returns the supervised transcoder processes feeding the
-// active stream. The list is empty until the transcoder supervisor is wired in
-// Phase 4; the admin FFmpeg panel renders the empty state from that response.
-func (s *Service) FFmpegProcesses() []models.FFmpegProcessStatus {
-	return []models.FFmpegProcessStatus{}
-}
-
 // BroadcasterSet records the metadata of the inbound source. Implements
 // StreamEvents; the local engine calls it from the RTMP metadata callback, a
 // remote engine from its signaling channel.

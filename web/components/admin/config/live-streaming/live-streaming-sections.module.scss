@@ -1,0 +1,58 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.listenerAlert {
+  margin-bottom: 0;
+}
+
+.listenerPort {
+  font-family: monospace;
+}
+
+.sectionError {
+  margin-bottom: 0;
+}
+
+.stale {
+  margin-bottom: 0;
+}
+
+.statusControls {
+  justify-content: space-between;
+}
+
+.lastUpdated {
+  color: rgb(0 0 0 / 55%);
+  font-size: 0.85em;
+}
+
+.sectionHeading {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.diagnosticsCard {
+  background: var(--theme-color-components-content-background, #fff);
+}
+
+.preflightResults {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.portList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

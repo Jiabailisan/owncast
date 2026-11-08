@@ -50,6 +50,22 @@ func (l *authFailureLimiter) SetLimit(limit int) {
 	l.limit.Store(int64(limit))
 }
 
+// setClock replaces the time source. It is used by tests to exercise the
+// rate-limit window deterministically; production code never calls it.
+func (l *authFailureLimiter) setClock(now func() time.Time) {
+	if l == nil || now == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.now = now
+}
+
+// limitValue returns the configured limit (for tests and diagnostics).
+func (l *authFailureLimiter) limitValue() int {
+	return int(l.limit.Load())
+}
+
 // Allow reports whether the IP may attempt authentication right now. A nil
 // limiter or a non-positive limit allows everything.
 func (l *authFailureLimiter) Allow(addr netip.Addr) bool {
@@ -85,10 +101,11 @@ func (l *authFailureLimiter) RecordFailure(addr netip.Addr) {
 	}
 
 	addr = addr.Unmap()
-	now := l.now()
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	now := l.now()
 
 	if len(l.entries) >= l.maxTracked {
 		l.evictOldestLocked()

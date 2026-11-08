@@ -3,17 +3,29 @@ package srt
 import (
 	"context"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 )
 
+// fakeClock is a mutex-protected time source so it can be shared between a
+// test goroutine (Advance) and service goroutines (Now) under -race.
 type fakeClock struct {
+	mu  sync.Mutex
 	now time.Time
 }
 
-func (c *fakeClock) Now() time.Time { return c.now }
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
 
-func (c *fakeClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
 
 func newTestLimiter(limit int) (*authFailureLimiter, *fakeClock) {
 	clock := &fakeClock{now: time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)}

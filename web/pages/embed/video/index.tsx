@@ -12,7 +12,7 @@ import {
   appStateAtom,
 } from '../../../components/stores/ClientConfigStore';
 import { Statusbar } from '../../../components/ui/Statusbar/Statusbar';
-import { OwncastPlayer } from '../../../components/video/OwncastPlayer/OwncastPlayer';
+import { PlayerContainer } from '../../../components/video/PlayerContainer';
 import { Theme } from '../../../components/theme/Theme';
 import styles from './VideoEmbed.module.scss';
 import { OfflineEmbed } from '../../../components/ui/OfflineEmbed/OfflineEmbed';
@@ -78,7 +78,7 @@ export default function VideoEmbed() {
           }
         `}
       </style>
-      <OwncastPlayer
+      <PlayerContainer
         source="/hls/stream.m3u8"
         online={online}
         initiallyMuted={initiallyMuted}

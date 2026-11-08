@@ -36,10 +36,12 @@ import (
 	"github.com/owncast/owncast/services/datastore"
 	"github.com/owncast/owncast/services/dispatcher"
 	"github.com/owncast/owncast/services/ingest"
+	"github.com/owncast/owncast/services/livestatus"
 	"github.com/owncast/owncast/services/rtmp"
 	"github.com/owncast/owncast/services/srt"
 	"github.com/owncast/owncast/services/stalefeaturedcheckservice"
 	"github.com/owncast/owncast/services/stream"
+	"github.com/owncast/owncast/services/webrtc"
 	"github.com/owncast/owncast/services/webhooks"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/handlers"
@@ -203,6 +205,17 @@ func main() {
 	streamKeys := ingest.NewStreamKeyValidator(configRepository.GetStreamKeys, cfg.TemporaryStreamKey)
 	sessions := ingest.NewArbiter()
 
+	// WebRTC low-latency delivery. Constructed here (before the stream
+	// service) because the stream lifecycle opens media legs on it; started
+	// after the stream service. It is disabled by default and HLS continues
+	// to work if it fails to start.
+	webRTCSvc := webrtc.New(webrtc.Deps{
+		Config: configRepository.GetWebRTCConfig(),
+		ClientIP: func(r *http.Request) string {
+			return utils.GetIPAddressFromRequest(r)
+		},
+	})
+
 	// Stage 2: ActivityPub helper types (Signer → Builder → Resolver).
 	// Signer is the seed; Builder depends on Signer for actor public-key
 	// embedding; Resolver depends on both for signing outbound IRI
@@ -307,6 +320,7 @@ func main() {
 			stream.NewContextIngestListener(srtSvc),
 		},
 		Sessions:         sessions,
+		WebRTC:           webRTCStreamAdapter{service: webRTCSvc},
 		Activitypub:      apSvc,
 		Webhooks:         webhooksSvc,
 		Chat:             chatSvc,
@@ -326,6 +340,24 @@ func main() {
 		log.Fatalln("failed to start the stream service", err)
 	}
 	defer streamSvc.Stop(ctx)
+
+	// Start WebRTC delivery after the stream service so a startup failure
+	// degrades to HLS-only instead of aborting the server.
+	if err := webRTCSvc.Start(ctx); err != nil {
+		log.Errorln("webrtc delivery did not start; continuing with HLS only:", err)
+	} else {
+		defer func() {
+			if err := webRTCSvc.Stop(context.Background()); err != nil {
+				log.Errorln("webrtc delivery stop:", err)
+			}
+		}()
+	}
+
+	liveStatusSvc := livestatus.New(livestatus.Deps{
+		Stream: streamSvc,
+		WebRTC: webRTCSvc,
+		Config: configRepository,
+	})
 
 	// Background sweep that marks federated peer servers offline when
 	// they stop sending stream-status pings, keeping the
@@ -402,6 +434,8 @@ func main() {
 		Stream:                  streamSvc,
 		Sessions:                sessions,
 		Srt:                     srtSvc,
+		WebRTC:                  webRTCSvc,
+		LiveStatus:              liveStatusSvc,
 		Activitypub:             apSvc,
 		Webhooks:                webhooksSvc,
 		Chat:                    chatSvc,
@@ -469,7 +503,7 @@ func main() {
 	})
 
 	// Stage 10: serve. Blocks until shutdown.
-	if err := router.Start(cfg, *enableVerboseLogging, h, mw, apSvc.Controllers(), pluginContentHandler, pluginAdminHandler, viewerAuthGate); err != nil {
+	if err := router.Start(cfg, *enableVerboseLogging, h, mw, apSvc.Controllers(), pluginContentHandler, pluginAdminHandler, viewerAuthGate, webRTCSvc.Handler()); err != nil {
 		log.Fatalln("failed to start/run the router", err)
 	}
 }

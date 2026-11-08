@@ -65,4 +65,13 @@ const (
 	disableSearchIndexingKey             = "disable_search_indexing"
 	videoServingEndpointKey              = "video_serving_endpoint"
 	faviconPathKey                       = "favicon_path"
+
+	// Phase 1 additions: SRT/WebRTC delivery configuration and the
+	// appearance/output settings that accompany them. All are key/value
+	// settings, so no schema migration is required.
+	srtConfigKey          = "srt_config"
+	webrtcConfigKey       = "webrtc_config"
+	customPlayerPathKey   = "custom_player_path"
+	customFrontendDirKey  = "custom_frontend_dir"
+	outputProcessModelKey = "output_process_model"
 )

@@ -92,6 +92,135 @@ func (e PlaybackClientHealthSource) Valid() bool {
 	}
 }
 
+// Defines values for PortProbeProtocol.
+const (
+	Tcp PortProbeProtocol = "tcp"
+	Udp PortProbeProtocol = "udp"
+)
+
+// Valid indicates whether the value is a known member of the PortProbeProtocol enum.
+func (e PortProbeProtocol) Valid() bool {
+	switch e {
+	case Tcp:
+		return true
+	case Udp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PreflightRequestTarget.
+const (
+	PreflightRequestTargetAll    PreflightRequestTarget = "all"
+	PreflightRequestTargetSrt    PreflightRequestTarget = "srt"
+	PreflightRequestTargetWebrtc PreflightRequestTarget = "webrtc"
+)
+
+// Valid indicates whether the value is a known member of the PreflightRequestTarget enum.
+func (e PreflightRequestTarget) Valid() bool {
+	switch e {
+	case PreflightRequestTargetAll:
+		return true
+	case PreflightRequestTargetSrt:
+		return true
+	case PreflightRequestTargetWebrtc:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SRTListenerStatusState.
+const (
+	Disabled SRTListenerStatusState = "disabled"
+	Failed   SRTListenerStatusState = "failed"
+	Running  SRTListenerStatusState = "running"
+	Stopped  SRTListenerStatusState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the SRTListenerStatusState enum.
+func (e SRTListenerStatusState) Valid() bool {
+	switch e {
+	case Disabled:
+		return true
+	case Failed:
+		return true
+	case Running:
+		return true
+	case Stopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsFieldApplyMode.
+const (
+	Live           SettingsFieldApplyMode = "live"
+	Na             SettingsFieldApplyMode = "n/a"
+	RestartServer  SettingsFieldApplyMode = "restart-server"
+	RestartService SettingsFieldApplyMode = "restart-service"
+	RestartStream  SettingsFieldApplyMode = "restart-stream"
+)
+
+// Valid indicates whether the value is a known member of the SettingsFieldApplyMode enum.
+func (e SettingsFieldApplyMode) Valid() bool {
+	switch e {
+	case Live:
+		return true
+	case Na:
+		return true
+	case RestartServer:
+		return true
+	case RestartService:
+		return true
+	case RestartStream:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsFieldType.
+const (
+	Bool           SettingsFieldType = "bool"
+	CidrList       SettingsFieldType = "cidrList"
+	Enum           SettingsFieldType = "enum"
+	Float          SettingsFieldType = "float"
+	Int            SettingsFieldType = "int"
+	Secret         SettingsFieldType = "secret"
+	String         SettingsFieldType = "string"
+	StringList     SettingsFieldType = "stringList"
+	TurnServerList SettingsFieldType = "turnServerList"
+)
+
+// Valid indicates whether the value is a known member of the SettingsFieldType enum.
+func (e SettingsFieldType) Valid() bool {
+	switch e {
+	case Bool:
+		return true
+	case CidrList:
+		return true
+	case Enum:
+		return true
+	case Float:
+		return true
+	case Int:
+		return true
+	case Secret:
+		return true
+	case String:
+		return true
+	case StringList:
+		return true
+	case TurnServerList:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WebhookEventType.
 const (
 	CHAT                      WebhookEventType = "CHAT"
@@ -163,19 +292,19 @@ func (e ReorderFederatedServerJSONBodyDirection) Valid() bool {
 
 // Defines values for GetUsersParamsStatus.
 const (
-	Active GetUsersParamsStatus = "active"
-	All    GetUsersParamsStatus = "all"
-	Bots   GetUsersParamsStatus = "bots"
+	GetUsersParamsStatusActive GetUsersParamsStatus = "active"
+	GetUsersParamsStatusAll    GetUsersParamsStatus = "all"
+	GetUsersParamsStatusBots   GetUsersParamsStatus = "bots"
 )
 
 // Valid indicates whether the value is a known member of the GetUsersParamsStatus enum.
 func (e GetUsersParamsStatus) Valid() bool {
 	switch e {
-	case Active:
+	case GetUsersParamsStatusActive:
 		return true
-	case All:
+	case GetUsersParamsStatusAll:
 		return true
-	case Bots:
+	case GetUsersParamsStatusBots:
 		return true
 	default:
 		return false
@@ -504,6 +633,16 @@ type ExternalAction struct {
 	Url            *string `json:"url,omitempty"`
 }
 
+// FFmpegCapabilities FFmpeg build capability probe
+type FFmpegCapabilities struct {
+	H264Encoders []string `json:"h264Encoders"`
+	OpusEncoder  bool     `json:"opusEncoder"`
+	Path         string   `json:"path"`
+	SrtProtocol  bool     `json:"srtProtocol"`
+	Version      string   `json:"version"`
+	Warnings     []string `json:"warnings"`
+}
+
 // FederatedAction defines model for FederatedAction.
 type FederatedAction struct {
 	Body      *string `json:"body,omitempty"`
@@ -582,6 +721,12 @@ type FederationConfig struct {
 	Enabled          *bool   `json:"enabled,omitempty"`
 	FollowerCount    *int    `json:"followerCount,omitempty"`
 	HideFollowersTab *bool   `json:"hideFollowersTab,omitempty"`
+}
+
+// FieldError One field-addressed validation failure
+type FieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
 }
 
 // Follower defines model for Follower.
@@ -719,6 +864,12 @@ type PaginatedUsers struct {
 	Total   *int   `json:"total,omitempty"`
 }
 
+// PendingRestart Settings that need a service restart to take effect
+type PendingRestart struct {
+	Fields  []string `json:"fields"`
+	Pending bool     `json:"pending"`
+}
+
 // PlaybackClient A single client currently playing back video, with its most recent playback health.
 type PlaybackClient struct {
 	// ClientID Playback identity of the client. The player-supplied CMCD session ID when it provides one, otherwise the same request-derived identity used for viewers.
@@ -798,6 +949,38 @@ type PlaybackMetrics struct {
 	QualityVariantChanges float64 `json:"qualityVariantChanges"`
 }
 
+// PortProbe Whether one configured port is available to bind
+type PortProbe struct {
+	Available bool              `json:"available"`
+	Port      int               `json:"port"`
+	Protocol  PortProbeProtocol `json:"protocol"`
+}
+
+// PortProbeProtocol defines model for PortProbe.Protocol.
+type PortProbeProtocol string
+
+// PreflightRequest Which checks to run
+type PreflightRequest struct {
+	Target *PreflightRequestTarget `json:"target,omitempty"`
+}
+
+// PreflightRequestTarget defines model for PreflightRequest.Target.
+type PreflightRequestTarget string
+
+// PreflightResponse Result of the FFmpeg and port preflight checks
+type PreflightResponse struct {
+	// Ffmpeg FFmpeg build capability probe
+	Ffmpeg   FFmpegCapabilities `json:"ffmpeg"`
+	Ports    []PortProbe        `json:"ports"`
+	Warnings []PreflightWarning `json:"warnings"`
+}
+
+// PreflightWarning One preflight warning
+type PreflightWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // PublicFederatedServer A public featured Owncast server, ordered by canonical priority.
 type PublicFederatedServer struct {
 	DisplayName       *string   `json:"displayName,omitempty"`
@@ -824,6 +1007,176 @@ type S3Info struct {
 	PathPrefix     *string `json:"pathPrefix,omitempty"`
 	Region         *string `json:"region,omitempty"`
 	Secret         *string `json:"secret,omitempty"`
+}
+
+// SRTActiveSession The currently connected SRT publisher
+type SRTActiveSession struct {
+	DurationSeconds *float32 `json:"durationSeconds,omitempty"`
+	Encrypted       *bool    `json:"encrypted,omitempty"`
+	Id              *string  `json:"id,omitempty"`
+	InputFormat     *string  `json:"inputFormat,omitempty"`
+	PayloadBytes    *int     `json:"payloadBytes,omitempty"`
+	RemoteAddr      *string  `json:"remoteAddr,omitempty"`
+	StartedAt       *string  `json:"startedAt,omitempty"`
+	StreamKeyID     *string  `json:"streamKeyID,omitempty"`
+	Version         *int     `json:"version,omitempty"`
+}
+
+// SRTConfigPublic SRT configuration without any secret value
+type SRTConfigPublic struct {
+	AllowedCIDRs             *[]string `json:"allowedCIDRs,omitempty"`
+	AuthFailureRateLimit     *int      `json:"authFailureRateLimit,omitempty"`
+	BindAddress              *string   `json:"bindAddress,omitempty"`
+	DebugStatsIntervalMs     *int      `json:"debugStatsIntervalMs,omitempty"`
+	DeniedCIDRs              *[]string `json:"deniedCIDRs,omitempty"`
+	DriftTracer              *bool     `json:"driftTracer,omitempty"`
+	Enabled                  *bool     `json:"enabled,omitempty"`
+	EnforcedEncryption       *bool     `json:"enforcedEncryption,omitempty"`
+	FlowControlWindowPackets *int      `json:"flowControlWindowPackets,omitempty"`
+	IpTOS                    *int      `json:"ipTOS,omitempty"`
+	IpTTL                    *int      `json:"ipTTL,omitempty"`
+	LogTopics                *[]string `json:"logTopics,omitempty"`
+	MaxPendingHandshakes     *int      `json:"maxPendingHandshakes,omitempty"`
+	Mss                      *int      `json:"mss,omitempty"`
+
+	// PassphraseSet Whether a passphrase is stored; the value is never returned
+	PassphraseSet     *bool     `json:"passphraseSet,omitempty"`
+	PayloadSize       *int      `json:"payloadSize,omitempty"`
+	PeerIdleTimeoutMs *int      `json:"peerIdleTimeoutMs,omitempty"`
+	PeerLatencyMs     *int      `json:"peerLatencyMs,omitempty"`
+	Port              *int      `json:"port,omitempty"`
+	ReceiverLatencyMs *int      `json:"receiverLatencyMs,omitempty"`
+	RequireStreamId   *bool     `json:"requireStreamId,omitempty"`
+	StreamIdFormats   *[]string `json:"streamIdFormats,omitempty"`
+}
+
+// SRTConfigState Current SRT configuration, defaults and live listener status
+type SRTConfigState struct {
+	// Config SRT configuration without any secret value
+	Config SRTConfigPublic `json:"config"`
+
+	// Defaults SRT configuration without any secret value
+	Defaults SRTConfigPublic `json:"defaults"`
+
+	// Listener Live SRT listener state
+	Listener SRTListenerStatus `json:"listener"`
+
+	// PendingRestart Settings that need a service restart to take effect
+	PendingRestart PendingRestart `json:"pendingRestart"`
+}
+
+// SRTConfigUpdate Partial SRT configuration update; omitted keys keep their values
+type SRTConfigUpdate struct {
+	AllowedCIDRs             *[]string `json:"allowedCIDRs,omitempty"`
+	AuthFailureRateLimit     *int      `json:"authFailureRateLimit,omitempty"`
+	BindAddress              *string   `json:"bindAddress,omitempty"`
+	DebugStatsIntervalMs     *int      `json:"debugStatsIntervalMs,omitempty"`
+	DeniedCIDRs              *[]string `json:"deniedCIDRs,omitempty"`
+	DriftTracer              *bool     `json:"driftTracer,omitempty"`
+	Enabled                  *bool     `json:"enabled,omitempty"`
+	EnforcedEncryption       *bool     `json:"enforcedEncryption,omitempty"`
+	FlowControlWindowPackets *int      `json:"flowControlWindowPackets,omitempty"`
+	IpTOS                    *int      `json:"ipTOS,omitempty"`
+	IpTTL                    *int      `json:"ipTTL,omitempty"`
+	LogTopics                *[]string `json:"logTopics,omitempty"`
+	MaxPendingHandshakes     *int      `json:"maxPendingHandshakes,omitempty"`
+	Mss                      *int      `json:"mss,omitempty"`
+
+	// Passphrase Write-only SRT passphrase; omit to keep, empty to clear
+	Passphrase        *string   `json:"passphrase,omitempty"`
+	PayloadSize       *int      `json:"payloadSize,omitempty"`
+	PeerIdleTimeoutMs *int      `json:"peerIdleTimeoutMs,omitempty"`
+	PeerLatencyMs     *int      `json:"peerLatencyMs,omitempty"`
+	Port              *int      `json:"port,omitempty"`
+	ReceiverLatencyMs *int      `json:"receiverLatencyMs,omitempty"`
+	RequireStreamId   *bool     `json:"requireStreamId,omitempty"`
+	StreamIdFormats   *[]string `json:"streamIdFormats,omitempty"`
+}
+
+// SRTConfigUpdateResponse Result of an SRT configuration update
+type SRTConfigUpdateResponse struct {
+	// Config SRT configuration without any secret value
+	Config SRTConfigPublic `json:"config"`
+
+	// Defaults SRT configuration without any secret value
+	Defaults SRTConfigPublic `json:"defaults"`
+
+	// Listener Live SRT listener state
+	Listener SRTListenerStatus `json:"listener"`
+	Message  *string           `json:"message,omitempty"`
+
+	// PendingRestart Settings that need a service restart to take effect
+	PendingRestart PendingRestart `json:"pendingRestart"`
+	Success        bool           `json:"success"`
+}
+
+// SRTListenerStatus Live SRT listener state
+type SRTListenerStatus struct {
+	ActiveSession  *SRTActiveSession      `json:"activeSession,omitempty"`
+	BoundAddress   string                 `json:"boundAddress"`
+	Enabled        bool                   `json:"enabled"`
+	LastError      string                 `json:"lastError"`
+	Listening      bool                   `json:"listening"`
+	PendingRestart bool                   `json:"pendingRestart"`
+	Port           int                    `json:"port"`
+	State          SRTListenerStatusState `json:"state"`
+}
+
+// SRTListenerStatusState defines model for SRTListenerStatus.State.
+type SRTListenerStatusState string
+
+// SettingsField One persisted setting descriptor
+type SettingsField struct {
+	ApplyMode SettingsFieldApplyMode `json:"applyMode"`
+
+	// Default Default value; its JSON type matches the field type
+	Default     interface{} `json:"default,omitempty"`
+	Description string      `json:"description"`
+	Enum        *[]string   `json:"enum,omitempty"`
+	Group       string      `json:"group"`
+	Key         string      `json:"key"`
+
+	// Label Short human-readable form label; description carries the help text
+	Label    *string           `json:"label,omitempty"`
+	Max      *float32          `json:"max,omitempty"`
+	Min      *float32          `json:"min,omitempty"`
+	ReadOnly bool              `json:"readOnly"`
+	Secret   bool              `json:"secret"`
+	Type     SettingsFieldType `json:"type"`
+	Unit     string            `json:"unit"`
+}
+
+// SettingsFieldApplyMode defines model for SettingsField.ApplyMode.
+type SettingsFieldApplyMode string
+
+// SettingsFieldType defines model for SettingsField.Type.
+type SettingsFieldType string
+
+// SettingsGroup One admin form section
+type SettingsGroup struct {
+	Id    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// SettingsMetadataResponse The settings metadata registry used to generate the admin configuration form
+type SettingsMetadataResponse struct {
+	// Appearance The fields that belong to one settings family
+	Appearance SettingsSection `json:"appearance"`
+	Groups     []SettingsGroup `json:"groups"`
+
+	// Output The fields that belong to one settings family
+	Output SettingsSection `json:"output"`
+
+	// Srt The fields that belong to one settings family
+	Srt SettingsSection `json:"srt"`
+
+	// Webrtc The fields that belong to one settings family
+	Webrtc SettingsSection `json:"webrtc"`
+}
+
+// SettingsSection The fields that belong to one settings family
+type SettingsSection struct {
+	Fields []SettingsField `json:"fields"`
 }
 
 // SocialHandle defines model for SocialHandle.
@@ -877,6 +1230,39 @@ type SystemMessage struct {
 	Id        *string `json:"id,omitempty"`
 	Timestamp *string `json:"timestamp,omitempty"`
 	Type      *string `json:"type,omitempty"`
+}
+
+// TURNServerPublic Viewer-facing TURN server without any secret value
+type TURNServerPublic struct {
+	CredentialSet   *bool   `json:"credentialSet,omitempty"`
+	StaticSecretSet *bool   `json:"staticSecretSet,omitempty"`
+	Url             *string `json:"url,omitempty"`
+	Username        *string `json:"username,omitempty"`
+}
+
+// TURNServerUpdate Viewer-facing TURN server; secrets are write-only
+type TURNServerUpdate struct {
+	// Credential Write-only secret; omitted entries keep their stored value
+	Credential *string `json:"credential,omitempty"`
+
+	// StaticSecret Write-only REST credential secret; omitted entries keep their stored value
+	StaticSecret *string `json:"staticSecret,omitempty"`
+	Url          string  `json:"url"`
+	Username     *string `json:"username,omitempty"`
+}
+
+// TestDomainRequest Domain to resolve
+type TestDomainRequest struct {
+	Domain string `json:"domain"`
+}
+
+// TestDomainResponse Domain resolution and ICE advertisement result
+type TestDomainResponse struct {
+	AdvertisedIPs []string `json:"advertisedIPs"`
+	Domain        string   `json:"domain"`
+	Error         string   `json:"error"`
+	ResolvedIPs   []string `json:"resolvedIPs"`
+	StrictDomain  bool     `json:"strictDomain"`
 }
 
 // TimestampedValue defines model for TimestampedValue.
@@ -941,6 +1327,13 @@ type UserWithDisabledReason struct {
 // Users defines model for Users.
 type Users = []UserWithDisabledReason
 
+// ValidationErrorResponse Validation failure with field-level errors
+type ValidationErrorResponse struct {
+	FieldErrors []FieldError `json:"fieldErrors"`
+	Message     string       `json:"message"`
+	Success     bool         `json:"success"`
+}
+
 // VideoVariant defines model for VideoVariant.
 type VideoVariant struct {
 	Index *int    `json:"index,omitempty"`
@@ -984,6 +1377,154 @@ type WebConfig struct {
 	Summary                   *string             `json:"summary,omitempty"`
 	Tags                      *[]string           `json:"tags,omitempty"`
 	Version                   *string             `json:"version,omitempty"`
+}
+
+// WebRTCCapacity WebRTC viewer capacity snapshot
+type WebRTCCapacity struct {
+	Limit           *int `json:"limit,omitempty"`
+	MaxViewersPerIP *int `json:"maxViewersPerIP,omitempty"`
+	RejectedTotal   *int `json:"rejectedTotal,omitempty"`
+	Reserved        *int `json:"reserved,omitempty"`
+	Used            *int `json:"used,omitempty"`
+}
+
+// WebRTCConfigPublic WebRTC configuration without any secret value
+type WebRTCConfigPublic struct {
+	AllowedOrigins            *[]string           `json:"allowedOrigins,omitempty"`
+	BandwidthEstimation       *bool               `json:"bandwidthEstimation,omitempty"`
+	BindAddress               *string             `json:"bindAddress,omitempty"`
+	Domain                    *string             `json:"domain,omitempty"`
+	EmbeddedTurn              *bool               `json:"embeddedTurn,omitempty"`
+	EmbeddedTurnPort          *int                `json:"embeddedTurnPort,omitempty"`
+	EmbeddedTurnRealm         *string             `json:"embeddedTurnRealm,omitempty"`
+	Enabled                   *bool               `json:"enabled,omitempty"`
+	FallbackToHls             *bool               `json:"fallbackToHls,omitempty"`
+	H264Level                 *string             `json:"h264Level,omitempty"`
+	H264Profile               *string             `json:"h264Profile,omitempty"`
+	IceDisconnectedTimeoutMs  *int                `json:"iceDisconnectedTimeoutMs,omitempty"`
+	IceFailedTimeoutMs        *int                `json:"iceFailedTimeoutMs,omitempty"`
+	IceKeepaliveIntervalMs    *int                `json:"iceKeepaliveIntervalMs,omitempty"`
+	IceLite                   *bool               `json:"iceLite,omitempty"`
+	InterfaceAllow            *[]string           `json:"interfaceAllow,omitempty"`
+	InterfaceDeny             *[]string           `json:"interfaceDeny,omitempty"`
+	KeyframeIntervalSeconds   *float32            `json:"keyframeIntervalSeconds,omitempty"`
+	LimitExceededBehavior     *string             `json:"limitExceededBehavior,omitempty"`
+	MaxBitratePerViewerKbps   *int                `json:"maxBitratePerViewerKbps,omitempty"`
+	MaxViewers                *int                `json:"maxViewers,omitempty"`
+	MaxViewersPerIP           *int                `json:"maxViewersPerIP,omitempty"`
+	Mdns                      *bool               `json:"mdns,omitempty"`
+	MinBitratePerViewerKbps   *int                `json:"minBitratePerViewerKbps,omitempty"`
+	Nack                      *bool               `json:"nack,omitempty"`
+	NetworkTypes              *[]string           `json:"networkTypes,omitempty"`
+	OpusBitrateKbps           *int                `json:"opusBitrateKbps,omitempty"`
+	OpusDTX                   *bool               `json:"opusDTX,omitempty"`
+	OpusFEC                   *bool               `json:"opusFEC,omitempty"`
+	OpusFrameMs               *int                `json:"opusFrameMs,omitempty"`
+	PublicIPs                 *[]string           `json:"publicIPs,omitempty"`
+	RtpPacketSize             *int                `json:"rtpPacketSize,omitempty"`
+	RtpReorderBufferMs        *int                `json:"rtpReorderBufferMs,omitempty"`
+	SessionIdleTimeoutSeconds *int                `json:"sessionIdleTimeoutSeconds,omitempty"`
+	SignalingRateLimit        *int                `json:"signalingRateLimit,omitempty"`
+	StrictDomain              *bool               `json:"strictDomain,omitempty"`
+	StunServers               *[]string           `json:"stunServers,omitempty"`
+	TcpEnabled                *bool               `json:"tcpEnabled,omitempty"`
+	TcpPort                   *int                `json:"tcpPort,omitempty"`
+	TurnServers               *[]TURNServerPublic `json:"turnServers,omitempty"`
+	Twcc                      *bool               `json:"twcc,omitempty"`
+	UdpMode                   *string             `json:"udpMode,omitempty"`
+	UdpPort                   *int                `json:"udpPort,omitempty"`
+	UdpPortMax                *int                `json:"udpPortMax,omitempty"`
+	UdpPortMin                *int                `json:"udpPortMin,omitempty"`
+}
+
+// WebRTCConfigState Current WebRTC configuration, defaults and live service status
+type WebRTCConfigState struct {
+	// Config WebRTC configuration without any secret value
+	Config WebRTCConfigPublic `json:"config"`
+
+	// Defaults WebRTC configuration without any secret value
+	Defaults WebRTCConfigPublic `json:"defaults"`
+
+	// PendingRestart Settings that need a service restart to take effect
+	PendingRestart PendingRestart `json:"pendingRestart"`
+
+	// Service Live WebRTC service state
+	Service WebRTCServiceStatus `json:"service"`
+}
+
+// WebRTCConfigUpdate Partial WebRTC configuration update; omitted keys keep their values
+type WebRTCConfigUpdate struct {
+	AllowedOrigins            *[]string           `json:"allowedOrigins,omitempty"`
+	BandwidthEstimation       *bool               `json:"bandwidthEstimation,omitempty"`
+	BindAddress               *string             `json:"bindAddress,omitempty"`
+	Domain                    *string             `json:"domain,omitempty"`
+	EmbeddedTurn              *bool               `json:"embeddedTurn,omitempty"`
+	EmbeddedTurnPort          *int                `json:"embeddedTurnPort,omitempty"`
+	EmbeddedTurnRealm         *string             `json:"embeddedTurnRealm,omitempty"`
+	Enabled                   *bool               `json:"enabled,omitempty"`
+	FallbackToHls             *bool               `json:"fallbackToHls,omitempty"`
+	H264Level                 *string             `json:"h264Level,omitempty"`
+	H264Profile               *string             `json:"h264Profile,omitempty"`
+	IceDisconnectedTimeoutMs  *int                `json:"iceDisconnectedTimeoutMs,omitempty"`
+	IceFailedTimeoutMs        *int                `json:"iceFailedTimeoutMs,omitempty"`
+	IceKeepaliveIntervalMs    *int                `json:"iceKeepaliveIntervalMs,omitempty"`
+	IceLite                   *bool               `json:"iceLite,omitempty"`
+	InterfaceAllow            *[]string           `json:"interfaceAllow,omitempty"`
+	InterfaceDeny             *[]string           `json:"interfaceDeny,omitempty"`
+	KeyframeIntervalSeconds   *float32            `json:"keyframeIntervalSeconds,omitempty"`
+	LimitExceededBehavior     *string             `json:"limitExceededBehavior,omitempty"`
+	MaxBitratePerViewerKbps   *int                `json:"maxBitratePerViewerKbps,omitempty"`
+	MaxViewers                *int                `json:"maxViewers,omitempty"`
+	MaxViewersPerIP           *int                `json:"maxViewersPerIP,omitempty"`
+	Mdns                      *bool               `json:"mdns,omitempty"`
+	MinBitratePerViewerKbps   *int                `json:"minBitratePerViewerKbps,omitempty"`
+	Nack                      *bool               `json:"nack,omitempty"`
+	NetworkTypes              *[]string           `json:"networkTypes,omitempty"`
+	OpusBitrateKbps           *int                `json:"opusBitrateKbps,omitempty"`
+	OpusFrameMs               *int                `json:"opusFrameMs,omitempty"`
+	PublicIPs                 *[]string           `json:"publicIPs,omitempty"`
+	RtpPacketSize             *int                `json:"rtpPacketSize,omitempty"`
+	RtpReorderBufferMs        *int                `json:"rtpReorderBufferMs,omitempty"`
+	SessionIdleTimeoutSeconds *int                `json:"sessionIdleTimeoutSeconds,omitempty"`
+	SignalingRateLimit        *int                `json:"signalingRateLimit,omitempty"`
+	StrictDomain              *bool               `json:"strictDomain,omitempty"`
+	StunServers               *[]string           `json:"stunServers,omitempty"`
+	TcpEnabled                *bool               `json:"tcpEnabled,omitempty"`
+	TcpPort                   *int                `json:"tcpPort,omitempty"`
+	TurnServers               *[]TURNServerUpdate `json:"turnServers,omitempty"`
+	Twcc                      *bool               `json:"twcc,omitempty"`
+	UdpMode                   *string             `json:"udpMode,omitempty"`
+	UdpPort                   *int                `json:"udpPort,omitempty"`
+	UdpPortMax                *int                `json:"udpPortMax,omitempty"`
+	UdpPortMin                *int                `json:"udpPortMin,omitempty"`
+}
+
+// WebRTCConfigUpdateResponse Result of a WebRTC configuration update
+type WebRTCConfigUpdateResponse struct {
+	// Config WebRTC configuration without any secret value
+	Config WebRTCConfigPublic `json:"config"`
+
+	// Defaults WebRTC configuration without any secret value
+	Defaults WebRTCConfigPublic `json:"defaults"`
+	Message  *string            `json:"message,omitempty"`
+
+	// PendingRestart Settings that need a service restart to take effect
+	PendingRestart PendingRestart `json:"pendingRestart"`
+
+	// Service Live WebRTC service state
+	Service WebRTCServiceStatus `json:"service"`
+	Success bool                `json:"success"`
+}
+
+// WebRTCServiceStatus Live WebRTC service state
+type WebRTCServiceStatus struct {
+	ActiveSessions int `json:"activeSessions"`
+
+	// Capacity WebRTC viewer capacity snapshot
+	Capacity         WebRTCCapacity `json:"capacity"`
+	Enabled          bool           `json:"enabled"`
+	ListeningAddress *string        `json:"listeningAddress,omitempty"`
+	Warnings         []string       `json:"warnings"`
 }
 
 // Webhook defines model for Webhook.
@@ -1456,6 +1997,9 @@ type SetCustomOfflineMessageJSONRequestBody = AdminConfigValue
 // SetExtraPageContentJSONRequestBody defines body for SetExtraPageContent for application/json ContentType.
 type SetExtraPageContentJSONRequestBody = AdminConfigValue
 
+// RunConfigPreflightJSONRequestBody defines body for RunConfigPreflight for application/json ContentType.
+type RunConfigPreflightJSONRequestBody = PreflightRequest
+
 // SetRTMPServerBindAddressJSONRequestBody defines body for SetRTMPServerBindAddress for application/json ContentType.
 type SetRTMPServerBindAddressJSONRequestBody = AdminConfigValue
 
@@ -1477,6 +2021,9 @@ type SetSocialHandlesJSONRequestBody SetSocialHandlesJSONBody
 // SetSocketHostOverrideJSONRequestBody defines body for SetSocketHostOverride for application/json ContentType.
 type SetSocketHostOverrideJSONRequestBody = AdminConfigValue
 
+// UpdateSRTConfigJSONRequestBody defines body for UpdateSRTConfig for application/json ContentType.
+type UpdateSRTConfigJSONRequestBody = SRTConfigUpdate
+
 // SetStreamKeysJSONRequestBody defines body for SetStreamKeys for application/json ContentType.
 type SetStreamKeysJSONRequestBody SetStreamKeysJSONBody
 
@@ -1497,6 +2044,12 @@ type SetStreamOutputVariantsJSONRequestBody SetStreamOutputVariantsJSONBody
 
 // SetVideoServingEndpointJSONRequestBody defines body for SetVideoServingEndpoint for application/json ContentType.
 type SetVideoServingEndpointJSONRequestBody = AdminConfigValue
+
+// UpdateWebRTCConfigJSONRequestBody defines body for UpdateWebRTCConfig for application/json ContentType.
+type UpdateWebRTCConfigJSONRequestBody = WebRTCConfigUpdate
+
+// TestWebRTCDomainJSONRequestBody defines body for TestWebRTCDomain for application/json ContentType.
+type TestWebRTCDomainJSONRequestBody = TestDomainRequest
 
 // SetWebServerIPJSONRequestBody defines body for SetWebServerIP for application/json ContentType.
 type SetWebServerIPJSONRequestBody = AdminConfigValue

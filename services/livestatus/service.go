@@ -5,6 +5,7 @@
 package livestatus
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,8 @@ type WebRTCProvider interface {
 	// LiveViewers returns one row per active WHEP viewer. Nullable metrics
 	// stay nil when the server cannot measure them.
 	LiveViewers() []models.LiveViewer
+	// Warnings returns operator-visible configuration/runtime warnings.
+	Warnings() []string
 }
 
 // GeoIPProvider reports the state of the optional offline GeoIP database.
@@ -72,7 +75,7 @@ func (s *Service) Status() models.LiveStatus {
 			Processes:    []models.FFmpegProcessStatus{},
 		},
 		WebRTC: models.WebRTCStatus{
-			Warnings: []string{},
+			Warnings: []models.StatusWarning{},
 		},
 		GeoIP: models.GeoIPStatus{},
 	}
@@ -119,13 +122,22 @@ func (s *Service) Status() models.LiveStatus {
 		HLS:    hlsViewers,
 	}
 
+	webrtcWarnings := []models.StatusWarning{}
+	if s.webrtc != nil {
+		for index, warning := range s.webrtc.Warnings() {
+			webrtcWarnings = append(webrtcWarnings, models.StatusWarning{
+				Code:    fmt.Sprintf("webrtc_warning_%d", index),
+				Message: warning,
+			})
+		}
+	}
 	status.WebRTC = models.WebRTCStatus{
 		Enabled: webrtcConfig.Enabled,
 		Capacity: models.WebRTCCapacity{
 			Used:  webrtcViewers,
 			Limit: webrtcConfig.MaxViewers,
 		},
-		Warnings: []string{},
+		Warnings: webrtcWarnings,
 	}
 
 	if s.geoIP != nil {

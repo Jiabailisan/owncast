@@ -85,6 +85,36 @@ export function formatUAstring(uaString: string) {
   ${deviceString}`;
 }
 
+// formatMetricNumber renders a nullable measurable value. The admin live
+// status UI must show N/A rather than an estimate whenever a value is unknown;
+// this is the single formatting primitive for that rule.
+export function formatMetricNumber(value: number | null | undefined, digits = 0): string {
+  if (value === null || value === undefined || Number.isFinite(value) === false) return 'N/A';
+  return value.toFixed(digits);
+}
+
+export function formatMetricPercent(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isFinite(value) === false) return 'N/A';
+  return value.toFixed(digits) + '%';
+}
+
+export function formatMetricKbps(value: number | null | undefined, digits = 0): string {
+  if (value === null || value === undefined || Number.isFinite(value) === false) return 'N/A';
+  return value.toFixed(digits) + ' kbps';
+}
+
+export function formatBytes(bytes: number | null | undefined, digits = 1): string {
+  if (bytes === null || bytes === undefined || Number.isFinite(bytes) === false) return 'N/A';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = Math.abs(bytes);
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return value.toFixed(unitIndex === 0 ? 0 : digits) + ' ' + units[unitIndex];
+}
+
 // formatLinkHostname reduces an absolute URL to its hostname for use as
 // compact link text (e.g. "https://github.com/x/y" -> "github.com").
 // Falls back to the raw string when it doesn't parse, so a malformed

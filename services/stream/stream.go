@@ -162,17 +162,27 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	s.setCurrentSession(session)
 	s.StreamConnected(broadcast)
 
+	// Prepare WebRTC delivery first: the transcoder plan includes the RTP
+	// legs for the variants WebRTC exposes.
+	rtpOutputs := s.configureWebRTC(broadcast.OutputSettings)
+
 	segmentPath := config.HLSStoragePath
 
 	go func() {
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
+		purpose := []string{"hls"}
+		if len(rtpOutputs) > 0 {
+			purpose = append(purpose, "webrtc")
+		}
+		tr.SetPurpose(purpose)
 		tr.TranscoderCompleted = func(err error) {
 			s.StreamDisconnected(err)
-			s.transcoder = nil
+			s.setTranscoder(nil)
 		}
 		tr.SetStdin(session.Reader())
 		tr.SetInputFormat(session.InputFormat())
-		s.transcoder = tr
+		tr.SetRTPOutputs(rtpOutputs)
+		s.setTranscoder(tr)
 		tr.Start(true)
 	}()
 
@@ -287,6 +297,7 @@ func (s *Service) applyStreamOffline() {
 	if s.sessions != nil {
 		s.sessions.DisconnectCurrent(errStreamOffline)
 	}
+	s.closeWebRTC()
 	s.setCurrentSession(nil)
 
 	if s.yp != nil {

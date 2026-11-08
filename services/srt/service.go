@@ -297,6 +297,19 @@ func (s *Service) applyConfigLocked(cfg models.SRTConfig) error {
 	listenerChanged := listenerSettingsChanged(currentCfg, cfg)
 	active := hasActiveSession(s)
 
+	// Live-only changes never require a rebind: swap the runtime snapshot and
+	// keep the listener (and any connected publisher) untouched.
+	if !listenerChanged {
+		if err := s.applyRuntime(cfg, cfg.Passphrase); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.cfg = cfg
+		s.pendingCfg = nil
+		s.mu.Unlock()
+		return nil
+	}
+
 	if listenerChanged && currentState == StateRunning && active {
 		// Keep the bound listener (and its passphrase) consistent until the
 		// publisher disconnects; live settings still take effect immediately.

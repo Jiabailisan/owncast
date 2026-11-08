@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS Next config. */
 const withBundleAnalyzer = require('@next/bundle-analyzer');
 const { PHASE_DEVELOPMENT_SERVER } = require('next/constants');
 
@@ -61,6 +62,16 @@ async function rewrites() {
       {
         source: '/customjavascript',
         destination: `${BACKEND}/customjavascript`,
+      },
+      // WHEP signaling and the custom-player module are served by the Go
+      // backend in production; proxy them in dev so the viewer works at :3000.
+      {
+        source: '/webrtc/:path*',
+        destination: `${BACKEND}/webrtc/:path*`,
+      },
+      {
+        source: '/custom-player/:path*',
+        destination: `${BACKEND}/custom-player/:path*`,
       },
       {
         source: '/favicon.ico',

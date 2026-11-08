@@ -406,6 +406,254 @@ paths:
       responses:
         '204':
           $ref: '#/components/responses/204'
+  /admin/config/settings-metadata:
+    get:
+      summary: Get the settings metadata registry
+      description: >-
+        Returns the single source of truth for the SRT, WebRTC, appearance and
+        output settings: groups, field types, defaults, ranges, enums, units,
+        descriptions, secret flags, apply modes and read-only flags. The admin
+        configuration form is generated from this payload.
+      operationId: GetSettingsMetadata
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: The settings metadata registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsMetadataResponse'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        default:
+          $ref: '#/components/responses/Default'
+    options:
+      operationId: GetSettingsMetadataOptions
+      x-internal: true
+      tags: ['Objects', 'Internal', 'Admin']
+      responses:
+        '204':
+          $ref: '#/components/responses/204'
+  /admin/config/srt:
+    get:
+      summary: Get the SRT ingest configuration
+      description: >-
+        Returns the current SRT configuration, the model defaults, the pending
+        restart state and the live listener status. Secrets are returned as
+        write-only set booleans.
+      operationId: GetSRTConfig
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: The SRT configuration state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SRTConfigState'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        default:
+          $ref: '#/components/responses/Default'
+    put:
+      summary: Update the SRT ingest configuration
+      description: >-
+        Validates and applies a partial SRT configuration update and persists
+        it. Omitted keys keep their current values; an omitted passphrase keeps
+        the stored value and an empty passphrase clears it. Returns field-level
+        errors on validation failure and 409 when the listener cannot be
+        rebound, in which case the previous configuration stays active.
+      operationId: UpdateSRTConfig
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SRTConfigUpdate'
+      responses:
+        '200':
+          description: The updated SRT configuration state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SRTConfigUpdateResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        '409':
+          description: The listener could not be rebound; previous config kept
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseAPIResponse'
+        default:
+          $ref: '#/components/responses/Default'
+    options:
+      operationId: UpdateSRTConfigOptions
+      x-internal: true
+      tags: ['Objects', 'Internal', 'Admin']
+      responses:
+        '204':
+          $ref: '#/components/responses/204'
+  /admin/config/webrtc:
+    get:
+      summary: Get the WebRTC configuration
+      description: >-
+        Returns the current WebRTC configuration, the model defaults, the
+        pending restart state and the live service status. TURN credentials are
+        returned as write-only set booleans.
+      operationId: GetWebRTCConfig
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: The WebRTC configuration state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebRTCConfigState'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        default:
+          $ref: '#/components/responses/Default'
+    put:
+      summary: Update the WebRTC configuration
+      description: >-
+        Validates and applies a partial WebRTC configuration update and persists
+        it. Omitted keys keep their current values; omitted TURN credentials keep
+        the stored value. Live settings are applied immediately; settings that
+        need a service restart are reported in pendingRestart.
+      operationId: UpdateWebRTCConfig
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebRTCConfigUpdate'
+      responses:
+        '200':
+          description: The updated WebRTC configuration state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebRTCConfigUpdateResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        '409':
+          description: The service could not be started; previous config kept
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseAPIResponse'
+        default:
+          $ref: '#/components/responses/Default'
+    options:
+      operationId: UpdateWebRTCConfigOptions
+      x-internal: true
+      tags: ['Objects', 'Internal', 'Admin']
+      responses:
+        '204':
+          $ref: '#/components/responses/204'
+  /admin/config/preflight:
+    post:
+      summary: Run FFmpeg capability and port availability checks
+      description: >-
+        Probes the configured FFmpeg binary (version, H.264 encoders, libopus
+        and SRT protocol support) and the configured SRT/WebRTC ports. Used by
+        the admin Live Streaming page before enabling the new services.
+      operationId: RunConfigPreflight
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreflightRequest'
+      responses:
+        '200':
+          description: Preflight results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreflightResponse'
+        '400':
+          description: Invalid preflight target
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        default:
+          $ref: '#/components/responses/Default'
+    options:
+      operationId: RunConfigPreflightOptions
+      x-internal: true
+      tags: ['Objects', 'Internal', 'Admin']
+      responses:
+        '204':
+          $ref: '#/components/responses/204'
+  /admin/config/webrtc/test-domain:
+    post:
+      summary: Test the configured WebRTC domain
+      description: >-
+        Resolves the given domain to IP addresses and reports which addresses
+        would be advertised as ICE candidates, so an operator can verify DNS,
+        NAT and the publicIPs override before going live.
+      operationId: TestWebRTCDomain
+      tags: ['Internal', 'Admin']
+      security:
+        - BasicAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestDomainRequest'
+      responses:
+        '200':
+          description: Domain resolution results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestDomainResponse'
+        '400':
+          description: Invalid domain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          $ref: '#/components/responses/401BasicAuth'
+        default:
+          $ref: '#/components/responses/Default'
+    options:
+      operationId: TestWebRTCDomainOptions
+      x-internal: true
+      tags: ['Objects', 'Internal', 'Admin']
+      responses:
+        '204':
+          $ref: '#/components/responses/204'
+
   /admin/serverconfig:
     get:
       summary: Get the current server config
@@ -3971,6 +4219,691 @@ components:
           type: string
         success:
           type: boolean
+    SettingsMetadataResponse:
+      type: object
+      description: The settings metadata registry used to generate the admin configuration form
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettingsGroup'
+        srt:
+          $ref: '#/components/schemas/SettingsSection'
+        webrtc:
+          $ref: '#/components/schemas/SettingsSection'
+        appearance:
+          $ref: '#/components/schemas/SettingsSection'
+        output:
+          $ref: '#/components/schemas/SettingsSection'
+      required: [groups, srt, webrtc, appearance, output]
+    SettingsGroup:
+      type: object
+      description: One admin form section
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+      required: [id, label]
+    SettingsSection:
+      type: object
+      description: The fields that belong to one settings family
+      properties:
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettingsField'
+      required: [fields]
+    SettingsField:
+      type: object
+      description: One persisted setting descriptor
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+          description: Short human-readable form label; description carries the help text
+        group:
+          type: string
+        type:
+          type: string
+          enum: [bool, int, float, string, stringList, enum, cidrList, secret, turnServerList]
+        default:
+          description: Default value; its JSON type matches the field type
+        min:
+          type: ['number', 'null']
+        max:
+          type: ['number', 'null']
+        enum:
+          type: ['array', 'null']
+          items:
+            type: string
+        unit:
+          type: string
+        description:
+          type: string
+        secret:
+          type: boolean
+        applyMode:
+          type: string
+          enum: [live, restart-service, restart-stream, restart-server, n/a]
+        readOnly:
+          type: boolean
+      required: [key, group, type, description, unit, secret, applyMode, readOnly]
+    FieldError:
+      type: object
+      description: One field-addressed validation failure
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+      required: [field, message]
+    ValidationErrorResponse:
+      type: object
+      description: Validation failure with field-level errors
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        fieldErrors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+      required: [success, message, fieldErrors]
+    PendingRestart:
+      type: object
+      description: Settings that need a service restart to take effect
+      properties:
+        pending:
+          type: boolean
+        fields:
+          type: array
+          items:
+            type: string
+      required: [pending, fields]
+    SRTConfigPublic:
+      type: object
+      description: SRT configuration without any secret value
+      properties:
+        enabled:
+          type: boolean
+        bindAddress:
+          type: string
+        port:
+          type: integer
+        streamIdFormats:
+          type: array
+          items:
+            type: string
+        requireStreamId:
+          type: boolean
+        allowedCIDRs:
+          type: array
+          items:
+            type: string
+        deniedCIDRs:
+          type: array
+          items:
+            type: string
+        authFailureRateLimit:
+          type: integer
+        receiverLatencyMs:
+          type: integer
+        peerLatencyMs:
+          type: integer
+        flowControlWindowPackets:
+          type: integer
+        mss:
+          type: integer
+        payloadSize:
+          type: integer
+        enforcedEncryption:
+          type: boolean
+        peerIdleTimeoutMs:
+          type: integer
+        ipTTL:
+          type: integer
+        ipTOS:
+          type: integer
+        logTopics:
+          type: array
+          items:
+            type: string
+        debugStatsIntervalMs:
+          type: integer
+        driftTracer:
+          type: boolean
+        maxPendingHandshakes:
+          type: integer
+        passphraseSet:
+          type: boolean
+          description: Whether a passphrase is stored; the value is never returned
+    SRTConfigUpdate:
+      type: object
+      description: Partial SRT configuration update; omitted keys keep their values
+      properties:
+        enabled:
+          type: boolean
+        bindAddress:
+          type: string
+        port:
+          type: integer
+        streamIdFormats:
+          type: array
+          items:
+            type: string
+        requireStreamId:
+          type: boolean
+        allowedCIDRs:
+          type: array
+          items:
+            type: string
+        deniedCIDRs:
+          type: array
+          items:
+            type: string
+        authFailureRateLimit:
+          type: integer
+        receiverLatencyMs:
+          type: integer
+        peerLatencyMs:
+          type: integer
+        flowControlWindowPackets:
+          type: integer
+        mss:
+          type: integer
+        payloadSize:
+          type: integer
+        passphrase:
+          type: string
+          description: Write-only SRT passphrase; omit to keep, empty to clear
+        enforcedEncryption:
+          type: boolean
+        peerIdleTimeoutMs:
+          type: integer
+        ipTTL:
+          type: integer
+        ipTOS:
+          type: integer
+        logTopics:
+          type: array
+          items:
+            type: string
+        debugStatsIntervalMs:
+          type: integer
+        driftTracer:
+          type: boolean
+        maxPendingHandshakes:
+          type: integer
+    SRTActiveSession:
+      type: object
+      description: The currently connected SRT publisher
+      properties:
+        id:
+          type: string
+        remoteAddr:
+          type: string
+        streamKeyID:
+          type: string
+        inputFormat:
+          type: string
+        startedAt:
+          type: string
+        durationSeconds:
+          type: number
+        payloadBytes:
+          type: integer
+        version:
+          type: integer
+        encrypted:
+          type: boolean
+    SRTListenerStatus:
+      type: object
+      description: Live SRT listener state
+      properties:
+        enabled:
+          type: boolean
+        state:
+          type: string
+          enum: [stopped, disabled, running, failed]
+        listening:
+          type: boolean
+        port:
+          type: integer
+        boundAddress:
+          type: string
+        lastError:
+          type: string
+        pendingRestart:
+          type: boolean
+        activeSession:
+          oneOf:
+            - $ref: '#/components/schemas/SRTActiveSession'
+            - type: 'null'
+      required: [enabled, state, listening, port, boundAddress, lastError, pendingRestart]
+    SRTConfigState:
+      type: object
+      description: Current SRT configuration, defaults and live listener status
+      properties:
+        config:
+          $ref: '#/components/schemas/SRTConfigPublic'
+        defaults:
+          $ref: '#/components/schemas/SRTConfigPublic'
+        pendingRestart:
+          $ref: '#/components/schemas/PendingRestart'
+        listener:
+          $ref: '#/components/schemas/SRTListenerStatus'
+      required: [config, defaults, pendingRestart, listener]
+    SRTConfigUpdateResponse:
+      type: object
+      description: Result of an SRT configuration update
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        config:
+          $ref: '#/components/schemas/SRTConfigPublic'
+        defaults:
+          $ref: '#/components/schemas/SRTConfigPublic'
+        pendingRestart:
+          $ref: '#/components/schemas/PendingRestart'
+        listener:
+          $ref: '#/components/schemas/SRTListenerStatus'
+      required: [success, config, defaults, pendingRestart, listener]
+    TURNServerPublic:
+      type: object
+      description: Viewer-facing TURN server without any secret value
+      properties:
+        url:
+          type: string
+        username:
+          type: string
+        credentialSet:
+          type: boolean
+        staticSecretSet:
+          type: boolean
+    WebRTCCapacity:
+      type: object
+      description: WebRTC viewer capacity snapshot
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        reserved:
+          type: integer
+        maxViewersPerIP:
+          type: integer
+        rejectedTotal:
+          type: integer
+    WebRTCServiceStatus:
+      type: object
+      description: Live WebRTC service state
+      properties:
+        enabled:
+          type: boolean
+        listeningAddress:
+          type: string
+        activeSessions:
+          type: integer
+        capacity:
+          $ref: '#/components/schemas/WebRTCCapacity'
+        warnings:
+          type: array
+          items:
+            type: string
+      required: [enabled, activeSessions, capacity, warnings]
+    WebRTCConfigPublic:
+      type: object
+      description: WebRTC configuration without any secret value
+      properties:
+        enabled:
+          type: boolean
+        fallbackToHls:
+          type: boolean
+        domain:
+          type: string
+        publicIPs:
+          type: array
+          items:
+            type: string
+        strictDomain:
+          type: boolean
+        allowedOrigins:
+          type: array
+          items:
+            type: string
+        maxViewers:
+          type: integer
+        maxViewersPerIP:
+          type: integer
+        signalingRateLimit:
+          type: integer
+        limitExceededBehavior:
+          type: string
+        sessionIdleTimeoutSeconds:
+          type: integer
+        bindAddress:
+          type: string
+        udpMode:
+          type: string
+        udpPort:
+          type: integer
+        udpPortMin:
+          type: integer
+        udpPortMax:
+          type: integer
+        tcpEnabled:
+          type: boolean
+        tcpPort:
+          type: integer
+        networkTypes:
+          type: array
+          items:
+            type: string
+        interfaceAllow:
+          type: array
+          items:
+            type: string
+        interfaceDeny:
+          type: array
+          items:
+            type: string
+        mdns:
+          type: boolean
+        stunServers:
+          type: array
+          items:
+            type: string
+        turnServers:
+          type: array
+          items:
+            $ref: '#/components/schemas/TURNServerPublic'
+        embeddedTurn:
+          type: boolean
+        embeddedTurnPort:
+          type: integer
+        embeddedTurnRealm:
+          type: string
+        iceLite:
+          type: boolean
+        iceDisconnectedTimeoutMs:
+          type: integer
+        iceFailedTimeoutMs:
+          type: integer
+        iceKeepaliveIntervalMs:
+          type: integer
+        h264Profile:
+          type: string
+        h264Level:
+          type: string
+        keyframeIntervalSeconds:
+          type: number
+        opusBitrateKbps:
+          type: integer
+        opusFrameMs:
+          type: integer
+        opusFEC:
+          type: boolean
+        opusDTX:
+          type: boolean
+        rtpPacketSize:
+          type: integer
+        nack:
+          type: boolean
+        twcc:
+          type: boolean
+        bandwidthEstimation:
+          type: boolean
+        maxBitratePerViewerKbps:
+          type: integer
+        minBitratePerViewerKbps:
+          type: integer
+        rtpReorderBufferMs:
+          type: integer
+    WebRTCConfigUpdate:
+      type: object
+      description: Partial WebRTC configuration update; omitted keys keep their values
+      properties:
+        enabled:
+          type: boolean
+        fallbackToHls:
+          type: boolean
+        domain:
+          type: string
+        publicIPs:
+          type: array
+          items:
+            type: string
+        strictDomain:
+          type: boolean
+        allowedOrigins:
+          type: array
+          items:
+            type: string
+        maxViewers:
+          type: integer
+        maxViewersPerIP:
+          type: integer
+        signalingRateLimit:
+          type: integer
+        limitExceededBehavior:
+          type: string
+        sessionIdleTimeoutSeconds:
+          type: integer
+        bindAddress:
+          type: string
+        udpMode:
+          type: string
+        udpPort:
+          type: integer
+        udpPortMin:
+          type: integer
+        udpPortMax:
+          type: integer
+        tcpEnabled:
+          type: boolean
+        tcpPort:
+          type: integer
+        networkTypes:
+          type: array
+          items:
+            type: string
+        interfaceAllow:
+          type: array
+          items:
+            type: string
+        interfaceDeny:
+          type: array
+          items:
+            type: string
+        mdns:
+          type: boolean
+        stunServers:
+          type: array
+          items:
+            type: string
+        turnServers:
+          type: array
+          items:
+            $ref: '#/components/schemas/TURNServerUpdate'
+        embeddedTurn:
+          type: boolean
+        embeddedTurnPort:
+          type: integer
+        embeddedTurnRealm:
+          type: string
+        iceLite:
+          type: boolean
+        iceDisconnectedTimeoutMs:
+          type: integer
+        iceFailedTimeoutMs:
+          type: integer
+        iceKeepaliveIntervalMs:
+          type: integer
+        h264Profile:
+          type: string
+        h264Level:
+          type: string
+        keyframeIntervalSeconds:
+          type: number
+        opusBitrateKbps:
+          type: integer
+        opusFrameMs:
+          type: integer
+        rtpPacketSize:
+          type: integer
+        nack:
+          type: boolean
+        twcc:
+          type: boolean
+        bandwidthEstimation:
+          type: boolean
+        maxBitratePerViewerKbps:
+          type: integer
+        minBitratePerViewerKbps:
+          type: integer
+        rtpReorderBufferMs:
+          type: integer
+    TURNServerUpdate:
+      type: object
+      description: Viewer-facing TURN server; secrets are write-only
+      properties:
+        url:
+          type: string
+        username:
+          type: string
+        credential:
+          type: string
+          description: Write-only secret; omitted entries keep their stored value
+        staticSecret:
+          type: string
+          description: Write-only REST credential secret; omitted entries keep their stored value
+      required: [url]
+    WebRTCConfigState:
+      type: object
+      description: Current WebRTC configuration, defaults and live service status
+      properties:
+        config:
+          $ref: '#/components/schemas/WebRTCConfigPublic'
+        defaults:
+          $ref: '#/components/schemas/WebRTCConfigPublic'
+        pendingRestart:
+          $ref: '#/components/schemas/PendingRestart'
+        service:
+          $ref: '#/components/schemas/WebRTCServiceStatus'
+      required: [config, defaults, pendingRestart, service]
+    WebRTCConfigUpdateResponse:
+      type: object
+      description: Result of a WebRTC configuration update
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        config:
+          $ref: '#/components/schemas/WebRTCConfigPublic'
+        defaults:
+          $ref: '#/components/schemas/WebRTCConfigPublic'
+        pendingRestart:
+          $ref: '#/components/schemas/PendingRestart'
+        service:
+          $ref: '#/components/schemas/WebRTCServiceStatus'
+      required: [success, config, defaults, pendingRestart, service]
+    PreflightRequest:
+      type: object
+      description: Which checks to run
+      properties:
+        target:
+          type: string
+          enum: [all, srt, webrtc]
+    FFmpegCapabilities:
+      type: object
+      description: FFmpeg build capability probe
+      properties:
+        path:
+          type: string
+        version:
+          type: string
+        h264Encoders:
+          type: array
+          items:
+            type: string
+        opusEncoder:
+          type: boolean
+        srtProtocol:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+      required: [path, version, h264Encoders, opusEncoder, srtProtocol, warnings]
+    PortProbe:
+      type: object
+      description: Whether one configured port is available to bind
+      properties:
+        protocol:
+          type: string
+          enum: [udp, tcp]
+        port:
+          type: integer
+        available:
+          type: boolean
+      required: [protocol, port, available]
+    PreflightWarning:
+      type: object
+      description: One preflight warning
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+      required: [code, message]
+    PreflightResponse:
+      type: object
+      description: Result of the FFmpeg and port preflight checks
+      properties:
+        ffmpeg:
+          $ref: '#/components/schemas/FFmpegCapabilities'
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortProbe'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreflightWarning'
+      required: [ffmpeg, ports, warnings]
+    TestDomainRequest:
+      type: object
+      description: Domain to resolve
+      properties:
+        domain:
+          type: string
+      required: [domain]
+    TestDomainResponse:
+      type: object
+      description: Domain resolution and ICE advertisement result
+      properties:
+        domain:
+          type: string
+        resolvedIPs:
+          type: array
+          items:
+            type: string
+        advertisedIPs:
+          type: array
+          items:
+            type: string
+        strictDomain:
+          type: boolean
+        error:
+          type: string
+      required: [domain, resolvedIPs, advertisedIPs, strictDomain, error]
+
     Status:
       type: object
       description: Response for status

@@ -2,6 +2,8 @@ package stream
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -9,16 +11,22 @@ import (
 	"github.com/owncast/owncast/services/ingest"
 )
 
+// contextIngestStopTimeout bounds how long engine shutdown waits for an ingest
+// listener to stop, so a wedged media handler cannot hang server shutdown.
+const contextIngestStopTimeout = 5 * time.Second
+
 // ContextIngestService is the lifecycle shape of ingest services that own a
-// context and a session handler (the SRT service). The RTMP service satisfies
-// IngestListener directly; SRT is adapted through ContextIngestListener so both
-// are started identically by the local engine.
+// context and deliver accepted sessions to a handler configured on the service
+// (the SRT service). The RTMP service satisfies IngestListener directly; SRT is
+// adapted through ContextIngestListener so both are started identically by the
+// local engine.
 type ContextIngestService interface {
-	// Start binds the listener and blocks until the context is cancelled or
-	// the service stops. Accepted sessions are delivered to the handler
-	// configured on the service (see the SRT Deps.Handler).
+	// Start binds the listener and starts its accept loop. It returns once the
+	// listener is running (not when it shuts down); the loop is owned by the
+	// service. Accepted sessions are delivered to the handler configured on
+	// the service (see the SRT Deps.Handler).
 	Start(ctx context.Context) error
-	// Stop tears the listener down.
+	// Stop tears the listener down and waits for its goroutines.
 	Stop(ctx context.Context) error
 	// Disconnect force-disconnects the current publisher.
 	Disconnect() bool
@@ -29,7 +37,7 @@ type ContextIngestService interface {
 type ContextIngestListener struct {
 	service ContextIngestService
 
-	ctx    context.Context
+	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
@@ -39,12 +47,15 @@ func NewContextIngestListener(service ContextIngestService) *ContextIngestListen
 }
 
 // Start implements IngestListener.
-func (l *ContextIngestListener) Start(onConnect func(ingest.Session), _ func(models.Broadcaster)) {
+func (l *ContextIngestListener) Start(_ func(ingest.Session), _ func(models.Broadcaster)) {
+	// Sessions are handed to the handler configured on the service itself; the
+	// engine-wide onConnect callback is not used by protocol services that own
+	// their handler (SRT).
 	ctx, cancel := context.WithCancel(context.Background())
-	l.ctx = ctx
+	l.mu.Lock()
 	l.cancel = cancel
+	l.mu.Unlock()
 
-	_ = onConnect // the service delivers sessions to its configured handler
 	if err := l.service.Start(ctx); err != nil {
 		log.Errorln("ingest listener failed to start:", err)
 	}
@@ -55,13 +66,20 @@ func (l *ContextIngestListener) Disconnect() {
 	l.service.Disconnect()
 }
 
-// Stop implements IngestListener.
+// Stop implements IngestListener. It is safe to call once and is bounded.
 func (l *ContextIngestListener) Stop() {
-	if l.cancel != nil {
-		l.cancel()
-		l.cancel = nil
+	l.mu.Lock()
+	cancel := l.cancel
+	l.cancel = nil
+	l.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
 	}
-	if err := l.service.Stop(context.Background()); err != nil {
+
+	ctx, cancelStop := context.WithTimeout(context.Background(), contextIngestStopTimeout)
+	defer cancelStop()
+	if err := l.service.Stop(ctx); err != nil {
 		log.Errorln("ingest listener failed to stop:", err)
 	}
 }

@@ -66,8 +66,10 @@ const BrowserNotifyModal = dynamic(
   },
 );
 
-const OwncastPlayer = dynamic(
-  () => import('../../video/OwncastPlayer/OwncastPlayer').then(mod => mod.OwncastPlayer),
+// PlayerContainer picks WebRTC when the server enables it, and otherwise (or
+// on any WebRTC failure) renders the unchanged HLS player.
+const PlayerContainer = dynamic(
+  () => import('../../video/PlayerContainer').then(mod => mod.PlayerContainer),
   {
     ssr: false,
     loading: () => <Skeleton loading active paragraph={{ rows: 12 }} />,
@@ -270,7 +272,7 @@ export const Content: FC = () => {
         )}
         <Row>
           {online && configLoaded && (
-            <OwncastPlayer
+            <PlayerContainer
               source="/hls/stream.m3u8"
               online={online}
               title={streamTitle || name}

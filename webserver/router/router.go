@@ -26,7 +26,7 @@ import (
 // mw carries the methodified HTTP middleware (admin basic-auth, federation
 // content-type gating). apc carries the methodified ActivityPub HTTP
 // handler set.
-func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, mw *middleware.Middleware, apc *apcontrollers.Controllers, pluginContent http.Handler, pluginAdmin http.Handler, viewerAuthGate func(http.Handler) http.Handler) error {
+func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, mw *middleware.Middleware, apc *apcontrollers.Controllers, pluginContent http.Handler, pluginAdmin http.Handler, viewerAuthGate func(http.Handler) http.Handler, webrtcHandler http.Handler) error {
 	// @behlers New Router
 	r := chi.NewRouter()
 
@@ -56,6 +56,14 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 
 	// Return HLS video
 	r.HandleFunc("/hls/*", h.HandleHLSRequest)
+
+	// WebRTC low-latency delivery (WHEP signaling). nil when the WebRTC
+	// service is not constructed. Mounted ahead of the catch-all viewer
+	// route; auth.gate still applies because it is global middleware.
+	if webrtcHandler != nil {
+		r.Handle("/webrtc", webrtcHandler)
+		r.Handle("/webrtc/*", webrtcHandler)
+	}
 
 	// The admin web app.
 	r.HandleFunc("/admin/*", mw.RequireAdminAuth(h.IndexHandler))

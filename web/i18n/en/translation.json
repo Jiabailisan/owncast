@@ -74,6 +74,7 @@
 			"failedToFeature": "Failed to feature stream",
 			"failedToReject": "Failed to reject the feature request",
 			"failedToRemoveDirectory": "Failed to remove from this instance.",
+			"failedToReorder": "Failed to reorder featured stream",
 			"failedToResendApproval": "Failed to resend the approval.",
 			"failedToUnfeature": "Failed to unfeature the stream",
 			"featureRequestApproved": "Feature request approved",
@@ -86,6 +87,8 @@
 			"federationSettings": "Federation settings",
 			"lastChecked": "Last Checked",
 			"modalTitle": "Feature Live Stream",
+			"moveDown": "Move down",
+			"moveUp": "Move up",
 			"never": "Never",
 			"offline": "Offline",
 			"online": "Online",
@@ -95,6 +98,7 @@
 			"pageDescriptionSecondary": "This creates a network effect, allowing users to discover and navigate to other Owncast servers easily. It also gives visitors somewhere to go if your stream is offline.",
 			"pageTitle": "Featured Streams",
 			"pendingApproval": "Pending approval",
+			"priority": "Priority",
 			"rejectButton": "Reject",
 			"removeFromDirectoryButton": "Remove",
 			"removeFromDirectoryConfirm": "Remove your server from this directory?",
@@ -103,10 +107,6 @@
 			"requirementHttps": "The stream must be accessible via HTTPS",
 			"requirementOwncast": "The stream must be an Owncast instance",
 			"resendApprovalButton": "Resend approval",
-			"moveUp": "Move up",
-			"moveDown": "Move down",
-			"priority": "Priority",
-			"failedToReorder": "Failed to reorder featured stream",
 			"socialFeaturesRequired": "Social features must be enabled",
 			"socialFeaturesRequiredDesc": "before you can feature other streams.",
 			"status": "Status",
@@ -178,6 +178,81 @@
 			"upgradeAvailable": "A new version of Owncast is available.",
 			"upgradeLink": "Visit the upgrade page"
 		},
+		"LiveStreaming": {
+			"Ffmpeg": {
+				"copied": "Copied",
+				"copy": "Copy command",
+				"lastLogLines": "Recent log output",
+				"modelIsolated": "isolated (separate process per protocol)",
+				"modelShared": "shared (one process serves all outputs)",
+				"noProcesses": "No FFmpeg process is running.",
+				"processModel": "Process model",
+				"restarts": "Restarts"
+			},
+			"Settings": {
+				"defaultValue": "Default:",
+				"fixed": "Fixed",
+				"modified": "Modified",
+				"pendingRestart": "Pending restart",
+				"pendingRestartDescription": "The server is still running with the previous values for these settings. Restart the affected service or start a new stream for the change to take effect.",
+				"resetAll": "Cancel changes",
+				"resetToDefault": "Reset",
+				"retry": "Retry",
+				"save": "Save changes",
+				"secretClear": "Clear on save",
+				"secretNotSet": "Not set",
+				"secretSet": "Set"
+			},
+			"Srt": {
+				"disabled": "SRT ingest is disabled. Existing RTMP behavior is unchanged.",
+				"listening": "The SRT listener is active.",
+				"notListening": "The SRT listener is enabled but not accepting connections."
+			},
+			"Status": {
+				"ffmpegSection": "FFmpeg processes",
+				"geoipMissing": "No GeoIP database is configured: viewer locations are unavailable.",
+				"lastUpdated": "Last updated",
+				"loadError": "Unable to load the live stream status.",
+				"pollingInterval": "Refresh every",
+				"refresh": "Refresh now",
+				"stale": "Showing the last known status: the server could not be reached for the latest snapshot.",
+				"started": "Started",
+				"streamKey": "Key",
+				"uptime": "Uptime",
+				"viewersSection": "Viewers"
+			},
+			"TabSrt": "SRT Configuration",
+			"TabStatus": "Live Stream Status",
+			"TabWebRtc": "WebRTC Configuration",
+			"Viewers": {
+				"bitrate": "Bitrate",
+				"connected": "Connected",
+				"duration": "Duration",
+				"empty": "No viewers are connected right now.",
+				"fps": "FPS",
+				"ip": "IP",
+				"location": "Location",
+				"packetLoss": "Packet loss",
+				"protocol": "Protocol",
+				"resolution": "Resolution"
+			},
+			"WebRtc": {
+				"advertisedIps": "Advertised",
+				"ffmpegCaps": "FFmpeg and port preflight",
+				"ffmpegVersion": "FFmpeg",
+				"noDomain": "Set a domain (or public IPs) before testing.",
+				"opusEncoder": "libopus",
+				"portAvailable": "available",
+				"portUnavailable": "in use",
+				"preflight": "Run preflight",
+				"resolvedIps": "Resolved",
+				"srtProtocol": "SRT protocol",
+				"strictDomainLabel": "Strict domain",
+				"testDomain": "Test domain"
+			},
+			"description": "Configure SRT ingest and WebRTC delivery alongside the existing RTMP/HLS pipeline. New protocols are disabled by default and do not change existing stream behavior.",
+			"title": "Live Streaming"
+		},
 		"LogTable": {
 			"error": "Error",
 			"info": "Info",
@@ -193,29 +268,29 @@
 			"title": "News & Updates from Owncast"
 		},
 		"PlaybackClients": {
+			"buffering": "Buffering",
 			"description": "Every client currently playing your video, with the most recent playback health measured for it. Clients that report their own playback provide more detail than the ones the server can only observe. Quality is the bitrate advertised in your stream playlist, which includes audio, so it sits near but not exactly on the video bitrate you configured.",
+			"ended": "Ended",
 			"errors": "Errors",
 			"lastMeasured": "Measured {{age}} ago",
 			"latency": "Latency (s)",
 			"location": "Location",
+			"paused": "Paused",
 			"player": "Player",
+			"playing": "Playing",
 			"quality": "Quality (kbps)",
 			"qualityChanges": "Quality changes",
+			"seeking": "Seeking",
 			"segmentDownload": "Segment download (s)",
+			"serverUnmeasurable": "Server can't measure",
+			"serverUnmeasurableDescription": "The server has no trustworthy measurement for this client.",
 			"sourceClient": "Player reporting",
 			"sourceServer": "Server measuring",
 			"sourceUnknown": "No data",
-			"serverUnmeasurable": "Server can't measure",
-			"serverUnmeasurableDescription": "The server has no trustworthy measurement for this client.",
 			"speed": "Speed (kbps)",
 			"state": "State",
-			"playing": "Playing",
-			"paused": "Paused",
-			"buffering": "Buffering",
-			"seeking": "Seeking",
-			"ended": "Ended",
-			"unknownState": "Unknown",
 			"title": "Playback clients",
+			"unknownState": "Unknown",
 			"watchTime": "Watch time"
 		},
 		"Plugins": {
@@ -401,8 +476,8 @@
 			"videoCodecUpdated": "Video codec updated."
 		},
 		"Users": {
-			"pageDescription": "Everyone known to your server: chat viewers, authenticated and plugin-created users, and API integrations. Change moderator access, ban, or permanently remove users.",
 			"banReason": "Ban reason",
+			"pageDescription": "Everyone known to your server: chat viewers, authenticated and plugin-created users, and API integrations. Change moderator access, ban, or permanently remove users.",
 			"pageTitle": "Users"
 		},
 		"VideoVariantForm": {
@@ -516,6 +591,11 @@
 			"introduction": "While {{name}} is offline, visit this recommended stream.",
 			"linkAria": "Watch {{name}} live at {{host}}",
 			"watchLive": "Watch live"
+		},
+		"Player": {
+			"fallbackToHlsNotice": "Low-latency playback is unavailable right now. Switched to the standard stream.",
+			"qualityAuto": "Auto",
+			"webrtcConnecting": "Connecting to the low-latency stream..."
 		},
 		"StreamsTab": {
 			"errorLoadingStreams": "Error loading streams",

@@ -138,6 +138,23 @@ type ConfigRepository interface {
 	SetPrivateKey(key string) error
 	GetFaviconPath() string
 	SetFaviconPath(favicon string) error
+
+	// Phase 1 SRT/WebRTC configuration. Struct-valued settings are stored in
+	// the key/value datastore (gob encoded) and fall back to the model
+	// defaults when absent or undecodable. Secrets (the SRT passphrase and
+	// TURN credentials) are persisted but must never be logged or returned.
+	GetSRTConfig() models.SRTConfig
+	SetSRTConfig(config models.SRTConfig) error
+	GetWebRTCConfig() models.WebRTCConfig
+	SetWebRTCConfig(config models.WebRTCConfig) error
+
+	// Phase 1 appearance and output settings.
+	GetCustomPlayerPath() string
+	SetCustomPlayerPath(path string) error
+	GetCustomFrontendDir() string
+	SetCustomFrontendDir(directory string) error
+	GetOutputProcessModel() string
+	SetOutputProcessModel(model string) error
 }
 
 // temporaryGlobalInstance is set once during application startup so

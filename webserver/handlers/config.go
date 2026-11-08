@@ -10,6 +10,7 @@ import (
 
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/persistence/configrepository"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/router/middleware"
 	webutils "github.com/owncast/owncast/webserver/utils"
@@ -54,6 +55,43 @@ type webConfigResponse struct {
 	NSFW                       bool                         `json:"nsfw"`
 	Autoplay                   models.AutoplayMode          `json:"autoplay"`
 	Authentication             authenticationConfigResponse `json:"authentication"`
+	// WebRTC is additive (spec 7.2): only present when configured, and always
+	// carries an explicit enabled flag so clients can rely on it.
+	WebRTC *webRTCConfigResponse `json:"webrtc,omitempty"`
+	// Player tells the viewer whether a custom player module is active.
+	Player *playerConfigResponse `json:"player,omitempty"`
+}
+
+// webRTCConfigResponse is the additive public WebRTC delivery config.
+type webRTCConfigResponse struct {
+	Enabled       bool                     `json:"enabled"`
+	WhepURL       string                   `json:"whepUrl,omitempty"`
+	Variants      []webRTCVariantResponse  `json:"variants"`
+	ICEServers    []webRTCICEServerResponse `json:"iceServers"`
+	FallbackToHLS bool                     `json:"fallbackToHls"`
+}
+
+// webRTCVariantResponse is one selectable WebRTC variant.
+type webRTCVariantResponse struct {
+	Index  int    `json:"index"`
+	Name   string `json:"name"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+	FPS    int    `json:"fps,omitempty"`
+}
+
+// webRTCICEServerResponse is a viewer-facing ICE server entry. Long-lived TURN
+// static secrets are never exposed.
+type webRTCICEServerResponse struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
+
+// playerConfigResponse activates the custom player module contract (spec 7.3).
+type playerConfigResponse struct {
+	Custom bool   `json:"custom"`
+	URL    string `json:"url,omitempty"`
 }
 
 type federationConfigResponse struct {
@@ -168,7 +206,93 @@ func (h *Handlers) getConfigResponse(r *http.Request) webConfigResponse {
 		Authentication:             authenticationResponse,
 		AppearanceVariables:        configRepository.GetCustomColorVariableValues(),
 		HideViewerCount:            configRepository.GetHideViewerCount(),
+		WebRTC:                     buildPublicWebRTCConfig(configRepository.GetWebRTCConfig(), h.stream.GetCurrentBroadcast()),
+		Player:                     buildPublicPlayerConfig(configRepository),
 	}
+}
+
+// buildPublicWebRTCConfig renders the additive public WebRTC block. Variants
+// mirror the output variants WebRTC would deliver: explicit per-variant
+// mappings when present, otherwise all HLS variants (documented implicit
+// enable). It returns nil when WebRTC delivery is disabled so existing clients
+// see no change at all.
+func buildPublicWebRTCConfig(cfg models.WebRTCConfig, broadcast *models.CurrentBroadcast) *webRTCConfigResponse {
+	if !cfg.Enabled {
+		return nil
+	}
+
+	response := &webRTCConfigResponse{
+		Enabled:       true,
+		WhepURL:       "/webrtc/whep",
+		Variants:      []webRTCVariantResponse{},
+		ICEServers:    publicICEServers(cfg),
+		FallbackToHLS: cfg.FallbackToHLS,
+	}
+	if broadcast == nil {
+		return response
+	}
+
+	explicit := false
+	for _, variant := range broadcast.OutputSettings {
+		if variant.WebRTCEnabled() {
+			explicit = true
+			break
+		}
+	}
+	for index, variant := range broadcast.OutputSettings {
+		if explicit && !variant.WebRTCEnabled() {
+			continue
+		}
+		if !explicit && !variant.HLSEnabled() {
+			continue
+		}
+		response.Variants = append(response.Variants, webRTCVariantResponse{
+			Index:  index,
+			Name:   variant.GetName(),
+			Width:  variant.ScaledWidth,
+			Height: variant.ScaledHeight,
+			FPS:    variant.GetFramerate(),
+		})
+	}
+	return response
+}
+
+// publicICEServers converts configured STUN/TURN servers to the browser-facing
+// shape, omitting REST static secrets.
+func publicICEServers(cfg models.WebRTCConfig) []webRTCICEServerResponse {
+	servers := make([]webRTCICEServerResponse, 0, len(cfg.STUNServers)+len(cfg.TURNServers))
+	for _, server := range cfg.STUNServers {
+		if server == "" {
+			continue
+		}
+		servers = append(servers, webRTCICEServerResponse{URLs: []string{server}})
+	}
+	for _, server := range cfg.TURNServers {
+		if server.URL == "" {
+			continue
+		}
+		servers = append(servers, webRTCICEServerResponse{
+			URLs:       []string{server.URL},
+			Username:   server.Username,
+			Credential: server.Credential,
+		})
+	}
+	return servers
+}
+
+// buildPublicPlayerConfig reports the active custom-player mode. A custom
+// frontend directory replaces the viewer entirely, so the custom player is
+// inactive in that case.
+func buildPublicPlayerConfig(configRepository configrepository.ConfigRepository) *playerConfigResponse {
+	customFrontendDir := configRepository.GetCustomFrontendDir()
+	customPlayerPath := configRepository.GetCustomPlayerPath()
+
+	player := &playerConfigResponse{}
+	if customFrontendDir == "" && customPlayerPath != "" {
+		player.Custom = true
+		player.URL = "/custom-player/player.js"
+	}
+	return player
 }
 
 // pluginTabsOrEmpty returns the host's plugin-tab list, or an empty

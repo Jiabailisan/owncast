@@ -1,4 +1,11 @@
-import { AutoplaySetting, autoplayModeForSetting, resolveAutoplaySetting } from '../utils/autoplay';
+import {
+  AutoplaySetting,
+  autoplayModeForSetting,
+  resolveAutoplaySetting,
+  shouldAttemptAutoplay,
+  shouldShowBigUnmuteOverlay,
+  readAutoplayPreferences,
+} from '../utils/autoplay';
 
 describe('autoplayModeForSetting', () => {
   test('off maps to no autoplay', () => {
@@ -78,5 +85,35 @@ describe('resolveAutoplaySetting', () => {
       AutoplaySetting.SoundOnly,
     );
     expect(resolveAutoplaySetting('', AutoplaySetting.Off)).toBe(AutoplaySetting.Off);
+  });
+});
+
+describe('WebRTC autoplay and unmute parity helpers', () => {
+  test('shouldAttemptAutoplay mirrors the video.js mapping', () => {
+    expect(shouldAttemptAutoplay(AutoplaySetting.Off)).toBe(false);
+    expect(shouldAttemptAutoplay(AutoplaySetting.Always)).toBe(true);
+    expect(shouldAttemptAutoplay(AutoplaySetting.SoundOnly)).toBe(true);
+    expect(shouldAttemptAutoplay(AutoplaySetting.Always, { prefersReducedMotion: true })).toBe(
+      false,
+    );
+    expect(shouldAttemptAutoplay(AutoplaySetting.SoundOnly, { startsInaudible: true })).toBe(false);
+  });
+
+  test('the big unmute overlay is only for playback the player muted itself', () => {
+    const base = { mutedByAutoplay: false, paused: false, muted: false, volume: 1 };
+    expect(shouldShowBigUnmuteOverlay(base)).toBe(false);
+    expect(shouldShowBigUnmuteOverlay({ ...base, mutedByAutoplay: true, muted: true })).toBe(true);
+    // A viewer-initiated mute must never show the autoplay unmute affordance.
+    expect(shouldShowBigUnmuteOverlay({ ...base, muted: true })).toBe(false);
+    // Nor while paused.
+    expect(
+      shouldShowBigUnmuteOverlay({ ...base, mutedByAutoplay: true, paused: true, muted: true }),
+    ).toBe(false);
+  });
+
+  test('readAutoplayPreferences returns overrides and browser-derived values', () => {
+    const preferences = readAutoplayPreferences({ startsInaudible: true });
+    expect(preferences.startsInaudible).toBe(true);
+    expect(typeof preferences.prefersReducedMotion).toBe('boolean');
   });
 });

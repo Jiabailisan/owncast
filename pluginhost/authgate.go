@@ -249,10 +249,35 @@ func decideGate(r *http.Request, gateSlug string, gateLoaded bool, secretConfigu
 func (h *Host) AuthGateMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// CORS preflight for the WebRTC signaling endpoints must not
+			// require a session: browsers never attach credentials to
+			// preflight requests. Only /webrtc/* is exempted here; every other
+			// route keeps the existing gate behavior unchanged.
+			if r.Method == http.MethodOptions && isWebRTCRequestPath(r) {
+				next.ServeHTTP(w, r)
+
+				return
+			}
 			slug, loaded := h.manager.ActiveAuthGate()
 			h.serveGated(w, r, next, slug, loaded)
 		})
 	}
+}
+
+// isWebRTCRequestPath reports whether the request targets the WebRTC delivery
+// endpoints. WHEP clients are fetch/XHR based and cannot follow a login
+// redirect; the viewer frontend falls back to HLS on a 403.
+func isWebRTCRequestPath(r *http.Request) bool {
+	return r.URL.Path == "/webrtc" || strings.HasPrefix(r.URL.Path, "/webrtc/")
+}
+
+// writeWebRTCAuthGateDenied answers a gated WebRTC request with the JSON error
+// the signaling client expects (auth.gate parity with HLS, 403 instead of the
+// login redirect/401 used for navigations and other XHR endpoints).
+func writeWebRTCAuthGateDenied(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = io.WriteString(w, `{"code":"webrtc_auth_required","message":"authentication required"}`)
 }
 
 // serveGated applies the gate to one request against an already-resolved gate
@@ -298,6 +323,11 @@ func (h *Host) serveGated(w http.ResponseWriter, r *http.Request, next http.Hand
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = io.WriteString(w, authUnavailableHTML)
 	case gateLogin:
+		if isWebRTCRequestPath(r) {
+			writeWebRTCAuthGateDenied(w)
+
+			return
+		}
 		// Redirect navigations; 401 anything else so XHR/API callers
 		// get a status they can act on instead of an HTML body.
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {

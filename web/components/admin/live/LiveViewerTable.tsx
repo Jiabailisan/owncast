@@ -1,0 +1,365 @@
+import { FC, useEffect, useRef, useState } from 'react';
+import { Alert, Card, Input, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import type { ColumnsType } from 'antd/lib/table';
+import { formatDistanceToNow } from 'date-fns';
+
+import LiveStatusService from '../../../services/live-status-service';
+import {
+  LiveViewer,
+  LiveViewersQuery,
+  LiveViewersResponse,
+} from '../../../interfaces/live-status.model';
+import { Localization } from '../../../types/localization';
+import {
+  formatMetricKbps,
+  formatMetricNumber,
+  formatMetricPercent,
+  parseSecondsToDurationString,
+} from '../../../utils/format';
+import { MOBILE_BREAKPOINT_QUERY, useMediaQuery } from '../../../hooks/useMediaQuery';
+import { Translation } from '../../ui/Translation/Translation';
+import styles from './live.module.scss';
+
+const { Text } = Typography;
+
+const PAGE_SIZE = 25;
+const VIEWERS_REFRESH_MS = 10000;
+
+export type LiveViewerTableProps = {
+  enabled: boolean;
+};
+
+const SORT_FIELD_MAP: Record<string, LiveViewersQuery['sort']> = {
+  durationSeconds: 'duration',
+  bitrateKbps: 'bitrate',
+  protocol: 'protocol',
+  connectedAt: 'connectedAt',
+};
+
+const DEFAULT_QUERY: LiveViewersQuery = {
+  page: 1,
+  pageSize: PAGE_SIZE,
+  sort: 'duration',
+  order: 'desc',
+  protocol: 'all',
+  q: '',
+};
+
+const na = (tooltip: string, value: string | null) => (
+  <Tooltip title={value === null ? tooltip : undefined}>
+    <span>{value === null ? 'N/A' : value}</span>
+  </Tooltip>
+);
+
+// Per-viewer table for the admin Live Stream Status section. Server-paged and
+// sortable/filterable; switches to a card list on narrow viewports. Only
+// server-known values are shown, or client-reported ones when the player sends
+// them; unknown is always N/A.
+export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT_QUERY);
+  const [query, setQuery] = useState<LiveViewersQuery>({ ...DEFAULT_QUERY });
+  const [data, setData] = useState<LiveViewersResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const warnedRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setData(null);
+      setError(null);
+      return undefined;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+
+    LiveStatusService.getViewers(query, { signal: controller.signal })
+      .then(result => {
+        if (cancelled) return;
+        warnedRef.current = false;
+        setData(result);
+        setError(null);
+      })
+      .catch((viewersError: Error) => {
+        if (cancelled || controller.signal.aborted) return;
+        if (!warnedRef.current) {
+          warnedRef.current = true;
+          console.warn('Live viewers request failed:', viewersError?.message);
+        }
+        setError(viewersError?.message || 'Unable to load viewers');
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [enabled, query, refreshToken]);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      setRefreshToken(token => token + 1);
+    }, VIEWERS_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [enabled]);
+
+  const columns: ColumnsType<LiveViewer> = [
+    {
+      title: <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.ip} defaultText="IP" />,
+      dataIndex: 'ipAddress',
+      key: 'ipAddress',
+      render: (ipAddress: string) => ipAddress || 'N/A',
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.location}
+          defaultText="Location"
+        />
+      ),
+      key: 'location',
+      render: (_, viewer) => {
+        const parts = [viewer.city, viewer.region, viewer.country].filter(
+          (part): part is string => Boolean(part),
+        );
+        if (parts.length === 0) return na('GeoIP lookup unavailable for this viewer.', null);
+        return (
+          <Tooltip title={viewer.locationApproximate ? 'Location is approximate.' : undefined}>
+            <span>{parts.join(', ')}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.protocol}
+          defaultText="Protocol"
+        />
+      ),
+      dataIndex: 'protocol',
+      key: 'protocol',
+      render: (protocol: LiveViewer['protocol']) =>
+        protocol === 'webrtc' ? <Tag color="geekblue">WebRTC</Tag> : <Tag color="purple">HLS</Tag>,
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.bitrate}
+          defaultText="Bitrate"
+        />
+      ),
+      dataIndex: 'bitrateKbps',
+      key: 'bitrateKbps',
+      sorter: true,
+      render: (value: number | null) => na('Not measured for this viewer.', formatMetricKbps(value)),
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.resolution}
+          defaultText="Resolution"
+        />
+      ),
+      dataIndex: 'resolution',
+      key: 'resolution',
+      render: (value: string | null) => na('Not measured for this viewer.', value),
+    },
+    {
+      title: <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.fps} defaultText="FPS" />,
+      dataIndex: 'fps',
+      key: 'fps',
+      render: (value: number | null) => na('Not measured for this viewer.', value === null ? null : formatMetricNumber(value, 1)),
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.packetLoss}
+          defaultText="Packet loss"
+        />
+      ),
+      dataIndex: 'packetLossPct',
+      key: 'packetLossPct',
+      render: (value: number | null) =>
+        na('HTTP/TCP playback has no packet loss to measure.', formatMetricPercent(value, 2)),
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.connected}
+          defaultText="Connected"
+        />
+      ),
+      dataIndex: 'connectedAt',
+      key: 'connectedAt',
+      sorter: true,
+      render: (value: string) =>
+        value ? formatDistanceToNow(new Date(value), { addSuffix: true }) : 'N/A',
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.duration}
+          defaultText="Duration"
+        />
+      ),
+      dataIndex: 'durationSeconds',
+      key: 'durationSeconds',
+      sorter: true,
+      render: (value: number | null) =>
+        value === null ? 'N/A' : parseSecondsToDurationString(value),
+    },
+    {
+      title: '',
+      key: 'source',
+      render: (_, viewer) => (
+        <Tag color={viewer.source === 'client' ? 'blue' : 'default'}>
+          <Translation
+            translationKey={
+              viewer.source === 'client'
+                ? Localization.Admin.LiveStreaming.Viewers.clientReported
+                : Localization.Admin.LiveStreaming.Viewers.serverMeasured
+            }
+            defaultText={viewer.source === 'client' ? 'Player reported' : 'Server measured'}
+          />
+        </Tag>
+      ),
+    },
+  ];
+
+  const mobileCards = (
+    <div className={styles.viewerCards}>
+      {(data?.viewers || []).map(viewer => {
+        const locationText =
+          [viewer.city, viewer.region, viewer.country].filter(Boolean).join(', ') || 'N/A';
+        return (
+          <Card key={viewer.clientID} size="small" className={styles.viewerCard}>
+            <div className={styles.viewerCardHeader}>
+              <Text strong>{viewer.ipAddress || 'N/A'}</Text>
+              {viewer.protocol === 'webrtc' ? (
+                <Tag color="geekblue">WebRTC</Tag>
+              ) : (
+                <Tag color="purple">HLS</Tag>
+              )}
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.location} defaultText="Location" />
+              </Text>
+              <span>{locationText}</span>
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.bitrate} defaultText="Bitrate" />
+              </Text>
+              <span>{formatMetricKbps(viewer.bitrateKbps)}</span>
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.resolution} defaultText="Resolution" />
+              </Text>
+              <span>{viewer.resolution || 'N/A'}</span>
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.duration} defaultText="Duration" />
+              </Text>
+              <span>
+                {viewer.durationSeconds === null
+                  ? 'N/A'
+                  : parseSecondsToDurationString(viewer.durationSeconds)}
+              </span>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div className={styles.viewerTable}>
+      <Space wrap className={styles.viewerFilters}>
+        <Select
+          aria-label="Filter by protocol"
+          value={query.protocol}
+          style={{ minWidth: 140 }}
+          onChange={value =>
+            setQuery(current => ({ ...current, page: 1, protocol: value as LiveViewersQuery['protocol'] }))
+          }
+          options={[
+            { value: 'all', label: 'All protocols' },
+            { value: 'webrtc', label: 'WebRTC' },
+            { value: 'hls', label: 'HLS' },
+          ]}
+        />
+        <Input.Search
+          aria-label="Search viewers"
+          allowClear
+          style={{ maxWidth: 280 }}
+          placeholder="Search IP or location"
+          onSearch={value => setQuery(current => ({ ...current, page: 1, q: value }))}
+        />
+      </Space>
+
+      {error && (
+        <Alert
+          type="warning"
+          showIcon
+          className={styles.viewerError}
+          message={error}
+          action={
+            <Space>
+              <a onClick={() => setRefreshToken(token => token + 1)}>Retry</a>
+            </Space>
+          }
+        />
+      )}
+
+      {isMobile ? (
+        mobileCards
+      ) : (
+        <Table<LiveViewer>
+          size="small"
+          rowKey="clientID"
+          columns={columns}
+          dataSource={data?.viewers || []}
+          loading={!data && !error}
+          pagination={{
+            current: data?.page || query.page,
+            pageSize: data?.pageSize || PAGE_SIZE,
+            total: data?.total || 0,
+            showSizeChanger: false,
+          }}
+          onChange={(pagination, _filters, sorter) => {
+            const activeSorter = Array.isArray(sorter) ? sorter[0] : sorter;
+            const mappedSort = activeSorter?.field
+              ? SORT_FIELD_MAP[String(activeSorter.field)]
+              : undefined;
+            setQuery(current => ({
+              ...current,
+              page: pagination.current || 1,
+              pageSize: pagination.pageSize || PAGE_SIZE,
+              sort: mappedSort || current.sort,
+              order:
+                activeSorter?.order === 'ascend'
+                  ? 'asc'
+                  : activeSorter?.order === 'descend'
+                    ? 'desc'
+                    : current.order,
+            }));
+          }}
+        />
+      )}
+      {!isMobile && data && data.viewers.length === 0 && (
+        <Text type="secondary" className={styles.viewerEmpty}>
+          <Translation
+            translationKey={Localization.Admin.LiveStreaming.Viewers.empty}
+            defaultText="No viewers are connected right now."
+          />
+        </Text>
+      )}
+    </div>
+  );
+};
+
+export default LiveViewerTable;
