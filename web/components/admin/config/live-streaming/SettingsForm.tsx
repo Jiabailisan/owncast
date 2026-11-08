@@ -27,10 +27,7 @@ export type SettingsFormProps = {
   loadError?: string | null;
   // Why the section is read-only (e.g. custom frontend overrides appearance).
   disabledReason?: string;
-  onSave: (
-    patch: Record<string, unknown>,
-    resetKeys: string[],
-  ) => Promise<unknown> | void;
+  onSave: (patch: Record<string, unknown>, resetKeys: string[]) => Promise<unknown> | void;
   onRetry?: () => void;
 };
 
@@ -166,9 +163,7 @@ export const SettingsForm: FC<SettingsFormProps> = ({
                 translationKey={Localization.Admin.LiveStreaming.Settings.pendingRestartDescription}
                 defaultText="The server is still running with the previous values for these settings. Restart the affected service or start a new stream for the change to take effect."
               />{' '}
-              <Text code>
-                {pendingRestart.fields.map(key => humanizeFieldKey(key)).join(', ')}
-              </Text>
+              <Text code>{pendingRestart.fields.map(key => humanizeFieldKey(key)).join(', ')}</Text>
             </>
           }
         />
@@ -187,9 +182,7 @@ export const SettingsForm: FC<SettingsFormProps> = ({
               disabled={Boolean(disabledReason)}
               disabledReason={disabledReason}
               error={fieldErrors[meta.key]}
-              secretSet={Boolean(
-                values[meta.key + 'Set'] ?? values.passphraseSet ?? false,
-              )}
+              secretSet={Boolean(values[meta.key + 'Set'] ?? values.passphraseSet ?? false)}
               pendingRestart={Boolean(pendingRestart?.fields?.includes(meta.key))}
               onChange={handleChange}
               onReset={handleReset}

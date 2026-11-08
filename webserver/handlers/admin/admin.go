@@ -50,6 +50,10 @@ type Admin struct {
 	apSigner              *apcrypto.Signer
 	cfg                   *config.Config
 
+	// appearance holds the in-memory custom-player load-error sink and the
+	// rate limiters for the public appearance/metrics beacons.
+	appearance *appearanceState
+
 	// pluginStyleContributors, when non-nil, returns the per-plugin
 	// page-styling report (which enabled plugins emit CSS and which
 	// appearance tokens they set). Wired to the plugin host's
@@ -109,6 +113,7 @@ func New(deps Deps) *Admin {
 		apBuilder:               deps.APBuilder,
 		apSigner:                deps.APSigner,
 		cfg:                     deps.Config,
+		appearance:              newAppearanceState(),
 		pluginStyleContributors: deps.PluginStyleContributors,
 	}
 }

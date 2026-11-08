@@ -72,8 +72,11 @@ export function summarizeWebRTCStats(
 
     if (type === 'remote-inbound-rtp' && typeof stat.roundTripTime === 'number') {
       summary.roundTripTimeMs = Math.round(stat.roundTripTime * 1000);
-    } else if (type === 'candidate-pair' && stat.nominated === true
-      && typeof stat.currentRoundTripTime === 'number') {
+    } else if (
+      type === 'candidate-pair' &&
+      stat.nominated === true &&
+      typeof stat.currentRoundTripTime === 'number'
+    ) {
       summary.roundTripTimeMs = Math.round((stat.currentRoundTripTime as number) * 1000);
     }
   });

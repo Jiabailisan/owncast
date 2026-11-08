@@ -105,7 +105,12 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
 
   const columns: ColumnsType<LiveViewer> = [
     {
-      title: <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.ip} defaultText="IP" />,
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.ip}
+          defaultText="IP"
+        />
+      ),
       dataIndex: 'ipAddress',
       key: 'ipAddress',
       render: (ipAddress: string) => ipAddress || 'N/A',
@@ -119,8 +124,8 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       ),
       key: 'location',
       render: (_, viewer) => {
-        const parts = [viewer.city, viewer.region, viewer.country].filter(
-          (part): part is string => Boolean(part),
+        const parts = [viewer.city, viewer.region, viewer.country].filter((part): part is string =>
+          Boolean(part),
         );
         if (parts.length === 0) return na('GeoIP lookup unavailable for this viewer.', null);
         return (
@@ -152,7 +157,8 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       dataIndex: 'bitrateKbps',
       key: 'bitrateKbps',
       sorter: true,
-      render: (value: number | null) => na('Not measured for this viewer.', formatMetricKbps(value)),
+      render: (value: number | null) =>
+        na('Not measured for this viewer.', formatMetricKbps(value)),
     },
     {
       title: (
@@ -166,10 +172,16 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       render: (value: string | null) => na('Not measured for this viewer.', value),
     },
     {
-      title: <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.fps} defaultText="FPS" />,
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.fps}
+          defaultText="FPS"
+        />
+      ),
       dataIndex: 'fps',
       key: 'fps',
-      render: (value: number | null) => na('Not measured for this viewer.', value === null ? null : formatMetricNumber(value, 1)),
+      render: (value: number | null) =>
+        na('Not measured for this viewer.', value === null ? null : formatMetricNumber(value, 1)),
     },
     {
       title: (
@@ -244,25 +256,37 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
-                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.location} defaultText="Location" />
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.location}
+                  defaultText="Location"
+                />
               </Text>
               <span>{locationText}</span>
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
-                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.bitrate} defaultText="Bitrate" />
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.bitrate}
+                  defaultText="Bitrate"
+                />
               </Text>
               <span>{formatMetricKbps(viewer.bitrateKbps)}</span>
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
-                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.resolution} defaultText="Resolution" />
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.resolution}
+                  defaultText="Resolution"
+                />
               </Text>
               <span>{viewer.resolution || 'N/A'}</span>
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
-                <Translation translationKey={Localization.Admin.LiveStreaming.Viewers.duration} defaultText="Duration" />
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.duration}
+                  defaultText="Duration"
+                />
               </Text>
               <span>
                 {viewer.durationSeconds === null
@@ -284,7 +308,11 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
           value={query.protocol}
           style={{ minWidth: 140 }}
           onChange={value =>
-            setQuery(current => ({ ...current, page: 1, protocol: value as LiveViewersQuery['protocol'] }))
+            setQuery(current => ({
+              ...current,
+              page: 1,
+              protocol: value as LiveViewersQuery['protocol'],
+            }))
           }
           options={[
             { value: 'all', label: 'All protocols' },

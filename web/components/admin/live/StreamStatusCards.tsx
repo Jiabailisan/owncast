@@ -92,9 +92,7 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
             {': '}
             <MetricValue
               value={
-                status.uptimeSeconds > 0
-                  ? parseSecondsToDurationString(status.uptimeSeconds)
-                  : null
+                status.uptimeSeconds > 0 ? parseSecondsToDurationString(status.uptimeSeconds) : null
               }
               tooltip={NA_TOOLTIP_SOURCE}
             />

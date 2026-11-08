@@ -16,15 +16,24 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/config"
+	"github.com/owncast/owncast/config/settings"
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/static"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/router/middleware"
 )
 
-// IndexHandler handles the default index route.
+// IndexHandler handles the default index route. When a custom viewer frontend
+// directory is active it serves the viewer (and static assets) from that
+// directory instead of the embedded bundle; /admin, /api, /hls, /ws, /webrtc,
+// federation and /.well-known are registered separately and keep working.
 func (h *Handlers) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	middleware.EnableCors(w)
+
+	if appearance := h.resolveAppearance(); appearance.Mode == settings.FrontendCustomFrontend {
+		h.serveCustomFrontend(w, r, appearance.FrontendDir)
+		return
+	}
 
 	isIndexRequest := r.URL.Path == "/" || filepath.Base(r.URL.Path) == "index.html" || filepath.Base(r.URL.Path) == ""
 

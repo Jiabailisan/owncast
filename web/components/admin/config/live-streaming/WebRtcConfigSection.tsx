@@ -3,10 +3,7 @@ import { Alert, Button, Card, Skeleton, Space, Tag, Typography } from 'antd';
 
 import AdminSettingsService from '../../../../services/admin-settings-service';
 import { APIError } from '../../../../utils/apis';
-import {
-  fieldErrorsToMap,
-  SettingsMetadata,
-} from '../../../../interfaces/settings-metadata.model';
+import { fieldErrorsToMap, SettingsMetadata } from '../../../../interfaces/settings-metadata.model';
 import {
   PreflightResponse,
   WebRTCConfig,
@@ -170,7 +167,9 @@ export const WebRtcConfigSection: FC<WebRtcConfigSectionProps> = ({ metadata }) 
           )}
         </Space>
 
-        {actionError && <Alert type="error" showIcon className={styles.sectionError} message={actionError} />}
+        {actionError && (
+          <Alert type="error" showIcon className={styles.sectionError} message={actionError} />
+        )}
 
         {preflight && (
           <div className={styles.preflightResults}>
@@ -264,7 +263,9 @@ export const WebRtcConfigSection: FC<WebRtcConfigSectionProps> = ({ metadata }) 
         )}
       </Card>
 
-      {saveError && <Alert type="error" showIcon className={styles.sectionError} message={saveError} />}
+      {saveError && (
+        <Alert type="error" showIcon className={styles.sectionError} message={saveError} />
+      )}
 
       <SettingsForm
         fields={metadata.webrtc.fields}

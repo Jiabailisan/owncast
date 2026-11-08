@@ -95,9 +95,16 @@ const FfmpegProcessCard: FC<FfmpegProcessCardProps> = ({ process }) => {
       children: (
         <Paragraph className={styles.ffmpegSection}>
           <pre>
-            {lines.length > 0
-              ? lines.map(line => <code key={line} className={styles.ffmpegCodeLine}>{line}{'\n'}</code>)
-              : <Text type="secondary">(empty)</Text>}
+            {lines.length > 0 ? (
+              lines.map(line => (
+                <code key={line} className={styles.ffmpegCodeLine}>
+                  {line}
+                  {'\n'}
+                </code>
+              ))
+            ) : (
+              <Text type="secondary">(empty)</Text>
+            )}
           </pre>
         </Paragraph>
       ),
@@ -115,7 +122,10 @@ const FfmpegProcessCard: FC<FfmpegProcessCardProps> = ({ process }) => {
           <Tag>PID {process.pid}</Tag>
           <Tag>{parseSecondsToDurationString(process.uptimeSeconds)}</Tag>
           <Tag color={process.restartCount > 0 ? 'orange' : 'default'}>
-            <Translation translationKey={Localization.Admin.LiveStreaming.Ffmpeg.restarts} defaultText="Restarts" />
+            <Translation
+              translationKey={Localization.Admin.LiveStreaming.Ffmpeg.restarts}
+              defaultText="Restarts"
+            />
             {': '}
             {process.restartCount}
           </Tag>
@@ -129,9 +139,15 @@ const FfmpegProcessCard: FC<FfmpegProcessCardProps> = ({ process }) => {
       extra={
         <Button size="small" onClick={handleCopy}>
           {copied ? (
-            <Translation translationKey={Localization.Admin.LiveStreaming.Ffmpeg.copied} defaultText="Copied" />
+            <Translation
+              translationKey={Localization.Admin.LiveStreaming.Ffmpeg.copied}
+              defaultText="Copied"
+            />
           ) : (
-            <Translation translationKey={Localization.Admin.LiveStreaming.Ffmpeg.copy} defaultText="Copy command" />
+            <Translation
+              translationKey={Localization.Admin.LiveStreaming.Ffmpeg.copy}
+              defaultText="Copy command"
+            />
           )}
         </Button>
       }
@@ -185,12 +201,21 @@ export const FfmpegPanel: FC<FfmpegPanelProps> = ({ panel }) => {
         className={styles.ffmpegModel}
         message={
           <>
-            <Translation translationKey={Localization.Admin.LiveStreaming.Ffmpeg.processModel} defaultText="Process model" />
+            <Translation
+              translationKey={Localization.Admin.LiveStreaming.Ffmpeg.processModel}
+              defaultText="Process model"
+            />
             {': '}
             {isIsolated ? (
-              <Translation translationKey={Localization.Admin.LiveStreaming.Ffmpeg.modelIsolated} defaultText="isolated (separate process per protocol)" />
+              <Translation
+                translationKey={Localization.Admin.LiveStreaming.Ffmpeg.modelIsolated}
+                defaultText="isolated (separate process per protocol)"
+              />
             ) : (
-              <Translation translationKey={Localization.Admin.LiveStreaming.Ffmpeg.modelShared} defaultText="shared (one process serves all outputs)" />
+              <Translation
+                translationKey={Localization.Admin.LiveStreaming.Ffmpeg.modelShared}
+                defaultText="shared (one process serves all outputs)"
+              />
             )}
           </>
         }

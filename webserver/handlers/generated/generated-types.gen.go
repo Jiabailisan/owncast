@@ -11,6 +11,111 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AdminLiveStatusInputProtocol.
+const (
+	AdminLiveStatusInputProtocolEmpty AdminLiveStatusInputProtocol = ""
+	AdminLiveStatusInputProtocolRtmp  AdminLiveStatusInputProtocol = "rtmp"
+	AdminLiveStatusInputProtocolSrt   AdminLiveStatusInputProtocol = "srt"
+)
+
+// Valid indicates whether the value is a known member of the AdminLiveStatusInputProtocol enum.
+func (e AdminLiveStatusInputProtocol) Valid() bool {
+	switch e {
+	case AdminLiveStatusInputProtocolEmpty:
+		return true
+	case AdminLiveStatusInputProtocolRtmp:
+		return true
+	case AdminLiveStatusInputProtocolSrt:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdminLiveStatusState.
+const (
+	AdminLiveStatusStateDegraded AdminLiveStatusState = "degraded"
+	AdminLiveStatusStateError    AdminLiveStatusState = "error"
+	AdminLiveStatusStateLive     AdminLiveStatusState = "live"
+	AdminLiveStatusStateOffline  AdminLiveStatusState = "offline"
+	AdminLiveStatusStateWaiting  AdminLiveStatusState = "waiting"
+)
+
+// Valid indicates whether the value is a known member of the AdminLiveStatusState enum.
+func (e AdminLiveStatusState) Valid() bool {
+	switch e {
+	case AdminLiveStatusStateDegraded:
+		return true
+	case AdminLiveStatusStateError:
+		return true
+	case AdminLiveStatusStateLive:
+		return true
+	case AdminLiveStatusStateOffline:
+		return true
+	case AdminLiveStatusStateWaiting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdminLiveViewerProtocol.
+const (
+	AdminLiveViewerProtocolHls    AdminLiveViewerProtocol = "hls"
+	AdminLiveViewerProtocolWebrtc AdminLiveViewerProtocol = "webrtc"
+)
+
+// Valid indicates whether the value is a known member of the AdminLiveViewerProtocol enum.
+func (e AdminLiveViewerProtocol) Valid() bool {
+	switch e {
+	case AdminLiveViewerProtocolHls:
+		return true
+	case AdminLiveViewerProtocolWebrtc:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdminLiveViewerSource.
+const (
+	AdminLiveViewerSourceClient AdminLiveViewerSource = "client"
+	AdminLiveViewerSourceServer AdminLiveViewerSource = "server"
+)
+
+// Valid indicates whether the value is a known member of the AdminLiveViewerSource enum.
+func (e AdminLiveViewerSource) Valid() bool {
+	switch e {
+	case AdminLiveViewerSourceClient:
+		return true
+	case AdminLiveViewerSourceServer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppearanceAdminReportActiveFrontend.
+const (
+	AppearanceAdminReportActiveFrontendCustomFrontend AppearanceAdminReportActiveFrontend = "custom-frontend"
+	AppearanceAdminReportActiveFrontendCustomPlayer   AppearanceAdminReportActiveFrontend = "custom-player"
+	AppearanceAdminReportActiveFrontendDefault        AppearanceAdminReportActiveFrontend = "default"
+)
+
+// Valid indicates whether the value is a known member of the AppearanceAdminReportActiveFrontend enum.
+func (e AppearanceAdminReportActiveFrontend) Valid() bool {
+	switch e {
+	case AppearanceAdminReportActiveFrontendCustomFrontend:
+		return true
+	case AppearanceAdminReportActiveFrontendCustomPlayer:
+		return true
+	case AppearanceAdminReportActiveFrontendDefault:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AutoplayMode.
 const (
 	Always    AutoplayMode = "always"
@@ -76,16 +181,16 @@ func (e PlaybackClientHealthPlayerState) Valid() bool {
 
 // Defines values for PlaybackClientHealthSource.
 const (
-	Client PlaybackClientHealthSource = "client"
-	Server PlaybackClientHealthSource = "server"
+	PlaybackClientHealthSourceClient PlaybackClientHealthSource = "client"
+	PlaybackClientHealthSourceServer PlaybackClientHealthSource = "server"
 )
 
 // Valid indicates whether the value is a known member of the PlaybackClientHealthSource enum.
 func (e PlaybackClientHealthSource) Valid() bool {
 	switch e {
-	case Client:
+	case PlaybackClientHealthSourceClient:
 		return true
-	case Server:
+	case PlaybackClientHealthSourceServer:
 		return true
 	default:
 		return false
@@ -157,25 +262,25 @@ func (e SRTListenerStatusState) Valid() bool {
 
 // Defines values for SettingsFieldApplyMode.
 const (
-	Live           SettingsFieldApplyMode = "live"
-	Na             SettingsFieldApplyMode = "n/a"
-	RestartServer  SettingsFieldApplyMode = "restart-server"
-	RestartService SettingsFieldApplyMode = "restart-service"
-	RestartStream  SettingsFieldApplyMode = "restart-stream"
+	SettingsFieldApplyModeLive           SettingsFieldApplyMode = "live"
+	SettingsFieldApplyModeNa             SettingsFieldApplyMode = "n/a"
+	SettingsFieldApplyModeRestartServer  SettingsFieldApplyMode = "restart-server"
+	SettingsFieldApplyModeRestartService SettingsFieldApplyMode = "restart-service"
+	SettingsFieldApplyModeRestartStream  SettingsFieldApplyMode = "restart-stream"
 )
 
 // Valid indicates whether the value is a known member of the SettingsFieldApplyMode enum.
 func (e SettingsFieldApplyMode) Valid() bool {
 	switch e {
-	case Live:
+	case SettingsFieldApplyModeLive:
 		return true
-	case Na:
+	case SettingsFieldApplyModeNa:
 		return true
-	case RestartServer:
+	case SettingsFieldApplyModeRestartServer:
 		return true
-	case RestartService:
+	case SettingsFieldApplyModeRestartService:
 		return true
-	case RestartStream:
+	case SettingsFieldApplyModeRestartStream:
 		return true
 	default:
 		return false
@@ -290,6 +395,66 @@ func (e ReorderFederatedServerJSONBodyDirection) Valid() bool {
 	}
 }
 
+// Defines values for GetLiveViewersParamsSort.
+const (
+	ConnectedAt GetLiveViewersParamsSort = "connectedAt"
+	Duration    GetLiveViewersParamsSort = "duration"
+	Protocol    GetLiveViewersParamsSort = "protocol"
+)
+
+// Valid indicates whether the value is a known member of the GetLiveViewersParamsSort enum.
+func (e GetLiveViewersParamsSort) Valid() bool {
+	switch e {
+	case ConnectedAt:
+		return true
+	case Duration:
+		return true
+	case Protocol:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetLiveViewersParamsOrder.
+const (
+	GetLiveViewersParamsOrderAsc  GetLiveViewersParamsOrder = "asc"
+	GetLiveViewersParamsOrderDesc GetLiveViewersParamsOrder = "desc"
+)
+
+// Valid indicates whether the value is a known member of the GetLiveViewersParamsOrder enum.
+func (e GetLiveViewersParamsOrder) Valid() bool {
+	switch e {
+	case GetLiveViewersParamsOrderAsc:
+		return true
+	case GetLiveViewersParamsOrderDesc:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetLiveViewersParamsProtocol.
+const (
+	GetLiveViewersParamsProtocolAll    GetLiveViewersParamsProtocol = "all"
+	GetLiveViewersParamsProtocolHls    GetLiveViewersParamsProtocol = "hls"
+	GetLiveViewersParamsProtocolWebrtc GetLiveViewersParamsProtocol = "webrtc"
+)
+
+// Valid indicates whether the value is a known member of the GetLiveViewersParamsProtocol enum.
+func (e GetLiveViewersParamsProtocol) Valid() bool {
+	switch e {
+	case GetLiveViewersParamsProtocolAll:
+		return true
+	case GetLiveViewersParamsProtocolHls:
+		return true
+	case GetLiveViewersParamsProtocolWebrtc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetUsersParamsStatus.
 const (
 	GetUsersParamsStatusActive GetUsersParamsStatus = "active"
@@ -313,16 +478,16 @@ func (e GetUsersParamsStatus) Valid() bool {
 
 // Defines values for GetUsersParamsSort.
 const (
-	Asc  GetUsersParamsSort = "asc"
-	Desc GetUsersParamsSort = "desc"
+	GetUsersParamsSortAsc  GetUsersParamsSort = "asc"
+	GetUsersParamsSortDesc GetUsersParamsSort = "desc"
 )
 
 // Valid indicates whether the value is a known member of the GetUsersParamsSort enum.
 func (e GetUsersParamsSort) Valid() bool {
 	switch e {
-	case Asc:
+	case GetUsersParamsSortAsc:
 		return true
-	case Desc:
+	case GetUsersParamsSortDesc:
 		return true
 	default:
 		return false
@@ -335,6 +500,11 @@ type ActionMessage struct {
 	Id        *string `json:"id,omitempty"`
 	Timestamp *string `json:"timestamp,omitempty"`
 	Type      *string `json:"type,omitempty"`
+}
+
+// AdminConfigStringValue One string configuration value
+type AdminConfigStringValue struct {
+	Value *string `json:"value,omitempty"`
 }
 
 // AdminConfigValue defines model for AdminConfigValue.
@@ -371,6 +541,153 @@ type AdminFederationConfig struct {
 	Username         *string   `json:"username,omitempty"`
 }
 
+// AdminLiveFFmpegProcess One supervised FFmpeg process with the exact executed argv (secrets redacted)
+type AdminLiveFFmpegProcess struct {
+	Argv            *[]string            `json:"argv,omitempty"`
+	CpuPercent      *float32             `json:"cpuPercent"`
+	DroppedFrames   *int                 `json:"droppedFrames"`
+	DuplicateFrames *int                 `json:"duplicateFrames"`
+	Id              string               `json:"id"`
+	Pid             int                  `json:"pid"`
+	Purpose         []string             `json:"purpose"`
+	RestartCount    int                  `json:"restartCount"`
+	RssBytes        *int                 `json:"rssBytes"`
+	Sections        *map[string][]string `json:"sections,omitempty"`
+	Speed           *float32             `json:"speed"`
+	StartedAt       time.Time            `json:"startedAt"`
+	UptimeSeconds   float32              `json:"uptimeSeconds"`
+}
+
+// AdminLiveFFmpegStatus FFmpeg process model and the processes feeding the stream
+type AdminLiveFFmpegStatus struct {
+	ProcessModel string                   `json:"processModel"`
+	Processes    []AdminLiveFFmpegProcess `json:"processes"`
+}
+
+// AdminLiveGeoIPStatus Offline GeoIP database state
+type AdminLiveGeoIPStatus struct {
+	BuildDate    *string `json:"buildDate,omitempty"`
+	Configured   bool    `json:"configured"`
+	DatabaseType *string `json:"databaseType,omitempty"`
+}
+
+// AdminLiveIngest Protocol-neutral ingest statistics and per-protocol detail
+type AdminLiveIngest struct {
+	BitrateKbps          *float32            `json:"bitrateKbps"`
+	Detail               *map[string]float32 `json:"detail,omitempty"`
+	DroppedPackets       *int                `json:"droppedPackets"`
+	PacketLossPct        *float32            `json:"packetLossPct"`
+	RemoteAddr           *string             `json:"remoteAddr,omitempty"`
+	RetransmittedPackets *int                `json:"retransmittedPackets"`
+	RttMs                *float32            `json:"rttMs"`
+	SessionID            *string             `json:"sessionID,omitempty"`
+}
+
+// AdminLiveSource Inbound source properties for the Live Stream Status source panel
+type AdminLiveSource struct {
+	AudioBitrateKbps *float32 `json:"audioBitrateKbps"`
+	AudioCodec       *string  `json:"audioCodec,omitempty"`
+	Fps              *float32 `json:"fps"`
+	HasBFrames       *bool    `json:"hasBFrames"`
+	Height           *int     `json:"height"`
+	VideoBitrateKbps *float32 `json:"videoBitrateKbps"`
+	VideoCodec       *string  `json:"videoCodec,omitempty"`
+	VideoLevel       *string  `json:"videoLevel,omitempty"`
+	VideoProfile     *string  `json:"videoProfile,omitempty"`
+	Width            *int     `json:"width"`
+}
+
+// AdminLiveStatus Aggregated admin Live Stream Status snapshot
+type AdminLiveStatus struct {
+	// Ffmpeg FFmpeg process model and the processes feeding the stream
+	Ffmpeg AdminLiveFFmpegStatus `json:"ffmpeg"`
+
+	// Geoip Offline GeoIP database state
+	Geoip AdminLiveGeoIPStatus `json:"geoip"`
+
+	// Ingest Protocol-neutral ingest statistics and per-protocol detail
+	Ingest        AdminLiveIngest              `json:"ingest"`
+	InputProtocol AdminLiveStatusInputProtocol `json:"inputProtocol"`
+
+	// Source Inbound source properties for the Live Stream Status source panel
+	Source AdminLiveSource `json:"source"`
+
+	// Srt Live SRT listener state
+	Srt           *SRTListenerStatus   `json:"srt,omitempty"`
+	StartTime     *time.Time           `json:"startTime,omitempty"`
+	State         AdminLiveStatusState `json:"state"`
+	StreamKeyID   *string              `json:"streamKeyID,omitempty"`
+	UptimeSeconds float32              `json:"uptimeSeconds"`
+
+	// Viewers Live viewer counts split by delivery protocol
+	Viewers  AdminLiveViewerCounts `json:"viewers"`
+	Warnings []AdminLiveWarning    `json:"warnings"`
+
+	// Webrtc WebRTC delivery availability, capacity and warnings
+	Webrtc AdminLiveWebRTCStatus `json:"webrtc"`
+}
+
+// AdminLiveStatusInputProtocol defines model for AdminLiveStatus.InputProtocol.
+type AdminLiveStatusInputProtocol string
+
+// AdminLiveStatusState defines model for AdminLiveStatus.State.
+type AdminLiveStatusState string
+
+// AdminLiveViewer One live viewer row
+type AdminLiveViewer struct {
+	BitrateKbps         *float32                `json:"bitrateKbps"`
+	City                *string                 `json:"city,omitempty"`
+	ClientID            string                  `json:"clientID"`
+	ConnectedAt         time.Time               `json:"connectedAt"`
+	Country             *string                 `json:"country,omitempty"`
+	DurationSeconds     float32                 `json:"durationSeconds"`
+	Fps                 *float32                `json:"fps"`
+	IpAddress           string                  `json:"ipAddress"`
+	JitterMs            *float32                `json:"jitterMs"`
+	LocationApproximate *bool                   `json:"locationApproximate,omitempty"`
+	PacketLossPct       *float32                `json:"packetLossPct"`
+	Protocol            AdminLiveViewerProtocol `json:"protocol"`
+	Region              *string                 `json:"region,omitempty"`
+	Resolution          *string                 `json:"resolution,omitempty"`
+	Source              AdminLiveViewerSource   `json:"source"`
+	UserAgent           *string                 `json:"userAgent,omitempty"`
+}
+
+// AdminLiveViewerProtocol defines model for AdminLiveViewer.Protocol.
+type AdminLiveViewerProtocol string
+
+// AdminLiveViewerSource defines model for AdminLiveViewer.Source.
+type AdminLiveViewerSource string
+
+// AdminLiveViewerCounts Live viewer counts split by delivery protocol
+type AdminLiveViewerCounts struct {
+	Hls    int `json:"hls"`
+	Total  int `json:"total"`
+	Webrtc int `json:"webrtc"`
+}
+
+// AdminLiveViewersPage One page of the admin live viewer table
+type AdminLiveViewersPage struct {
+	Page     int               `json:"page"`
+	PageSize int               `json:"pageSize"`
+	Total    int               `json:"total"`
+	Viewers  []AdminLiveViewer `json:"viewers"`
+}
+
+// AdminLiveWarning One operator-visible warning in the Live Stream Status page
+type AdminLiveWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// AdminLiveWebRTCStatus WebRTC delivery availability, capacity and warnings
+type AdminLiveWebRTCStatus struct {
+	// Capacity WebRTC viewer capacity snapshot
+	Capacity WebRTCCapacity     `json:"capacity"`
+	Enabled  bool               `json:"enabled"`
+	Warnings []AdminLiveWarning `json:"warnings"`
+}
+
 // AdminLog defines model for AdminLog.
 type AdminLog struct {
 	Level   *string    `json:"level,omitempty"`
@@ -386,7 +703,10 @@ type AdminNotificationsConfig struct {
 
 // AdminServerConfig defines model for AdminServerConfig.
 type AdminServerConfig struct {
-	AdminPassword           *string                   `json:"adminPassword,omitempty"`
+	AdminPassword *string `json:"adminPassword,omitempty"`
+
+	// Appearance Computed appearance/custom frontend status for the admin UI
+	Appearance              *AppearanceAdminReport    `json:"appearance,omitempty"`
 	ChatDisabled            *bool                     `json:"chatDisabled,omitempty"`
 	ChatEstablishedUserMode *bool                     `json:"chatEstablishedUserMode,omitempty"`
 	ChatJoinMessagesEnabled *bool                     `json:"chatJoinMessagesEnabled,omitempty"`
@@ -438,20 +758,22 @@ type AdminWebConfig struct {
 	AppearanceVariables *map[string]string `json:"appearanceVariables,omitempty"`
 
 	// Autoplay Viewer autoplay behavior.
-	Autoplay         *AutoplayMode   `json:"autoplay,omitempty"`
-	CustomJavascript *string         `json:"customJavascript,omitempty"`
-	CustomStyles     *string         `json:"customStyles,omitempty"`
-	ExtraPageContent *string         `json:"extraPageContent,omitempty"`
-	Logo             *string         `json:"logo,omitempty"`
-	Name             *string         `json:"name,omitempty"`
-	Nsfw             *bool           `json:"nsfw,omitempty"`
-	OfflineMessage   *string         `json:"offlineMessage,omitempty"`
-	SocialHandles    *[]SocialHandle `json:"socialHandles,omitempty"`
-	StreamTitle      *string         `json:"streamTitle,omitempty"`
-	Summary          *string         `json:"summary,omitempty"`
-	Tags             *[]string       `json:"tags,omitempty"`
-	Version          *string         `json:"version,omitempty"`
-	WelcomeMessage   *string         `json:"welcomeMessage,omitempty"`
+	Autoplay          *AutoplayMode   `json:"autoplay,omitempty"`
+	CustomFrontendDir *string         `json:"customFrontendDir,omitempty"`
+	CustomJavascript  *string         `json:"customJavascript,omitempty"`
+	CustomPlayerPath  *string         `json:"customPlayerPath,omitempty"`
+	CustomStyles      *string         `json:"customStyles,omitempty"`
+	ExtraPageContent  *string         `json:"extraPageContent,omitempty"`
+	Logo              *string         `json:"logo,omitempty"`
+	Name              *string         `json:"name,omitempty"`
+	Nsfw              *bool           `json:"nsfw,omitempty"`
+	OfflineMessage    *string         `json:"offlineMessage,omitempty"`
+	SocialHandles     *[]SocialHandle `json:"socialHandles,omitempty"`
+	StreamTitle       *string         `json:"streamTitle,omitempty"`
+	Summary           *string         `json:"summary,omitempty"`
+	Tags              *[]string       `json:"tags,omitempty"`
+	Version           *string         `json:"version,omitempty"`
+	WelcomeMessage    *string         `json:"welcomeMessage,omitempty"`
 }
 
 // AdminYPInfo defines model for AdminYPInfo.
@@ -466,6 +788,23 @@ type AnonymousUser struct {
 	DisplayName *string `json:"displayName,omitempty"`
 	Id          *string `json:"id,omitempty"`
 }
+
+// AppearanceAdminReport Computed appearance/custom frontend status for the admin UI
+type AppearanceAdminReport struct {
+	ActiveFrontend      AppearanceAdminReportActiveFrontend `json:"activeFrontend"`
+	CustomFrontendDir   string                              `json:"customFrontendDir"`
+	CustomFrontendError *string                             `json:"customFrontendError,omitempty"`
+	CustomFrontendValid bool                                `json:"customFrontendValid"`
+	CustomPlayerError   *string                             `json:"customPlayerError,omitempty"`
+
+	// CustomPlayerLoadError Last custom player module load failure
+	CustomPlayerLoadError *CustomPlayerLoadError `json:"customPlayerLoadError,omitempty"`
+	CustomPlayerPath      string                 `json:"customPlayerPath"`
+	CustomPlayerValid     bool                   `json:"customPlayerValid"`
+}
+
+// AppearanceAdminReportActiveFrontend defines model for AppearanceAdminReport.ActiveFrontend.
+type AppearanceAdminReportActiveFrontend string
 
 // AuthenticationConfig defines model for AuthenticationConfig.
 type AuthenticationConfig struct {
@@ -576,6 +915,17 @@ type CollectedMetrics struct {
 type CurrentBroadcast struct {
 	LatencyLevel   *LatencyLevel          `json:"latencyLevel,omitempty"`
 	OutputSettings *[]StreamOutputVariant `json:"outputSettings,omitempty"`
+}
+
+// CustomPlayerErrorRequest Custom player module load failure report
+type CustomPlayerErrorRequest struct {
+	Message string `json:"message"`
+}
+
+// CustomPlayerLoadError Last custom player module load failure
+type CustomPlayerLoadError struct {
+	At      string `json:"at"`
+	Message string `json:"message"`
 }
 
 // DiscordNotificationConfiguration defines model for DiscordNotificationConfiguration.
@@ -947,6 +1297,12 @@ type PlaybackMetrics struct {
 
 	// QualityVariantChanges Quality variant switches since the previous report, not a running total.
 	QualityVariantChanges float64 `json:"qualityVariantChanges"`
+}
+
+// PlayerConfig Custom player module activation for the viewer
+type PlayerConfig struct {
+	Custom *bool   `json:"custom,omitempty"`
+	Url    *string `json:"url,omitempty"`
 }
 
 // PortProbe Whether one configured port is available to bind
@@ -1371,12 +1727,15 @@ type WebConfig struct {
 	Notifications             *NotificationConfig `json:"notifications,omitempty"`
 	Nsfw                      *bool               `json:"nsfw,omitempty"`
 	OfflineMessage            *string             `json:"offlineMessage,omitempty"`
-	SocialHandles             *[]SocialHandle     `json:"socialHandles,omitempty"`
-	SocketHostOverride        *string             `json:"socketHostOverride,omitempty"`
-	StreamTitle               *string             `json:"streamTitle,omitempty"`
-	Summary                   *string             `json:"summary,omitempty"`
-	Tags                      *[]string           `json:"tags,omitempty"`
-	Version                   *string             `json:"version,omitempty"`
+
+	// Player Custom player module activation for the viewer
+	Player             *PlayerConfig   `json:"player,omitempty"`
+	SocialHandles      *[]SocialHandle `json:"socialHandles,omitempty"`
+	SocketHostOverride *string         `json:"socketHostOverride,omitempty"`
+	StreamTitle        *string         `json:"streamTitle,omitempty"`
+	Summary            *string         `json:"summary,omitempty"`
+	Tags               *[]string       `json:"tags,omitempty"`
+	Version            *string         `json:"version,omitempty"`
 }
 
 // WebRTCCapacity WebRTC viewer capacity snapshot
@@ -1386,6 +1745,17 @@ type WebRTCCapacity struct {
 	RejectedTotal   *int `json:"rejectedTotal,omitempty"`
 	Reserved        *int `json:"reserved,omitempty"`
 	Used            *int `json:"used,omitempty"`
+}
+
+// WebRTCClientReportRequest Browser-measured WebRTC playback statistics
+type WebRTCClientReportRequest struct {
+	DecodedHeight   *int     `json:"decodedHeight,omitempty"`
+	DecodedWidth    *int     `json:"decodedWidth,omitempty"`
+	Fps             *float32 `json:"fps,omitempty"`
+	JitterMs        *float32 `json:"jitterMs,omitempty"`
+	PacketsLost     *int     `json:"packetsLost,omitempty"`
+	RoundTripTimeMs *float32 `json:"roundTripTimeMs,omitempty"`
+	SessionId       string   `json:"sessionId"`
 }
 
 // WebRTCConfigPublic WebRTC configuration without any secret value
@@ -1712,6 +2082,36 @@ type RemoveFollowerJSONBody struct {
 	ActorIRI string `json:"actorIRI"`
 }
 
+// GetLiveViewersParams defines parameters for GetLiveViewers.
+type GetLiveViewersParams struct {
+	// Page One-based page number.
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Rows per page (1-200; larger values are clamped).
+	PageSize *int `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+
+	// Sort Sort key for the viewer table.
+	Sort *GetLiveViewersParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// Order Sort direction.
+	Order *GetLiveViewersParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Protocol Delivery protocol filter.
+	Protocol *GetLiveViewersParamsProtocol `form:"protocol,omitempty" json:"protocol,omitempty"`
+
+	// Q Case-insensitive filter over IP address, client ID, country and city.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+}
+
+// GetLiveViewersParamsSort defines parameters for GetLiveViewers.
+type GetLiveViewersParamsSort string
+
+// GetLiveViewersParamsOrder defines parameters for GetLiveViewers.
+type GetLiveViewersParamsOrder string
+
+// GetLiveViewersParamsProtocol defines parameters for GetLiveViewers.
+type GetLiveViewersParamsProtocol string
+
 // GetUsersParams defines parameters for GetUsers.
 type GetUsersParams struct {
 	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
@@ -1928,8 +2328,14 @@ type SetChatSpamProtectionEnabledJSONRequestBody = AdminConfigValue
 // SetSuggestedUsernameListJSONRequestBody defines body for SetSuggestedUsernameList for application/json ContentType.
 type SetSuggestedUsernameListJSONRequestBody SetSuggestedUsernameListJSONBody
 
+// SetCustomFrontendDirJSONRequestBody defines body for SetCustomFrontendDir for application/json ContentType.
+type SetCustomFrontendDirJSONRequestBody = AdminConfigStringValue
+
 // SetCustomJavascriptJSONRequestBody defines body for SetCustomJavascript for application/json ContentType.
 type SetCustomJavascriptJSONRequestBody = AdminConfigValue
+
+// SetCustomPlayerPathJSONRequestBody defines body for SetCustomPlayerPath for application/json ContentType.
+type SetCustomPlayerPathJSONRequestBody = AdminConfigStringValue
 
 // SetCustomStylesJSONRequestBody defines body for SetCustomStyles for application/json ContentType.
 type SetCustomStylesJSONRequestBody = AdminConfigValue
@@ -2111,6 +2517,9 @@ type RegisterAnonymousChatUserJSONRequestBody RegisterAnonymousChatUserJSONBody
 // UpdateUserEnabledJSONRequestBody defines body for UpdateUserEnabled for application/json ContentType.
 type UpdateUserEnabledJSONRequestBody UpdateUserEnabledJSONBody
 
+// ReportCustomPlayerErrorJSONRequestBody defines body for ReportCustomPlayerError for application/json ContentType.
+type ReportCustomPlayerErrorJSONRequestBody = CustomPlayerErrorRequest
+
 // SendChatActionJSONRequestBody defines body for SendChatAction for application/json ContentType.
 type SendChatActionJSONRequestBody = MessageEvent
 
@@ -2136,6 +2545,9 @@ type ReportCmcdJSONRequestBody = CmcdReportBody
 //
 // Deprecated: this type has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 type ReportPlaybackMetricsJSONRequestBody = PlaybackMetrics
+
+// ReportWebRTCClientReportJSONRequestBody defines body for ReportWebRTCClientReport for application/json ContentType.
+type ReportWebRTCClientReportJSONRequestBody = WebRTCClientReportRequest
 
 // RegisterForLiveNotificationsJSONRequestBody defines body for RegisterForLiveNotifications for application/json ContentType.
 type RegisterForLiveNotificationsJSONRequestBody RegisterForLiveNotificationsJSONBody

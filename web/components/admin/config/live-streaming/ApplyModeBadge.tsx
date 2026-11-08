@@ -28,16 +28,14 @@ const APPLY_MODE_CONFIG: Record<ApplyMode, BadgeConfig> = {
     labelKey: Localization.Admin.LiveStreaming.Settings.applyRestartService,
     labelDefault: 'Needs service restart',
     descriptionKey: Localization.Admin.LiveStreaming.Settings.applyRestartService,
-    descriptionDefault:
-      'This setting takes effect after the SRT or WebRTC service is restarted.',
+    descriptionDefault: 'This setting takes effect after the SRT or WebRTC service is restarted.',
     color: 'orange',
   },
   'restart-stream': {
     labelKey: Localization.Admin.LiveStreaming.Settings.applyRestartStream,
     labelDefault: 'Next stream',
     descriptionKey: Localization.Admin.LiveStreaming.Settings.applyRestartStream,
-    descriptionDefault:
-      'This setting takes effect the next time a stream starts.',
+    descriptionDefault: 'This setting takes effect the next time a stream starts.',
     color: 'blue',
   },
   'restart-server': {
@@ -66,7 +64,12 @@ export const ApplyModeBadge: FC<ApplyModeBadgeProps> = ({ applyMode, pending = f
   const config = APPLY_MODE_CONFIG[applyMode] || APPLY_MODE_CONFIG.live;
   return (
     <Tooltip
-      title={<Translation translationKey={config.descriptionKey} defaultText={config.descriptionDefault} />}
+      title={
+        <Translation
+          translationKey={config.descriptionKey}
+          defaultText={config.descriptionDefault}
+        />
+      }
     >
       <Tag color={pending ? 'warning' : config.color} className={styles.applyBadge}>
         <Translation translationKey={config.labelKey} defaultText={config.labelDefault} />

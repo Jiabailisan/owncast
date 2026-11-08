@@ -3,10 +3,7 @@ import { Alert, Button, Skeleton } from 'antd';
 
 import AdminSettingsService from '../../../../services/admin-settings-service';
 import { APIError } from '../../../../utils/apis';
-import {
-  fieldErrorsToMap,
-  SettingsMetadata,
-} from '../../../../interfaces/settings-metadata.model';
+import { fieldErrorsToMap, SettingsMetadata } from '../../../../interfaces/settings-metadata.model';
 import { SRTConfig, SRTConfigResponse } from '../../../../interfaces/srt-config.model';
 import { Localization } from '../../../../types/localization';
 import { Translation } from '../../../ui/Translation/Translation';
@@ -148,12 +145,7 @@ export const SrtConfigSection: FC<SrtConfigSectionProps> = ({ metadata }) => {
       />
 
       {saveError && (
-        <Alert
-          type="error"
-          showIcon
-          className={styles.sectionError}
-          message={saveError}
-        />
+        <Alert type="error" showIcon className={styles.sectionError} message={saveError} />
       )}
 
       <SettingsForm

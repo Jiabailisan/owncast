@@ -169,6 +169,9 @@ func addStaticFileEndpoints(r chi.Router, h *handlers.Handlers, apc *apcontrolle
 	// Custom Javascript
 	r.HandleFunc("/customjavascript", h.ServeCustomJavascript)
 
+	// Custom player module (spec 7.3). 404 unless custom-player mode is active.
+	r.HandleFunc("/custom-player/player.js", h.ServeCustomPlayer)
+
 	// robots.txt
 	r.HandleFunc("/robots.txt", h.GetRobotsDotTxt)
 

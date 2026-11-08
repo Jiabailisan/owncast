@@ -9,8 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/config"
+	"github.com/owncast/owncast/config/settings"
 	"github.com/owncast/owncast/models"
-	"github.com/owncast/owncast/persistence/configrepository"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/router/middleware"
 	webutils "github.com/owncast/owncast/webserver/utils"
@@ -180,6 +180,14 @@ func (h *Handlers) getConfigResponse(r *http.Request) webConfigResponse {
 		IndieAuthEnabled: configRepository.GetServerURL() != "",
 	}
 
+	// Custom CSS is not injected when a custom viewer frontend replaces the
+	// page (spec 4.6). The precedence result also drives the player block.
+	appearance := h.resolveAppearance()
+	customStyles := configRepository.GetCustomStyles()
+	if !appearance.CustomCSSAndJSServed() {
+		customStyles = ""
+	}
+
 	return webConfigResponse{
 		Name:                       configRepository.GetServerName(),
 		Summary:                    serverSummary,
@@ -198,7 +206,7 @@ func (h *Handlers) getConfigResponse(r *http.Request) webConfigResponse {
 		ChatRequireAuthentication:  configRepository.GetChatRequireAuthentication(),
 		ExternalActions:            mergePluginActions(configRepository.GetExternalActions(), h.pluginActions),
 		PluginTabs:                 pluginTabsOrEmpty(r, h.pluginTabs),
-		CustomStyles:               configRepository.GetCustomStyles(),
+		CustomStyles:               customStyles,
 		PluginStyles:               pluginStylesString(h.pluginCSSContent),
 		MaxSocketPayloadSize:       config.MaxSocketPayloadSize,
 		Federation:                 federationResponse,
@@ -207,7 +215,7 @@ func (h *Handlers) getConfigResponse(r *http.Request) webConfigResponse {
 		AppearanceVariables:        configRepository.GetCustomColorVariableValues(),
 		HideViewerCount:            configRepository.GetHideViewerCount(),
 		WebRTC:                     buildPublicWebRTCConfig(configRepository.GetWebRTCConfig(), h.stream.GetCurrentBroadcast()),
-		Player:                     buildPublicPlayerConfig(configRepository),
+		Player:                     buildPublicPlayerConfig(appearance),
 	}
 }
 
@@ -282,13 +290,12 @@ func publicICEServers(cfg models.WebRTCConfig) []webRTCICEServerResponse {
 
 // buildPublicPlayerConfig reports the active custom-player mode. A custom
 // frontend directory replaces the viewer entirely, so the custom player is
-// inactive in that case.
-func buildPublicPlayerConfig(configRepository configrepository.ConfigRepository) *playerConfigResponse {
-	customFrontendDir := configRepository.GetCustomFrontendDir()
-	customPlayerPath := configRepository.GetCustomPlayerPath()
-
+// inactive in that case. Precedence and validation come from
+// config/settings.ResolveAppearance so the viewer, the module endpoint and the
+// admin report can never disagree.
+func buildPublicPlayerConfig(state settings.AppearanceState) *playerConfigResponse {
 	player := &playerConfigResponse{}
-	if customFrontendDir == "" && customPlayerPath != "" {
+	if state.Mode == settings.FrontendCustomPlayer {
 		player.Custom = true
 		player.URL = "/custom-player/player.js"
 	}

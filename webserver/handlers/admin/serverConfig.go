@@ -80,6 +80,7 @@ func (a *Admin) GetServerConfig(w http.ResponseWriter, r *http.Request) {
 		S3:                 configRepository.GetS3Config(),
 		ExternalActions:    configRepository.GetExternalActions(),
 		StyleContributors:  a.styleContributorsOrEmpty(),
+		Appearance:         a.appearanceReport(),
 		SupportedCodecs:    transcoder.GetCodecs(ffmpeg),
 		VideoCodec:         configRepository.GetVideoCodec(),
 		ForbiddenUsernames: usernameBlocklist,
@@ -142,6 +143,7 @@ type serverConfigAdminResponse struct {
 	SuggestedUsernames        []string                    `json:"suggestedUsernames"`
 	StreamKeys                []models.StreamKey          `json:"streamKeys"`
 	VideoSettings             videoSettings               `json:"videoSettings"`
+	Appearance                appearanceAdminReport       `json:"appearance"`
 	RTMPServerPort            int                         `json:"rtmpServerPort"`
 	RTMPServerAddress         string                      `json:"rtmpServerAddress"`
 	WebServerPort             int                         `json:"webServerPort"`
@@ -172,6 +174,8 @@ type webConfigResponse struct {
 	StreamTitle         string                `json:"streamTitle"` // What's going on with the current stream
 	CustomStyles        string                `json:"customStyles"`
 	CustomJavascript    string                `json:"customJavascript"`
+	CustomPlayerPath    string                `json:"customPlayerPath"`
+	CustomFrontendDir   string                `json:"customFrontendDir"`
 	Summary             string                `json:"summary"`
 	Tags                []string              `json:"tags"`
 	SocialHandles       []models.SocialHandle `json:"socialHandles"`

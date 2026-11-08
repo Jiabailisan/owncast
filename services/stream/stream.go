@@ -80,16 +80,21 @@ func (s *Service) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop releases anything the service is holding. It force-disconnects the
-// active ingest session and stops the per-stream cleanup tickers. Process exit
-// still reclaims ffmpeg itself; the supervisor hardening in Phase 4 makes the
-// transcoder stop explicit.
+// Stop releases everything the service is holding: force-disconnects the
+// active ingest session, closes every ingest listener, and kills the ffmpeg
+// process groups (live and offline) so shutdown cannot orphan an encoder.
 func (s *Service) Stop(_ context.Context) {
 	if s.sessions != nil {
 		s.sessions.DisconnectCurrent(errStreamStopped)
 	}
 	if s.engine != nil {
 		_ = s.engine.Stop()
+	}
+	if tr := s.getTranscoder(); tr != nil {
+		tr.Stop()
+	}
+	if s.offlineTranscoder != nil {
+		s.offlineTranscoder.Stop()
 	}
 	s.StopOfflineCleanupTimer()
 	s.stopOnlineCleanupTimer()
@@ -117,6 +122,12 @@ func (s *Service) transitionToOfflineVideoStreamContent() {
 	}
 
 	offlineTranscoder.SetInput(offlineFilePath)
+	// Stop any previous offline process before starting a new one so repeated
+	// offline transitions cannot accumulate ffmpeg children.
+	if s.offlineTranscoder != nil {
+		s.offlineTranscoder.Stop()
+	}
+	s.offlineTranscoder = offlineTranscoder
 	go offlineTranscoder.Start(false)
 
 	// Copy the logo to be the thumbnail

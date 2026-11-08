@@ -53,6 +53,8 @@ type Transcoder struct {
 	// empty for RTMP so the default argv is byte-identical to before.
 	inputFormat ingest.InputFormat
 
+	// commandExecMu guards commandExec, which Stop reads while Start sets it.
+	commandExecMu sync.Mutex
 	// commandExec holds the live ffmpeg child process while the
 	// transcoder is running. Set in Start, killed in Stop.
 	commandExec *exec.Cmd
@@ -149,12 +151,21 @@ func (v *VideoSize) getString() string {
 	return ""
 }
 
-// Stop will stop the transcoder and kill all processing.
+// Stop will stop the transcoder and kill the whole ffmpeg process group so no
+// orphaned encoder or child process survives shutdown. It is safe to call
+// multiple times and before Start.
 func (t *Transcoder) Stop() {
 	log.Traceln("Transcoder STOP requested.")
-	err := t.commandExec.Process.Kill()
-	if err != nil {
-		log.Errorln(err)
+
+	t.commandExecMu.Lock()
+	cmd := t.commandExec
+	t.commandExecMu.Unlock()
+	if cmd == nil {
+		return
+	}
+
+	if err := killProcessGroup(cmd); err != nil {
+		log.Debugln("transcoder stop:", err)
 	}
 }
 
@@ -171,25 +182,36 @@ func (t *Transcoder) Start(shouldLog bool) {
 		log.Println(command)
 	}
 
-	t.commandExec = exec.Command(flags.binPath, flags.command...) // nolint: gosec
+	cmd := exec.Command(flags.binPath, flags.command...) // nolint: gosec
+	configureProcessGroup(cmd)
 
 	if t.stdin != nil {
-		t.commandExec.Stdin = t.stdin
+		cmd.Stdin = t.stdin
 	}
 
-	stdout, err := t.commandExec.StderrPipe()
+	stdout, err := cmd.StderrPipe()
 	if err != nil {
-		log.Fatalln(err)
+		log.Errorln("transcoder: unable to capture ffmpeg stderr:", err)
+		t.finishWithError(err)
+
+		return
 	}
 
-	if err := t.commandExec.Start(); err != nil {
+	t.commandExecMu.Lock()
+	t.commandExec = cmd
+	t.commandExecMu.Unlock()
+
+	if err := cmd.Start(); err != nil {
 		log.Errorln("Transcoder error. See", logging.GetTranscoderLogFilePath(t.cfg.LogDirectory), "for full output to debug.")
-		log.Panicln(err, command)
+		log.Errorln("transcoder: ffmpeg failed to start:", err)
+		t.finishWithError(err)
+
+		return
 	}
 
 	// Record the exact argv and process identity for the admin FFmpeg panel.
 	argv := append([]string{flags.binPath}, flags.command...)
-	t.recordStarted(argv, t.commandExec.Process.Pid)
+	t.recordStarted(argv, cmd.Process.Pid)
 
 	transcoderLog := logging.GetTranscoderLogWriter(t.cfg.LogDirectory)
 	fmt.Fprintf(transcoderLog, "ffmpeg started on %s\nCommand line:\n%s\n", time.Now().Format(time.RFC3339), command)
@@ -205,7 +227,7 @@ func (t *Transcoder) Start(shouldLog bool) {
 		}
 	}()
 
-	err = t.commandExec.Wait()
+	err = cmd.Wait()
 	t.recordStopped()
 	if t.TranscoderCompleted != nil {
 		t.TranscoderCompleted(err)
@@ -583,4 +605,14 @@ func (t *Transcoder) SetInternalHTTPHost(host string) {
 // SetCodec will set the codec to be used for the transocder.
 func (t *Transcoder) SetCodec(codecName string) {
 	t.codec = getCodec(codecName)
+}
+// finishWithError reports a start failure to the stream lifecycle instead of
+// crashing the server (previously this path panicked). The stream then goes
+// offline with a logged error, which matches the explicit failure semantics in
+// the specification.
+func (t *Transcoder) finishWithError(err error) {
+	t.recordStopped()
+	if t.TranscoderCompleted != nil {
+		t.TranscoderCompleted(err)
+	}
 }

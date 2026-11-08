@@ -159,11 +159,23 @@ type ServerInterface interface {
 	// (POST /admin/config/chat/suggestedusernames)
 	SetSuggestedUsernameList(w http.ResponseWriter, r *http.Request)
 
+	// (OPTIONS /admin/config/customfrontenddir)
+	SetCustomFrontendDirOptions(w http.ResponseWriter, r *http.Request)
+	// SetCustomFrontendDir Set the custom viewer frontend directory
+	// (POST /admin/config/customfrontenddir)
+	SetCustomFrontendDir(w http.ResponseWriter, r *http.Request)
+
 	// (OPTIONS /admin/config/customjavascript)
 	SetCustomJavascriptOptions(w http.ResponseWriter, r *http.Request)
 	// SetCustomJavascript Update custom JavaScript
 	// (POST /admin/config/customjavascript)
 	SetCustomJavascript(w http.ResponseWriter, r *http.Request)
+
+	// (OPTIONS /admin/config/customplayerpath)
+	SetCustomPlayerPathOptions(w http.ResponseWriter, r *http.Request)
+	// SetCustomPlayerPath Set the custom player module path
+	// (POST /admin/config/customplayerpath)
+	SetCustomPlayerPath(w http.ResponseWriter, r *http.Request)
 
 	// (OPTIONS /admin/config/customstyles)
 	SetCustomStylesOptions(w http.ResponseWriter, r *http.Request)
@@ -533,6 +545,15 @@ type ServerInterface interface {
 
 	// (OPTIONS /admin/hardwarestats)
 	GetHardwareStatsOptions(w http.ResponseWriter, r *http.Request)
+	// GetLiveFFmpeg Get the FFmpeg processes feeding the live stream
+	// (GET /admin/live/ffmpeg)
+	GetLiveFFmpeg(w http.ResponseWriter, r *http.Request)
+	// GetLiveStatus Get the admin Live Stream Status snapshot
+	// (GET /admin/live/status)
+	GetLiveStatus(w http.ResponseWriter, r *http.Request)
+	// GetLiveViewers List the current live viewers
+	// (GET /admin/live/viewers)
+	GetLiveViewers(w http.ResponseWriter, r *http.Request, params GetLiveViewersParams)
 	// GetLogs Get all logs
 	// (GET /admin/logs)
 	GetLogs(w http.ResponseWriter, r *http.Request)
@@ -668,6 +689,12 @@ type ServerInterface interface {
 	// GetWebConfig Get the web config
 	// (GET /config)
 	GetWebConfig(w http.ResponseWriter, r *http.Request)
+
+	// (OPTIONS /custom-player/error)
+	ReportCustomPlayerErrorOptions(w http.ResponseWriter, r *http.Request)
+	// ReportCustomPlayerError Report a custom player module load failure
+	// (POST /custom-player/error)
+	ReportCustomPlayerError(w http.ResponseWriter, r *http.Request)
 	// GetCustomEmojiList Get list of custom emojis supported in the chat
 	// (GET /emoji)
 	GetCustomEmojiList(w http.ResponseWriter, r *http.Request)
@@ -755,6 +782,12 @@ type ServerInterface interface {
 	//
 	// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	ReportPlaybackMetrics(w http.ResponseWriter, r *http.Request)
+
+	// (OPTIONS /metrics/webrtc)
+	ReportWebRTCClientReportOptions(w http.ResponseWriter, r *http.Request)
+	// ReportWebRTCClientReport Report client-side WebRTC playback statistics
+	// (POST /metrics/webrtc)
+	ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request)
 	// GetUserDetails Get a user's details
 	// (GET /moderation/chat/user/{userId})
 	GetUserDetails(w http.ResponseWriter, r *http.Request, userId string, params GetUserDetailsParams)
@@ -1049,6 +1082,17 @@ func (_ Unimplemented) SetSuggestedUsernameList(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (OPTIONS /admin/config/customfrontenddir)
+func (_ Unimplemented) SetCustomFrontendDirOptions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SetCustomFrontendDir Set the custom viewer frontend directory
+// (POST /admin/config/customfrontenddir)
+func (_ Unimplemented) SetCustomFrontendDir(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (OPTIONS /admin/config/customjavascript)
 func (_ Unimplemented) SetCustomJavascriptOptions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1057,6 +1101,17 @@ func (_ Unimplemented) SetCustomJavascriptOptions(w http.ResponseWriter, r *http
 // SetCustomJavascript Update custom JavaScript
 // (POST /admin/config/customjavascript)
 func (_ Unimplemented) SetCustomJavascript(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (OPTIONS /admin/config/customplayerpath)
+func (_ Unimplemented) SetCustomPlayerPathOptions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SetCustomPlayerPath Set the custom player module path
+// (POST /admin/config/customplayerpath)
+func (_ Unimplemented) SetCustomPlayerPath(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1739,6 +1794,24 @@ func (_ Unimplemented) GetHardwareStatsOptions(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetLiveFFmpeg Get the FFmpeg processes feeding the live stream
+// (GET /admin/live/ffmpeg)
+func (_ Unimplemented) GetLiveFFmpeg(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetLiveStatus Get the admin Live Stream Status snapshot
+// (GET /admin/live/status)
+func (_ Unimplemented) GetLiveStatus(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetLiveViewers List the current live viewers
+// (GET /admin/live/viewers)
+func (_ Unimplemented) GetLiveViewers(w http.ResponseWriter, r *http.Request, params GetLiveViewersParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // GetLogs Get all logs
 // (GET /admin/logs)
 func (_ Unimplemented) GetLogs(w http.ResponseWriter, r *http.Request) {
@@ -1994,6 +2067,17 @@ func (_ Unimplemented) GetWebConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (OPTIONS /custom-player/error)
+func (_ Unimplemented) ReportCustomPlayerErrorOptions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReportCustomPlayerError Report a custom player module load failure
+// (POST /custom-player/error)
+func (_ Unimplemented) ReportCustomPlayerError(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // GetCustomEmojiList Get list of custom emojis supported in the chat
 // (GET /emoji)
 func (_ Unimplemented) GetCustomEmojiList(w http.ResponseWriter, r *http.Request) {
@@ -2149,6 +2233,17 @@ func (_ Unimplemented) ReportCmcd(w http.ResponseWriter, r *http.Request) {
 //
 // Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 func (_ Unimplemented) ReportPlaybackMetrics(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (OPTIONS /metrics/webrtc)
+func (_ Unimplemented) ReportWebRTCClientReportOptions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReportWebRTCClientReport Report client-side WebRTC playback statistics
+// (POST /metrics/webrtc)
+func (_ Unimplemented) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2881,6 +2976,34 @@ func (siw *ServerInterfaceWrapper) SetSuggestedUsernameList(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
+// SetCustomFrontendDirOptions operation middleware
+func (siw *ServerInterfaceWrapper) SetCustomFrontendDirOptions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetCustomFrontendDirOptions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetCustomFrontendDir operation middleware
+func (siw *ServerInterfaceWrapper) SetCustomFrontendDir(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetCustomFrontendDir(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetCustomJavascriptOptions operation middleware
 func (siw *ServerInterfaceWrapper) SetCustomJavascriptOptions(w http.ResponseWriter, r *http.Request) {
 
@@ -2900,6 +3023,34 @@ func (siw *ServerInterfaceWrapper) SetCustomJavascript(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetCustomJavascript(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetCustomPlayerPathOptions operation middleware
+func (siw *ServerInterfaceWrapper) SetCustomPlayerPathOptions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetCustomPlayerPathOptions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetCustomPlayerPath operation middleware
+func (siw *ServerInterfaceWrapper) SetCustomPlayerPath(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetCustomPlayerPath(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4743,6 +4894,132 @@ func (siw *ServerInterfaceWrapper) GetHardwareStatsOptions(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// GetLiveFFmpeg operation middleware
+func (siw *ServerInterfaceWrapper) GetLiveFFmpeg(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLiveFFmpeg(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLiveStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetLiveStatus(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLiveStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLiveViewers operation middleware
+func (siw *ServerInterfaceWrapper) GetLiveViewers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetLiveViewersParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "order" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "order", r.URL.Query(), &params.Order, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "order"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "order", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "protocol" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "protocol", r.URL.Query(), &params.Protocol, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "protocol"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "protocol", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLiveViewers(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetLogs operation middleware
 func (siw *ServerInterfaceWrapper) GetLogs(w http.ResponseWriter, r *http.Request) {
 
@@ -5662,6 +5939,34 @@ func (siw *ServerInterfaceWrapper) GetWebConfig(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ReportCustomPlayerErrorOptions operation middleware
+func (siw *ServerInterfaceWrapper) ReportCustomPlayerErrorOptions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportCustomPlayerErrorOptions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReportCustomPlayerError operation middleware
+func (siw *ServerInterfaceWrapper) ReportCustomPlayerError(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportCustomPlayerError(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetCustomEmojiList operation middleware
 func (siw *ServerInterfaceWrapper) GetCustomEmojiList(w http.ResponseWriter, r *http.Request) {
 
@@ -6127,6 +6432,34 @@ func (siw *ServerInterfaceWrapper) ReportPlaybackMetrics(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// ReportWebRTCClientReportOptions operation middleware
+func (siw *ServerInterfaceWrapper) ReportWebRTCClientReportOptions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportWebRTCClientReportOptions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReportWebRTCClientReport operation middleware
+func (siw *ServerInterfaceWrapper) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportWebRTCClientReport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetUserDetails operation middleware
 func (siw *ServerInterfaceWrapper) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 
@@ -6424,6 +6757,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/config", wrapper.GetWebConfig)
 	})
 	r.Group(func(r chi.Router) {
+		r.Options(options.BaseURL+"/custom-player/error", wrapper.ReportCustomPlayerErrorOptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/custom-player/error", wrapper.ReportCustomPlayerError)
+	})
+	r.Group(func(r chi.Router) {
+		r.Options(options.BaseURL+"/metrics/webrtc", wrapper.ReportWebRTCClientReportOptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/metrics/webrtc", wrapper.ReportWebRTCClientReport)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/yp", wrapper.GetYPResponse)
 	})
 	r.Group(func(r chi.Router) {
@@ -6503,6 +6848,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/admin/config/webrtc/test-domain", wrapper.TestWebRTCDomain)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/live/status", wrapper.GetLiveStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/live/viewers", wrapper.GetLiveViewers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/live/ffmpeg", wrapper.GetLiveFFmpeg)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/serverconfig", wrapper.GetServerConfig)
@@ -6779,6 +7133,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/admin/config/video/streamoutputvariants", wrapper.SetStreamOutputVariants)
+	})
+	r.Group(func(r chi.Router) {
+		r.Options(options.BaseURL+"/admin/config/customplayerpath", wrapper.SetCustomPlayerPathOptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/config/customplayerpath", wrapper.SetCustomPlayerPath)
+	})
+	r.Group(func(r chi.Router) {
+		r.Options(options.BaseURL+"/admin/config/customfrontenddir", wrapper.SetCustomFrontendDirOptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/config/customfrontenddir", wrapper.SetCustomFrontendDir)
 	})
 	r.Group(func(r chi.Router) {
 		r.Options(options.BaseURL+"/admin/config/appearance", wrapper.SetCustomColorVariableValuesOptions)

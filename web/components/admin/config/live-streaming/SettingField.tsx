@@ -124,7 +124,9 @@ export const SettingField: FC<SettingFieldProps> = ({
     onChange(meta.key, turnDraftToPatch(rows));
   };
   const updateTURNRow = (index: number, patch: Partial<TURNServerDraft>) => {
-    emitTURNList(turnServers.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+    emitTURNList(
+      turnServers.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)),
+    );
   };
 
   const renderTURNEditor = () => (

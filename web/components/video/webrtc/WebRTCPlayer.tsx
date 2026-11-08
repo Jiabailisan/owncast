@@ -8,10 +8,7 @@ import SoundFilled from '@ant-design/icons/SoundFilled';
 import MutedFilled from '@ant-design/icons/MutedFilled';
 import FullscreenOutlined from '@ant-design/icons/FullscreenOutlined';
 
-import {
-  autoplayModeForSetting,
-  shouldShowBigUnmuteOverlay,
-} from '../../../utils/autoplay';
+import { autoplayModeForSetting, shouldShowBigUnmuteOverlay } from '../../../utils/autoplay';
 import { getLocalStorage, setLocalStorage } from '../../../utils/localStorage';
 import { Localization } from '../../../types/localization';
 import { Translation } from '../../ui/Translation/Translation';
@@ -150,8 +147,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
           : false,
       saveData:
-        (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
-          ?.saveData === true,
+        (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData ===
+        true,
       startsInaudible: video.muted || video.volume === 0,
     });
 
