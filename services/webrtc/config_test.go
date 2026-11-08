@@ -192,6 +192,35 @@ func TestSameOriginAcceptedWithEmptyConfig(t *testing.T) {
 	assert.Equal(t, "http://embed.example.com", allowedOriginHeader(allowedCrossOrigin, allowCfg))
 }
 
+func TestRequestIsSameOriginHostNormalization(t *testing.T) {
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+		want   bool
+	}{
+		{"ipv4 with port", "127.0.0.1:18080", "http://127.0.0.1:18080", true},
+		{"hostname with port", "live.example.com:8443", "https://live.example.com:8443", true},
+		{"portless host", "live.example.com", "https://live.example.com", true},
+		{"different host", "127.0.0.1:18080", "http://evil.example.com:18080", false},
+		{"different port still same host", "127.0.0.1:18080", "http://127.0.0.1:9999", true},
+		{"ipv6", "[::1]:18080", "http://[::1]:18080", true},
+		{"trailing dot", "live.example.com.", "https://live.example.com", true},
+		{"missing origin", "127.0.0.1:18080", "", false},
+		{"null origin", "127.0.0.1:18080", "null", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "http://"+test.host+"/webrtc/whep", nil)
+			req.Host = test.host
+			if test.origin != "" {
+				req.Header.Set("Origin", test.origin)
+			}
+			assert.Equal(t, test.want, requestIsSameOrigin(req))
+		})
+	}
+}
+
 func TestParsePublicIPs(t *testing.T) {
 	cfg := models.WebRTCConfig{PublicIPs: []string{"203.0.113.5", " 2001:db8::1 ", "bogus"}}
 	addrs := ParsePublicIPs(cfg)

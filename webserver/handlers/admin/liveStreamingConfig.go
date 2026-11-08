@@ -16,6 +16,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -36,6 +37,22 @@ import (
 // maxConfigBodyBytes bounds a config PUT/POST body. The configs are small and
 // admin-only; a generous cap still protects against accidental huge payloads.
 const maxConfigBodyBytes = 1 << 20
+
+// Response map keys and repeated diagnostics strings, kept as constants for
+// consistency and to satisfy goconst.
+const (
+	responseKeySuccess        = "success"
+	responseKeyMessage        = "message"
+	responseKeyEnabled        = "enabled"
+	responseKeyPendingRestart = "pendingRestart"
+	warningCodeProbeFailed    = "ffmpeg_probe_failed"
+	preflightTargetAll        = "all"
+	preflightTargetSRT        = "srt"
+	preflightTargetWebRTC     = "webrtc"
+	portProtocolUDP           = "udp"
+	portProtocolTCP           = "tcp"
+	fieldNameDomain           = "domain"
+)
 
 // pendingRestart is the shared response shape for settings that need a restart.
 type pendingRestart struct {
@@ -69,9 +86,9 @@ func writeLiveConfigValidationErrors(w http.ResponseWriter, fieldErrors settings
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"success":     false,
-		"message":     "validation failed",
-		"fieldErrors": fieldErrors,
+		responseKeySuccess: false,
+		responseKeyMessage: "validation failed",
+		"fieldErrors":      fieldErrors,
 	})
 }
 
@@ -86,14 +103,14 @@ func writeLiveConfigBadRequest(w http.ResponseWriter, message string) {
 func writeLiveConfigConflict(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusConflict)
-	_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": message})
+	_ = json.NewEncoder(w).Encode(map[string]any{responseKeySuccess: false, "message": message})
 }
 
 // writeLiveConfigInternalError writes a 500 response.
 func writeLiveConfigInternalError(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusInternalServerError)
-	_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": message})
+	_ = json.NewEncoder(w).Encode(map[string]any{responseKeySuccess: false, "message": message})
 }
 
 // readConfigBody reads and bounds a JSON request body.
@@ -305,27 +322,27 @@ func (a *Admin) validationContext(srtConfig *models.SRTConfig, webrtcConfig *mod
 func (a *Admin) srtListenerState() map[string]any {
 	if a.srt == nil {
 		return map[string]any{
-			"enabled":        false,
-			"state":          "stopped",
-			"listening":      false,
-			"port":           0,
-			"boundAddress":   "",
-			"lastError":      "",
-			"pendingRestart": false,
-			"activeSession":  nil,
+			responseKeyEnabled:        false,
+			"state":                   "stopped",
+			"listening":               false,
+			"port":                    0,
+			"boundAddress":            "",
+			"lastError":               "",
+			responseKeyPendingRestart: false,
+			"activeSession":           nil,
 		}
 	}
 
 	status := a.srt.Snapshot()
 	listener := map[string]any{
-		"enabled":        status.Enabled,
-		"state":          string(status.State),
-		"listening":      status.Listening,
-		"port":           status.Port,
-		"boundAddress":   status.BoundAddress,
-		"lastError":      status.LastError,
-		"pendingRestart": status.PendingRestart,
-		"activeSession":  nil,
+		responseKeyEnabled:        status.Enabled,
+		"state":                   string(status.State),
+		"listening":               status.Listening,
+		"port":                    status.Port,
+		"boundAddress":            status.BoundAddress,
+		"lastError":               status.LastError,
+		responseKeyPendingRestart: status.PendingRestart,
+		"activeSession":           nil,
 	}
 	if status.Session != nil {
 		listener["activeSession"] = map[string]any{
@@ -360,11 +377,14 @@ func (a *Admin) webrtcServiceState(config models.WebRTCConfig) map[string]any {
 	return jsonMap(a.webrtc.Snapshot())
 }
 
-// srtConfigState builds the GET/PUT response for the SRT configuration.
-func (a *Admin) srtConfigState(config models.SRTConfig, pendingFields []string) map[string]any {
-	pending := newPendingRestart(pendingFields)
-	if a.srt != nil && a.srt.Snapshot().PendingRestart && len(pendingFields) == 0 {
-		pending = pendingRestart{Pending: true, Fields: []string{}}
+// srtConfigState builds the GET/PUT response for the SRT configuration. A
+// changed restart-service field is only pending when the SRT service reports
+// that it deferred the rebind (for example because a publisher is connected);
+// a successfully applied change is not pending.
+func (a *Admin) srtConfigState(config models.SRTConfig, changedRestartFields []string) map[string]any {
+	pending := newPendingRestart(nil)
+	if a.srt != nil && a.srt.Snapshot().PendingRestart {
+		pending = pendingRestart{Pending: true, Fields: changedRestartFields}
 	}
 	return map[string]any{
 		"config":         srtConfigPublic(config),
@@ -433,8 +453,8 @@ func (a *Admin) UpdateSRTConfig(w http.ResponseWriter, r *http.Request) {
 
 	pendingFields := changedRestartFields(current, updated, settings.SRTMetadata())
 	state := a.srtConfigState(updated, pendingFields)
-	state["success"] = true
-	state["message"] = "SRT configuration updated"
+	state[responseKeySuccess] = true
+	state[responseKeyMessage] = "SRT configuration updated"
 	writeLiveConfigJSON(w, state)
 }
 
@@ -448,6 +468,39 @@ func (a *Admin) GetWebRTCConfig(w http.ResponseWriter, _ *http.Request) {
 		pendingFields = changedRestartFields(applied, config, settings.WebRTCMetadata())
 	}
 	writeLiveConfigJSON(w, a.webrtcConfigState(config, pendingFields))
+}
+
+// webrtcRestartTimeout bounds one bounded WebRTC service stop/start cycle.
+const webrtcRestartTimeout = 20 * time.Second
+
+// restartWebRTCService stops and starts the WebRTC service so restart-service
+// settings can be applied. The service is idempotent for Start and serializes
+// its own lifecycle; the handler only decides when a restart is required.
+func (a *Admin) restartWebRTCService() error {
+	stopContext, stopCancel := context.WithTimeout(context.Background(), webrtcRestartTimeout)
+	defer stopCancel()
+	if err := a.webrtc.Stop(stopContext); err != nil {
+		return fmt.Errorf("stopping the WebRTC service: %w", err)
+	}
+
+	startContext, startCancel := context.WithTimeout(context.Background(), webrtcRestartTimeout)
+	defer startCancel()
+	if err := a.webrtc.Start(startContext); err != nil {
+		return fmt.Errorf("starting the WebRTC service: %w", err)
+	}
+	return nil
+}
+
+// restoreWebRTCConfig re-applies the previous configuration and restarts the
+// service so a failed new configuration cannot leave WebRTC down.
+func (a *Admin) restoreWebRTCConfig(previous models.WebRTCConfig) {
+	if _, err := a.webrtc.UpdateConfig(previous); err != nil {
+		log.Errorln("unable to restore the previous WebRTC configuration:", err)
+		return
+	}
+	if err := a.restartWebRTCService(); err != nil {
+		log.Errorln("unable to restore the previous WebRTC service state:", err)
+	}
 }
 
 // UpdateWebRTCConfig validates, applies and persists a partial WebRTC
@@ -474,11 +527,22 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 
 	pendingFields := changedRestartFields(current, updated, settings.WebRTCMetadata())
 	if a.webrtc != nil {
+		previousConfig := a.webrtc.Config()
 		pending, err := a.webrtc.UpdateConfig(updated)
 		if err != nil {
 			log.Warnln("webrtc config apply failed:", err)
 			writeLiveConfigValidationErrors(w, settings.FieldErrors{{Field: "body", Message: err.Error()}})
 			return
+		}
+		if len(pending) != 0 {
+			// restart-service settings: restart only the WebRTC service now.
+			if restartErr := a.restartWebRTCService(); restartErr != nil {
+				log.Warnln("webrtc service restart failed:", restartErr)
+				a.restoreWebRTCConfig(previousConfig)
+				writeLiveConfigConflict(w, "unable to restart the WebRTC service with the new configuration: "+restartErr.Error())
+				return
+			}
+			pending = []string{}
 		}
 		pendingFields = pending
 	}
@@ -488,8 +552,8 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := a.webrtcConfigState(updated, pendingFields)
-	state["success"] = true
-	state["message"] = "WebRTC configuration updated"
+	state[responseKeySuccess] = true
+	state[responseKeyMessage] = "WebRTC configuration updated"
 	writeLiveConfigJSON(w, state)
 }
 
@@ -554,7 +618,7 @@ func probeFFmpeg(configRepository configrepository.ConfigRepository) (ffmpegCapa
 
 	versionOutput, err := exec.Command(path, "-hide_banner", "-version").Output() //nolint:gosec
 	if err != nil {
-		warnings = append(warnings, preflightWarning{Code: "ffmpeg_probe_failed", Message: "Unable to run ffmpeg -version: " + err.Error()})
+		warnings = append(warnings, preflightWarning{Code: warningCodeProbeFailed, Message: "Unable to run ffmpeg -version: " + err.Error()})
 		capabilities.Warnings = append(capabilities.Warnings, "Unable to run ffmpeg -version")
 	} else {
 		capabilities.Version = parseFFmpegVersion(string(versionOutput))
@@ -562,14 +626,14 @@ func probeFFmpeg(configRepository configrepository.ConfigRepository) (ffmpegCapa
 
 	encodersOutput, err := exec.Command(path, "-hide_banner", "-encoders").Output() //nolint:gosec
 	if err != nil {
-		warnings = append(warnings, preflightWarning{Code: "ffmpeg_probe_failed", Message: "Unable to run ffmpeg -encoders: " + err.Error()})
+		warnings = append(warnings, preflightWarning{Code: warningCodeProbeFailed, Message: "Unable to run ffmpeg -encoders: " + err.Error()})
 	} else {
 		capabilities.H264Encoders, capabilities.OpusEncoder = parseFFmpegEncoders(string(encodersOutput))
 	}
 
 	protocolsOutput, err := exec.Command(path, "-hide_banner", "-protocols").Output() //nolint:gosec
 	if err != nil {
-		warnings = append(warnings, preflightWarning{Code: "ffmpeg_probe_failed", Message: "Unable to run ffmpeg -protocols: " + err.Error()})
+		warnings = append(warnings, preflightWarning{Code: warningCodeProbeFailed, Message: "Unable to run ffmpeg -protocols: " + err.Error()})
 	} else {
 		capabilities.SRTProtocol = hasFFmpegProtocol(string(protocolsOutput), "srt")
 	}
@@ -679,7 +743,7 @@ func probeTCPPort(bindAddress string, port int) bool {
 
 // RunConfigPreflight probes the configured FFmpeg build and ports.
 func (a *Admin) RunConfigPreflight(w http.ResponseWriter, r *http.Request) {
-	request := preflightRequest{Target: "all"}
+	request := preflightRequest{Target: preflightTargetAll}
 	if body, ok := readConfigBody(w, r); ok && len(strings.TrimSpace(string(body))) != 0 {
 		if err := json.Unmarshal(body, &request); err != nil {
 			writeLiveConfigBadRequest(w, "unable to parse preflight request: "+err.Error())
@@ -687,61 +751,75 @@ func (a *Admin) RunConfigPreflight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if request.Target == "" {
-		request.Target = "all"
+		request.Target = preflightTargetAll
 	}
-	if request.Target != "all" && request.Target != "srt" && request.Target != "webrtc" {
+	if request.Target != preflightTargetAll && request.Target != preflightTargetSRT && request.Target != preflightTargetWebRTC {
 		writeLiveConfigValidationErrors(w, settings.FieldErrors{{Field: "target", Message: "must be one of all, srt, webrtc"}})
 		return
 	}
 
 	capabilities, warnings := probeFFmpeg(a.configRepository)
-	ports := make([]portProbe, 0, 4)
-
-	if request.Target == "all" || request.Target == "srt" {
-		srtConfig := a.configRepository.GetSRTConfig()
-		ports = append(ports, portProbe{
-			Protocol:  "udp",
-			Port:      srtConfig.Port,
-			Available: probeUDPPort(srtConfig.BindAddress, srtConfig.Port),
-		})
-	}
-	if request.Target == "all" || request.Target == "webrtc" {
-		webrtcConfig := a.configRepository.GetWebRTCConfig()
-		ports = append(ports, portProbe{
-			Protocol:  "udp",
-			Port:      webrtcConfig.UDPPort,
-			Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPort),
-		})
-		if webrtcConfig.TCPEnabled {
-			ports = append(ports, portProbe{
-				Protocol:  "tcp",
-				Port:      webrtcConfig.TCPPort,
-				Available: probeTCPPort(webrtcConfig.BindAddress, webrtcConfig.TCPPort),
-			})
-		}
-		if webrtcConfig.UDPMode == "range" {
-			ports = append(
-				ports,
-				portProbe{Protocol: "udp", Port: webrtcConfig.UDPPortMin, Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMin)},
-				portProbe{Protocol: "udp", Port: webrtcConfig.UDPPortMax, Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMax)},
-			)
-		}
-	}
-
-	for _, port := range ports {
-		if !port.Available {
-			warnings = append(warnings, preflightWarning{
-				Code:    "port_in_use",
-				Message: port.Protocol + " port " + strconv.Itoa(port.Port) + " is unavailable",
-			})
-		}
-	}
+	ports := a.probeConfiguredPorts(request.Target)
+	warnings = append(warnings, portWarnings(ports)...)
 
 	writeLiveConfigJSON(w, map[string]any{
 		"ffmpeg":   capabilities,
 		"ports":    ports,
 		"warnings": warnings,
 	})
+}
+
+// probeConfiguredPorts probes the ports belonging to the requested target.
+func (a *Admin) probeConfiguredPorts(target string) []portProbe {
+	ports := make([]portProbe, 0, 4)
+	if target == preflightTargetAll || target == preflightTargetSRT {
+		srtConfig := a.configRepository.GetSRTConfig()
+		ports = append(ports, portProbe{
+			Protocol:  portProtocolUDP,
+			Port:      srtConfig.Port,
+			Available: probeUDPPort(srtConfig.BindAddress, srtConfig.Port),
+		})
+	}
+	if target != preflightTargetAll && target != preflightTargetWebRTC {
+		return ports
+	}
+
+	webrtcConfig := a.configRepository.GetWebRTCConfig()
+	ports = append(ports, portProbe{
+		Protocol:  portProtocolUDP,
+		Port:      webrtcConfig.UDPPort,
+		Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPort),
+	})
+	if webrtcConfig.TCPEnabled {
+		ports = append(ports, portProbe{
+			Protocol:  portProtocolTCP,
+			Port:      webrtcConfig.TCPPort,
+			Available: probeTCPPort(webrtcConfig.BindAddress, webrtcConfig.TCPPort),
+		})
+	}
+	if webrtcConfig.UDPMode == "range" {
+		ports = append(
+			ports,
+			portProbe{Protocol: portProtocolUDP, Port: webrtcConfig.UDPPortMin, Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMin)},
+			portProbe{Protocol: portProtocolUDP, Port: webrtcConfig.UDPPortMax, Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMax)},
+		)
+	}
+	return ports
+}
+
+// portWarnings turns unavailable ports into preflight warnings.
+func portWarnings(ports []portProbe) []preflightWarning {
+	warnings := make([]preflightWarning, 0)
+	for _, port := range ports {
+		if port.Available {
+			continue
+		}
+		warnings = append(warnings, preflightWarning{
+			Code:    "port_in_use",
+			Message: port.Protocol + " port " + strconv.Itoa(port.Port) + " is unavailable",
+		})
+	}
+	return warnings
 }
 
 // testDomainRequest is the body of the test-domain endpoint.
@@ -769,11 +847,11 @@ func (a *Admin) TestWebRTCDomain(w http.ResponseWriter, r *http.Request) {
 		domain = config.Domain
 	}
 	if domain == "" {
-		writeLiveConfigValidationErrors(w, settings.FieldErrors{{Field: "domain", Message: "a domain is required"}})
+		writeLiveConfigValidationErrors(w, settings.FieldErrors{{Field: fieldNameDomain, Message: "a domain is required"}})
 		return
 	}
 	if err := settings.ValidateDomain(domain); err != nil {
-		writeLiveConfigValidationErrors(w, settings.FieldErrors{{Field: "domain", Message: err.Error()}})
+		writeLiveConfigValidationErrors(w, settings.FieldErrors{{Field: fieldNameDomain, Message: err.Error()}})
 		return
 	}
 

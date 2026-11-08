@@ -107,6 +107,12 @@ func (e *engine) buildSettingEngine(ctx context.Context, loggerFactory pionloggi
 	if e.cfg.ICELite {
 		se.SetLite(true)
 	}
+	// Bound STUN gathering so a slow/unreachable STUN server cannot push the
+	// WHEP 201 answer past the client's patience (the handler waits at most
+	// iceGatherTimeout for gathering to complete).
+	if len(e.cfg.STUNServers) > 0 {
+		se.SetSTUNGatherTimeout(3 * time.Second)
+	}
 
 	ips, err := advertisedIPs(ctx, e.cfg)
 	if err != nil {

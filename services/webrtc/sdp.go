@@ -13,16 +13,17 @@ import (
 )
 
 const (
-	turnCredentialTTL   = 5 * time.Minute
-	trickleContentType  = "application/trickle-ice-sdpfrag"
-	h264CodecPrefix     = "h264/"
-	opusCodecPrefix     = "opus/"
-	rtcpFeedbackAttrKey = "rtcp-fb"
-	rtpmapAttrKey       = "rtpmap"
-	fmtpAttrKey         = "fmtp"
-	midAttrPrefix       = "a=mid:"
-	candidateAttrPrefix = "a=candidate:"
-	mediaLinePrefix     = "m="
+	turnCredentialTTL    = 5 * time.Minute
+	trickleContentType   = "application/trickle-ice-sdpfrag"
+	h264CodecPrefix      = "h264/"
+	opusCodecPrefix      = "opus/"
+	rtcpFeedbackAttrKey  = "rtcp-fb"
+	rtpmapAttrKey        = "rtpmap"
+	fmtpAttrKey          = "fmtp"
+	midAttrPrefix        = "a=mid:"
+	candidateAttrPrefix  = "a=candidate:"
+	mediaLinePrefix      = "m="
+	maxTrickleCandidates = 64
 )
 
 // prunedOffer is the result of narrowing a browser offer to the single H.264
@@ -47,15 +48,28 @@ func pruneOffer(raw string, cfg models.WebRTCConfig) (prunedOffer, error) {
 	}
 
 	videoPT, audioPT := "", ""
+	videoSeen, audioSeen := false, false
 	mediaKeep := make([]bool, len(parsed.MediaDescriptions))
 
 	for index, media := range parsed.MediaDescriptions {
 		switch strings.ToLower(media.MediaName.Media) {
 		case "video":
+			if videoSeen {
+				mediaKeep[index] = false
+
+				continue
+			}
+			videoSeen = true
 			videoPT = chooseH264PayloadType(media, cfg)
 			mediaKeep[index] = true
 			pruneMediaFormats(media, map[string]bool{videoPT: true})
 		case "audio":
+			if audioSeen {
+				mediaKeep[index] = false
+
+				continue
+			}
+			audioSeen = true
 			audioPT = chooseOpusPayloadType(media)
 			mediaKeep[index] = true
 			pruneMediaFormats(media, map[string]bool{audioPT: true})
@@ -301,6 +315,9 @@ func parseTrickleFragment(raw string) ([]webrtc.ICECandidateInit, error) {
 
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("%w: no candidates in trickle fragment", ErrBadOffer)
+	}
+	if len(candidates) > maxTrickleCandidates {
+		return nil, fmt.Errorf("%w: too many candidates in trickle fragment", ErrBadOffer)
 	}
 
 	return candidates, nil
