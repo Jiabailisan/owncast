@@ -40,10 +40,10 @@ type GeoIPProvider interface {
 
 // Deps are the read-only providers the snapshot is built from.
 type Deps struct {
-	Stream           *stream.Service
-	WebRTC           WebRTCProvider
-	Config           ConfigProvider
-	GeoIP            GeoIPProvider
+	Stream *stream.Service
+	WebRTC WebRTCProvider
+	Config ConfigProvider
+	GeoIP  GeoIPProvider
 }
 
 // Service builds live-status snapshots.
@@ -140,15 +140,23 @@ func (s *Service) Status() models.LiveStatus {
 		Warnings: webrtcWarnings,
 	}
 
-	if s.geoIP != nil {
-		status.GeoIP = s.geoIP.GeoIPStatus()
-	}
+	status.GeoIP = geoIPStatusFromProvider(s.geoIP)
+	status.Warnings = append(status.Warnings, geoIPWarnings(status.GeoIP)...)
 
 	return status
 }
 
 // Viewers returns a filtered, sorted, paginated snapshot of live viewers.
 func (s *Service) Viewers(page, pageSize int, sortBy, order, protocol, query string) models.LiveViewersPage {
+	page, pageSize = normalizeViewerPage(page, pageSize)
+	viewers := s.collectLiveViewers()
+	viewers = filterLiveViewers(viewers, protocol, query)
+	sortLiveViewers(viewers, sortBy, order == "asc")
+	return paginateLiveViewers(viewers, page, pageSize)
+}
+
+// normalizeViewerPage clamps the pagination parameters to the API bounds.
+func normalizeViewerPage(page, pageSize int) (int, int) {
 	if page < 1 {
 		page = 1
 	}
@@ -158,53 +166,48 @@ func (s *Service) Viewers(page, pageSize int, sortBy, order, protocol, query str
 	if pageSize > 200 {
 		pageSize = 200
 	}
+	return page, pageSize
+}
 
+// collectLiveViewers combines the in-memory HLS viewers (with their GeoIP
+// details) and the WebRTC viewer rows from the delivery service.
+func (s *Service) collectLiveViewers() []models.LiveViewer {
 	viewers := make([]models.LiveViewer, 0, 32)
 	for _, viewer := range s.stream.GetActiveViewers() {
-		row := models.LiveViewer{
-			ClientID:        viewer.ClientID,
-			IPAddress:       viewer.IPAddress,
-			UserAgent:       viewer.UserAgent,
-			Protocol:        models.LiveProtocolHLS,
-			ConnectedAt:     viewer.FirstSeen,
-			DurationSeconds: time.Since(viewer.FirstSeen).Seconds(),
-			Source:          string(models.PlaybackSourceServer),
-		}
-		if viewer.Geo != nil {
-			row.Country = viewer.Geo.CountryCode
-			row.Region = viewer.Geo.RegionName
-			row.LocationApprox = true
-		}
-		viewers = append(viewers, row)
+		viewers = append(viewers, liveViewerFromViewer(viewer))
 	}
 	if s.webrtc != nil {
 		viewers = append(viewers, s.webrtc.LiveViewers()...)
 	}
+	return viewers
+}
 
-	if query != "" {
-		needle := strings.ToLower(query)
-		filtered := viewers[:0]
-		for _, viewer := range viewers {
-			if strings.Contains(strings.ToLower(viewer.IPAddress), needle) ||
-				strings.Contains(strings.ToLower(viewer.ClientID), needle) ||
-				strings.Contains(strings.ToLower(viewer.Country), needle) ||
-				strings.Contains(strings.ToLower(viewer.City), needle) {
-				filtered = append(filtered, viewer)
-			}
-		}
-		viewers = filtered
-	}
-	if protocol != "" && protocol != "all" {
-		filtered := viewers[:0]
-		for _, viewer := range viewers {
-			if viewer.Protocol == protocol {
-				filtered = append(filtered, viewer)
-			}
-		}
-		viewers = filtered
+// filterLiveViewers applies the optional protocol and free-text filters.
+func filterLiveViewers(viewers []models.LiveViewer, protocol, query string) []models.LiveViewer {
+	if query == "" && (protocol == "" || protocol == "all") {
+		return viewers
 	}
 
-	ascending := order == "asc"
+	needle := strings.ToLower(query)
+	filtered := viewers[:0]
+	for _, viewer := range viewers {
+		if query != "" &&
+			!strings.Contains(strings.ToLower(viewer.IPAddress), needle) &&
+			!strings.Contains(strings.ToLower(viewer.ClientID), needle) &&
+			!strings.Contains(strings.ToLower(viewer.Country), needle) &&
+			!strings.Contains(strings.ToLower(viewer.City), needle) {
+			continue
+		}
+		if protocol != "" && protocol != "all" && viewer.Protocol != protocol {
+			continue
+		}
+		filtered = append(filtered, viewer)
+	}
+	return filtered
+}
+
+// sortLiveViewers sorts the rows in place by the requested column.
+func sortLiveViewers(viewers []models.LiveViewer, sortBy string, ascending bool) {
 	switch sortBy {
 	case "duration":
 		sort.SliceStable(viewers, func(a, b int) bool {
@@ -228,7 +231,10 @@ func (s *Service) Viewers(page, pageSize int, sortBy, order, protocol, query str
 			return viewers[a].ConnectedAt.After(viewers[b].ConnectedAt)
 		})
 	}
+}
 
+// paginateLiveViewers returns the requested page of the viewer rows.
+func paginateLiveViewers(viewers []models.LiveViewer, page, pageSize int) models.LiveViewersPage {
 	total := len(viewers)
 	start := (page - 1) * pageSize
 	if start > total {
@@ -238,13 +244,54 @@ func (s *Service) Viewers(page, pageSize int, sortBy, order, protocol, query str
 	if end > total {
 		end = total
 	}
-
 	return models.LiveViewersPage{
 		Viewers:  viewers[start:end],
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
 	}
+}
+
+// liveViewerFromViewer maps one in-memory HLS viewer, including its optional
+// GeoIP details, to the admin LiveViewer row. City/region values are
+// approximate and must never be used for access control.
+func liveViewerFromViewer(viewer models.Viewer) models.LiveViewer {
+	row := models.LiveViewer{
+		ClientID:        viewer.ClientID,
+		IPAddress:       viewer.IPAddress,
+		UserAgent:       viewer.UserAgent,
+		Protocol:        models.LiveProtocolHLS,
+		ConnectedAt:     viewer.FirstSeen,
+		DurationSeconds: time.Since(viewer.FirstSeen).Seconds(),
+		Source:          string(models.PlaybackSourceServer),
+	}
+	if viewer.Geo != nil {
+		row.Country = viewer.Geo.CountryCode
+		row.Region = viewer.Geo.RegionName
+		row.City = viewer.Geo.City
+		row.LocationApprox = true
+	}
+	return row
+}
+
+// geoIPStatusFromProvider reads the optional offline GeoIP database status.
+func geoIPStatusFromProvider(provider GeoIPProvider) models.GeoIPStatus {
+	if provider == nil {
+		return models.GeoIPStatus{}
+	}
+	return provider.GeoIPStatus()
+}
+
+// geoIPWarnings reports the missing-database condition as an operator-visible
+// status warning (spec 6.2 lists "GeoIP DB missing" as a warning).
+func geoIPWarnings(status models.GeoIPStatus) []models.StatusWarning {
+	if status.Configured {
+		return nil
+	}
+	return []models.StatusWarning{{
+		Code:    "geoip_database_missing",
+		Message: "GeoIP database not configured; viewer location fields will show N/A. Supply a MaxMind GeoLite2 City .mmdb at data/GeoLite2-City.mmdb.",
+	}}
 }
 
 func sourceStatus(broadcaster *models.Broadcaster) models.LiveSourceStatus {

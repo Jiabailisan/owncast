@@ -35,14 +35,15 @@ import (
 	"github.com/owncast/owncast/services/chat"
 	"github.com/owncast/owncast/services/datastore"
 	"github.com/owncast/owncast/services/dispatcher"
+	"github.com/owncast/owncast/services/geoip"
 	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/livestatus"
 	"github.com/owncast/owncast/services/rtmp"
 	"github.com/owncast/owncast/services/srt"
 	"github.com/owncast/owncast/services/stalefeaturedcheckservice"
 	"github.com/owncast/owncast/services/stream"
-	"github.com/owncast/owncast/services/webrtc"
 	"github.com/owncast/owncast/services/webhooks"
+	"github.com/owncast/owncast/services/webrtc"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/handlers"
 	"github.com/owncast/owncast/webserver/handlers/admin"
@@ -199,6 +200,17 @@ func main() {
 
 	cacheContainer := cache.New()
 	defer cacheContainer.Stop()
+
+	// Offline GeoIP: one shared client whose metadata feeds the admin Live
+	// Stream Status geoip block. The operator supplies the MaxMind database at
+	// data/GeoLite2-City.mmdb; without it viewer locations render as N/A.
+	// Lookups are in-memory only and never leave this process.
+	geoIPClient := geoip.NewClient()
+	if metadata := geoIPClient.DatabaseMetadata(); metadata.Configured {
+		log.Infof("geoip: %s database loaded (build %s)", metadata.DatabaseType, metadata.BuildDate)
+	} else {
+		log.Infoln("geoip: no MaxMind database found at", geoIPClient.DatabasePath(), "- viewer location will show N/A")
+	}
 
 	// Protocol-neutral ingest foundation shared by every ingest service: the
 	// stream-key validator and the atomic single-publisher arbiter.
@@ -357,6 +369,7 @@ func main() {
 		Stream: streamSvc,
 		WebRTC: webRTCSvc,
 		Config: configRepository,
+		GeoIP:  geoIPStatusProvider{client: geoIPClient},
 	})
 
 	// Background sweep that marks federated peer servers offline when
@@ -560,6 +573,24 @@ func handleCommandLineFlags(cfg *config.Config, configRepository configrepositor
 		cfg.FollowerValidationInterval = time.Duration(*followerValidationIntervalSecs) * time.Second
 		log.Printf("Follower validation interval set to %v", cfg.FollowerValidationInterval)
 	}
+}
+
+// geoIPStatusProvider adapts the offline GeoIP database metadata to the
+// livestatus.GeoIPProvider contract. It lives in main so services/geoip keeps
+// its dependency direction (models imports geoip, not the reverse).
+type geoIPStatusProvider struct {
+	client *geoip.Client
+}
+
+// GeoIPStatus implements livestatus.GeoIPProvider.
+func (p geoIPStatusProvider) GeoIPStatus() models.GeoIPStatus {
+	metadata := p.client.DatabaseMetadata()
+	status := models.GeoIPStatus{Configured: metadata.Configured}
+	if metadata.Configured {
+		status.DatabaseType = metadata.DatabaseType
+		status.BuildDate = metadata.BuildDate
+	}
+	return status
 }
 
 func configureLogging(logDirectory string, enableDebugFeatures bool, enableVerboseLogging bool) {
