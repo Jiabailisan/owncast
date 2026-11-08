@@ -38,6 +38,7 @@ const pages = [
 	'/admin/config-federation',
 	'/admin/config-notify',
 	'/admin/config-social-items',
+	'/admin/config/live-streaming',
 	'/admin/hardware-info',
 	'/admin/stream-health',
 	'/admin/logs',

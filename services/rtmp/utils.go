@@ -79,4 +79,3 @@ func getVideoCodec(codec interface{}) string {
 
 	return unknownString
 }
-

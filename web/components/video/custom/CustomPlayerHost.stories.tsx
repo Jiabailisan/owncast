@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/nextjs';
 
 import { CustomPlayerHost } from './CustomPlayerHost';
+import { AutoplaySetting } from '../../../utils/autoplay';
 
 // Storybook cannot load /custom-player/player.js (that is served by the Go
 // backend only when configured), so the story injects a compatible module.
@@ -32,7 +33,7 @@ export const Mounted: Story = {
     whepUrl: '/webrtc/whep',
     variants: [{ index: 0, name: '720p', width: 1280, height: 720 }],
     online: true,
-    autoplay: 'off',
+    autoplay: AutoplaySetting.Off,
     title: 'Custom player module',
     loader: fakeLoader,
     onFallback: () => {},
@@ -44,7 +45,7 @@ export const LoadFailure: Story = {
     playerUrl: '/custom-player/player.js',
     hlsUrl: '/hls/stream.m3u8',
     online: true,
-    autoplay: 'off',
+    autoplay: AutoplaySetting.Off,
     loader: async () => {
       throw new Error('Failed to fetch dynamically imported module');
     },

@@ -13,6 +13,20 @@ jest.mock('../components/video/OwncastPlayer/OwncastPlayer', () => ({
   OwncastPlayer: () => <div data-testid="hls-player" />,
 }));
 
+jest.mock('../components/video/custom/CustomPlayerHost', () => ({
+  CustomPlayerHost: (props: any) => (
+    <div data-testid="custom-player" data-player-url={props.playerUrl}>
+      <button
+        type="button"
+        data-testid="custom-load-failure"
+        onClick={() => props.onFallback(new Error('module load failed'))}
+      >
+        fail
+      </button>
+    </div>
+  ),
+}));
+
 jest.mock('../components/video/webrtc/WebRTCPlayer', () => ({
   WebRTCPlayer: (props: any) => (
     <div data-testid="webrtc-player" data-whep-url={props.whepUrl}>
@@ -34,6 +48,13 @@ const enabledConfig = (): Partial<ClientConfig> => ({
     variants: [],
     iceServers: [],
     fallbackToHls: true,
+  },
+});
+
+const customPlayerConfig = (): Partial<ClientConfig> => ({
+  player: {
+    custom: true,
+    url: '/custom-player/player.js',
   },
 });
 
@@ -77,6 +98,41 @@ describe('PlayerContainer protocol selection', () => {
     expect(screen.queryByTestId('webrtc-player')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(/Low-latency playback is unavailable/i);
     expect(sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY)).toBe('true');
+  });
+
+  test('renders the custom player module instead of WebRTC/HLS when configured', () => {
+    renderWithConfig(customPlayerConfig());
+    expect(screen.getByTestId('custom-player')).toHaveAttribute(
+      'data-player-url',
+      '/custom-player/player.js',
+    );
+    expect(screen.queryByTestId('hls-player')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('webrtc-player')).not.toBeInTheDocument();
+  });
+
+  test('falls back to the default player when the custom module fails', () => {
+    renderWithConfig(customPlayerConfig());
+    fireEvent.click(screen.getByTestId('custom-load-failure'));
+
+    expect(screen.getByTestId('hls-player')).toBeInTheDocument();
+    expect(screen.queryByTestId('custom-player')).not.toBeInTheDocument();
+  });
+
+  test('forceProtocol overrides the custom player (test/story override)', () => {
+    const store = createStore();
+    store.set(clientConfigStateAtom, { ...makeEmptyClientConfig(), ...customPlayerConfig() });
+    render(
+      <Provider store={store}>
+        <PlayerContainer
+          source="/hls/stream.m3u8"
+          online
+          title="Test stream"
+          forceProtocol="hls"
+        />
+      </Provider>,
+    );
+    expect(screen.getByTestId('hls-player')).toBeInTheDocument();
+    expect(screen.queryByTestId('custom-player')).not.toBeInTheDocument();
   });
 
   test('remembers the fallback for the tab so a remount does not retry', () => {
