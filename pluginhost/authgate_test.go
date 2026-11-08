@@ -99,6 +99,10 @@ func TestGateExemptions(t *testing.T) {
 		// HLS media isn't in the web embed, so it's never matched here.
 		{"HLS segment is an external-player exemption", req("/hls/stream/0.ts", ""), "g", "third-party-player"},
 		{"plain viewer path is an external-player exemption", req("/hls/0.ts", ""), "g", "third-party-player"},
+		// WebRTC signaling is XHR/fetch based: it must be gated (403 JSON), not
+		// redirected to the plugin login screen.
+		{"WHEP signaling is gated by the auth gate", req("/webrtc/whep", ""), "g", ""},
+		{"WHEP session subpath is gated by the auth gate", req("/webrtc/session/abc", ""), "g", ""},
 		{"plugin path with no active gate is gated", req("/plugins/g", ""), "", ""},
 	}
 	for _, tc := range cases {
@@ -247,5 +251,39 @@ func TestAuthGateBrokenGateInteractsCorrectlyWithPolicy(t *testing.T) {
 				t.Fatalf("got %d want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestWebRTCPathsAndAuthGateDenial pins the auth.gate behavior for the WebRTC
+// delivery endpoints: they are recognized as WebRTC paths (so a gated client
+// gets JSON instead of a login redirect) and the denial body is the one the
+// viewer signaling client expects.
+func TestWebRTCPathsAndAuthGateDenial(t *testing.T) {
+	paths := map[string]bool{
+		"/webrtc":             true,
+		"/webrtc/whep":        true,
+		"/webrtc/session/abc": true,
+		"/webrtcish":          false,
+		"/hls/0/stream.m3u8":  false,
+		"/":                   false,
+	}
+	for path, want := range paths {
+		request := httptest.NewRequest(http.MethodPost, path, nil)
+		if got := isWebRTCRequestPath(request); got != want {
+			t.Errorf("isWebRTCRequestPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	writeWebRTCAuthGateDenied(recorder)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("WHEP denial status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+		t.Fatalf("WHEP denial content type = %q, want JSON", contentType)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "webrtc_auth_required") || !strings.Contains(body, "authentication required") {
+		t.Fatalf("WHEP denial body = %q, want the signaling auth error", body)
 	}
 }

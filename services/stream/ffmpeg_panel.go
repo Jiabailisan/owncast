@@ -59,18 +59,27 @@ func (s *Service) transcoderProcessStatus(tr *transcoder.Transcoder) models.FFmp
 		RestartCount:  snapshot.RestartCount,
 		Argv:          argv,
 		Sections: map[string][]string{
-			"input":       sections.Input,
-			"video":       sections.Video,
-			"audio":       sections.Audio,
-			"output":      sections.Output,
-			"other":       sections.Other,
-			"environment": sections.Environment,
+			"input":       nonNilSection(sections.Input),
+			"video":       nonNilSection(sections.Video),
+			"audio":       nonNilSection(sections.Audio),
+			"output":      nonNilSection(sections.Output),
+			"other":       nonNilSection(sections.Other),
+			"environment": nonNilSection(sections.Environment),
 		},
 	}
 	if !snapshot.Running {
 		process.Purpose = append(process.Purpose, "exited")
 	}
 	return process
+}
+
+// nonNilSection keeps the panel JSON stable: every section is always an array,
+// never null.
+func nonNilSection(section []string) []string {
+	if section == nil {
+		return []string{}
+	}
+	return section
 }
 
 // configuredSecrets collects the secret values that must never appear in the
