@@ -8,6 +8,10 @@ import (
 	"github.com/owncast/owncast/services/ingest"
 )
 
+// publicPipelineHLS is the public delivery pipeline label exposed on the
+// status API (the HLS output is always available alongside WebRTC).
+const publicPipelineHLS = "hls"
+
 // GetStatus returns a snapshot of the current stream state suitable for
 // the public/admin status APIs.
 func (s *Service) GetStatus() models.Status {
@@ -33,6 +37,18 @@ func (s *Service) GetStatus() models.Status {
 
 	if session := s.GetCurrentSession(); session != nil {
 		status.InputProtocol = string(session.Protocol())
+	}
+
+	// Additive viewer metering: expose the active source bitrates and the
+	// public delivery pipeline so the browser Stats for nerds panel can show
+	// the ingest audio bitrate (which it cannot measure itself) and label the
+	// live mode.
+	if broadcaster := s.GetBroadcaster(); broadcaster != nil {
+		status.VideoBitrate = broadcaster.StreamDetails.VideoBitrate
+		status.AudioBitrate = broadcaster.StreamDetails.AudioBitrate
+	}
+	if status.Online {
+		status.VideoPipeline = publicPipelineHLS
 	}
 
 	return status

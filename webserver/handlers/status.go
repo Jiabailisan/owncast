@@ -32,6 +32,9 @@ func (h *Handlers) getStatusResponse() webStatusResponse {
 		VersionNumber:      status.VersionNumber,
 		StreamTitle:        status.StreamTitle,
 		InputProtocol:      status.InputProtocol,
+		VideoBitrate:       status.VideoBitrate,
+		AudioBitrate:       status.AudioBitrate,
+		VideoPipeline:      status.VideoPipeline,
 	}
 	if !h.configRepository.GetHideViewerCount() {
 		response.ViewerCount = status.ViewerCount
@@ -51,4 +54,8 @@ type webStatusResponse struct {
 	// InputProtocol is additive: "rtmp" or "srt" while a publisher is
 	// connected, omitted otherwise (spec 7.2).
 	InputProtocol string `json:"inputProtocol,omitempty"`
+	// Additive stream metering for the viewer Stats for nerds panel.
+	VideoBitrate  int    `json:"videoBitrate,omitempty"`
+	AudioBitrate  int    `json:"audioBitrate,omitempty"`
+	VideoPipeline string `json:"videoPipeline,omitempty"`
 }

@@ -200,7 +200,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 		}
 
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
-		purpose := []string{"hls"}
+		purpose := []string{publicPipelineHLS}
 		if len(rtpOutputs) > 0 {
 			purpose = append(purpose, "webrtc")
 		}

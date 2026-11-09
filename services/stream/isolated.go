@@ -29,7 +29,7 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	s.setIngestTee(tee)
 
 	hls := transcoder.NewTranscoder(s.cfg, s.configRepository)
-	hls.SetPurpose([]string{"hls"})
+	hls.SetPurpose([]string{publicPipelineHLS})
 	hls.SetInputFormat(session.InputFormat())
 	hls.SetStdin(tee.AddBranch("hls", true, nil))
 	hls.TranscoderCompleted = func(err error) {

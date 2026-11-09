@@ -18,4 +18,12 @@ type Status struct {
 	// InputProtocol is the protocol of the active ingest session ("rtmp" or
 	// "srt"), empty while offline. Additive public field (spec 7.2).
 	InputProtocol string `json:"inputProtocol,omitempty"`
+
+	// Additive public stream metering for the viewer Stats for nerds panel.
+	// Bitrates are the source ingest values in kbps (the same values the admin
+	// Live Stream Status shows); VideoPipeline labels the active delivery
+	// pipeline ("hls") and is empty while offline.
+	VideoBitrate  int    `json:"videoBitrate,omitempty"`
+	AudioBitrate  int    `json:"audioBitrate,omitempty"`
+	VideoPipeline string `json:"videoPipeline,omitempty"`
 }
