@@ -11,6 +11,7 @@ import { CUSTOM_PLAYER_ERROR } from '../utils/apis';
 import {
   OwncastPlayerAutoplay,
   OwncastPlayerContext,
+  OwncastPlayerLibs,
   OwncastPlayerMount,
   OwncastPlayerVariant,
 } from '../interfaces/custom-player.model';
@@ -98,6 +99,7 @@ export interface BuildCustomPlayerContextArgs {
   autoplay?: AutoplaySetting | string;
   initiallyMuted?: boolean;
   lowLatency?: boolean;
+  libs?: OwncastPlayerLibs;
   reportPlayback?: (event: unknown) => void;
 }
 
@@ -129,6 +131,7 @@ export function buildCustomPlayerContext(args: BuildCustomPlayerContextArgs): Ow
     isOnline,
     autoplay: mapAutoplayForCustomPlayer(autoplay, initiallyMuted),
     lowLatency,
+    ...(args.libs ? { libs: args.libs } : {}),
     ...(reportPlayback ? { reportPlayback } : {}),
   };
 }

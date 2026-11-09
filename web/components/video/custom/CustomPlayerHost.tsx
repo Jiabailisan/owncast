@@ -1,5 +1,9 @@
 import { FC, useEffect, useRef } from 'react';
 import classNames from 'classnames';
+// Host-provided transport library for custom player modules. video.js ships
+// VHS, which is how HLS plays in Chromium; the module cannot import it itself
+// because it is served outside the app bundle.
+import videojs from 'video.js';
 
 import { AutoplaySetting } from '../../../utils/autoplay';
 import { WebRTCVariantInfo } from '../../../interfaces/client-config.model';
@@ -103,6 +107,7 @@ export const CustomPlayerHost: FC<CustomPlayerHostProps> = ({
           isOnline: online,
           autoplay,
           initiallyMuted,
+          libs: { videojs },
           reportPlayback: event => {
             void reportCustomPlayerPlaybackEvent(event);
           },

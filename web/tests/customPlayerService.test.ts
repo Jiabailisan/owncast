@@ -58,6 +58,16 @@ describe('custom player service', () => {
     });
   });
 
+  test('passes host-provided libraries through to the module context', () => {
+    const videojs = jest.fn();
+    const context = buildCustomPlayerContext({
+      hlsUrl: '/hls/stream.m3u8',
+      isOnline: true,
+      libs: { videojs },
+    });
+    expect(context.libs).toEqual({ videojs });
+  });
+
   test('omits whepUrl when WebRTC is unavailable and reads lowLatency from storage', () => {
     localStorage.setItem('latencyCompensatorEnabled', 'true');
     const context = buildCustomPlayerContext({
