@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/nextjs';
 import { StreamStatusCards } from './StreamStatusCards';
-import { liveStatus } from '../../../stories/admin-pages/liveStreamingFixtures';
+import { liveStatus, liveStatusDetailed } from '../../../stories/admin-pages/liveStreamingFixtures';
 
 const meta = {
   title: 'owncast/Admin/Live Status/StreamStatusCards',
@@ -11,14 +11,38 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const SrtLive: Story = { args: { status: liveStatus as any } };
+// SRT: AAC profile/sample-rate/channels details and the dual GeoIP databases.
+export const SrtLive: Story = { args: { status: liveStatusDetailed as any } };
 
-export const RtmpWithTcpUnmeasurable: Story = {
+// RTMP omits the additive audio-detail fields, so the audio card shows the codec
+// exactly as before (no sample rate/channel suffix).
+export const RtmpWithoutAudioDetails: Story = {
   args: {
     status: {
       ...(liveStatus as any),
       inputProtocol: 'rtmp',
+      source: {
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        videoCodec: 'h264',
+        videoProfile: 'high',
+        audioCodec: 'aac',
+        videoBitrateKbps: 2500,
+        audioBitrateKbps: 128,
+        hasBFrames: false,
+      },
       ingest: { ...(liveStatus as any).ingest, packetLossPct: null, rttMs: null },
+    },
+  },
+};
+
+// GeoIP dual-database card on its own (primary MaxMind city + secondary fill-in).
+export const GeoIpDualSources: Story = {
+  args: {
+    status: {
+      ...(liveStatus as any),
+      geoip: (liveStatusDetailed as any).geoip,
     },
   },
 };

@@ -130,6 +130,9 @@ const liveStatus = {
     videoCodec: 'h264',
     videoProfile: 'high',
     audioCodec: 'aac',
+    audioProfile: 'LC',
+    audioSampleRate: 48000,
+    audioChannels: 2,
     videoBitrateKbps: 2500,
     audioBitrateKbps: 128,
   },
@@ -160,7 +163,51 @@ const liveStatus = {
   },
   webrtc: { enabled: true, capacity: { used: 1, limit: 100 }, warnings: [] },
   warnings: [],
-  geoip: { configured: false, databaseType: '', buildDate: '' },
+  geoip: {
+    configured: true,
+    databaseType: 'GeoLite2-City',
+    buildDate: '2026-01-01',
+    sources: [
+      {
+        role: 'primary',
+        configured: true,
+        path: 'data/GeoLite2-City.mmdb',
+        databaseType: 'GeoLite2-City',
+        buildDate: '2026-01-01',
+        hasCity: true,
+      },
+      {
+        role: 'secondary',
+        configured: true,
+        path: 'data/dbip-city-lite.mmdb',
+        databaseType: 'DBIP-City-Lite',
+        buildDate: '2026-02-01',
+        hasCity: true,
+      },
+    ],
+  },
+  outbound: {
+    streams: [
+      {
+        variantIndex: 0,
+        name: '720p @1200 kbps',
+        videoEncoder: 'libx264',
+        videoBitrateKbps: 1200,
+        audioEncoder: 'aac',
+        audioBitrateKbps: 128,
+        protocols: ['hls', 'webrtc'],
+      },
+      {
+        variantIndex: 1,
+        name: 'Source',
+        videoEncoder: 'copy',
+        videoBitrateKbps: null,
+        audioEncoder: 'copy',
+        audioBitrateKbps: null,
+        protocols: ['hls', 'webrtc'],
+      },
+    ],
+  },
 };
 
 const viewers = {

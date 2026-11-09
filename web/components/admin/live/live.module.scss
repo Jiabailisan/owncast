@@ -98,6 +98,64 @@
   margin-bottom: 0;
 }
 
+.geoipCard {
+  background: var(--theme-color-components-content-background, #fff);
+}
+
+.geoipExplanation {
+  margin-bottom: 8px;
+  color: rgb(0 0 0 / 55%);
+  font-size: 0.85em;
+}
+
+.geoipSources {
+  width: 100%;
+  min-width: 0;
+}
+
+.geoipSourceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.audioDetail {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+
+  :global(.ant-typography) {
+    font-weight: 600;
+  }
+}
+
+.audioDetailPart {
+  color: rgb(0 0 0 / 55%);
+  font-weight: 400;
+}
+
+.outboundCard {
+  min-width: 0;
+  background: var(--theme-color-components-content-background, #fff);
+
+  :global(.ant-card-body) {
+    min-width: 0;
+  }
+}
+
+.outboundTable {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.outboundEncoder {
+  font-size: 0.9em;
+}
+
 .viewerTable {
   display: flex;
   flex-direction: column;

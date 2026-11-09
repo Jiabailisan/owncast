@@ -8,6 +8,7 @@ import { Localization } from '../../../../types/localization';
 import { Translation } from '../../../ui/Translation/Translation';
 import { FfmpegPanel } from '../../live/FfmpegPanel';
 import { LiveViewerTable } from '../../live/LiveViewerTable';
+import { OutboundStreamsTable } from '../../live/OutboundStreamsTable';
 import { StreamStatusCards } from '../../live/StreamStatusCards';
 import styles from './live-streaming-sections.module.scss';
 
@@ -141,6 +142,18 @@ export const LiveStreamStatusSection: FC = () => {
       )}
 
       <StreamStatusCards status={status} />
+
+      {(status.outbound?.streams?.length ?? 0) > 0 && (
+        <>
+          <Title level={4} className={styles.sectionHeading}>
+            <Translation
+              translationKey={Localization.Admin.LiveStreaming.Status.outboundSection}
+              defaultText="Outbound streams"
+            />
+          </Title>
+          <OutboundStreamsTable streams={status.outbound?.streams ?? []} />
+        </>
+      )}
 
       <Title level={4} className={styles.sectionHeading}>
         <Translation

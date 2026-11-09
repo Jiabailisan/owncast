@@ -1,7 +1,7 @@
 import { FC, ReactNode } from 'react';
-import { Alert, Card, Col, Row, Typography } from 'antd';
+import { Alert, Card, Col, Row, Space, Tag, Typography } from 'antd';
 
-import { LiveStatus } from '../../../interfaces/live-status.model';
+import { LiveSource, LiveStatus } from '../../../interfaces/live-status.model';
 import { Localization, LocalizationKey } from '../../../types/localization';
 import {
   formatBytes,
@@ -27,6 +27,32 @@ const NA_TOOLTIP_TCP =
 export type StreamStatusCardsProps = {
   status: LiveStatus;
 };
+
+// AAC profile codes from the MPEG-TS inspector are short (LC, HE-AAC, ...);
+// turn them into the human label from the spec example ("AAC-LC").
+export function describeAudioCodec(source: LiveSource): string | null {
+  const codec = (source.audioCodec || '').trim();
+  const profile = (source.audioProfile || '').trim();
+  if (!profile) return codec || null;
+  const upperProfile = profile.toUpperCase();
+  if (upperProfile === 'LC') {
+    return codec ? codec.toUpperCase() + '-LC' : 'AAC-LC';
+  }
+  if (upperProfile.startsWith('HE')) {
+    return codec ? codec.toUpperCase() + '-' + upperProfile : upperProfile;
+  }
+  return codec ? codec.toUpperCase() + ' (' + profile + ')' : profile;
+}
+
+// 48000 -> "48 kHz", 44100 -> "44.1 kHz", 22050 -> "22.05 kHz".
+export function describeAudioSampleRate(rate?: number): string | null {
+  if (!rate || rate <= 0) return null;
+  const khz = rate / 1000;
+  const text = Number.isInteger(khz)
+    ? String(khz)
+    : khz.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return text + ' kHz';
+}
 
 type StatCardProps = {
   titleKey: LocalizationKey;
@@ -139,6 +165,77 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
         />
       )}
 
+      {(geoip.sources?.length ?? 0) > 0 && (
+        <Card
+          size="small"
+          type="inner"
+          className={styles.geoipCard}
+          data-testid="geoip-sources"
+          title={
+            <Translation
+              translationKey={Localization.Admin.LiveStreaming.Status.geoipSourcesTitle}
+              defaultText="GeoIP databases"
+            />
+          }
+        >
+          <div className={styles.geoipExplanation}>
+            <Translation
+              translationKey={Localization.Admin.LiveStreaming.Status.geoipSourcesExplanation}
+              defaultText="City lookups use the primary database; missing city data is filled in from the secondary database."
+            />
+          </div>
+          <Space direction="vertical" size={6} className={styles.geoipSources}>
+            {geoip.sources?.map(geoipSource => (
+              <div
+                key={geoipSource.role}
+                className={styles.geoipSourceRow}
+                data-testid={'geoip-source-' + geoipSource.role}
+              >
+                <Tag color={geoipSource.role === 'secondary' ? 'default' : 'blue'}>
+                  {geoipSource.role === 'secondary' ? (
+                    <Translation
+                      translationKey={Localization.Admin.LiveStreaming.Status.geoipRoleSecondary}
+                      defaultText="Secondary"
+                    />
+                  ) : (
+                    <Translation
+                      translationKey={Localization.Admin.LiveStreaming.Status.geoipRolePrimary}
+                      defaultText="Primary"
+                    />
+                  )}
+                </Tag>
+                <Text strong>{geoipSource.databaseType || 'N/A'}</Text>
+                {geoipSource.buildDate && (
+                  <Text type="secondary">
+                    <Translation
+                      translationKey={Localization.Admin.LiveStreaming.Status.geoipBuilt}
+                      defaultText="Built"
+                    />
+                    {': '}
+                    {geoipSource.buildDate}
+                  </Text>
+                )}
+                {geoipSource.path && <Text code>{geoipSource.path}</Text>}
+                <Tag color={geoipSource.hasCity ? 'green' : 'default'}>
+                  {geoipSource.hasCity ? (
+                    <Translation
+                      translationKey={Localization.Admin.LiveStreaming.Status.geoipCityAvailable}
+                      defaultText="City data"
+                    />
+                  ) : (
+                    <Translation
+                      translationKey={Localization.Admin.LiveStreaming.Status.geoipCityUnavailable}
+                      defaultText="No city data"
+                    />
+                  )}
+                </Tag>
+                {geoipSource.error && <Text type="danger">{geoipSource.error}</Text>}
+              </div>
+            ))}
+          </Space>
+        </Card>
+      )}
+
       <Row gutter={[12, 12]}>
         <StatCard
           titleKey={Localization.Admin.LiveStreaming.Status.resolution}
@@ -176,7 +273,39 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
           titleKey={Localization.Admin.LiveStreaming.Status.audioCodec}
           defaultTitle="Audio codec"
         >
-          <MetricValue value={source.audioCodec} tooltip={NA_TOOLTIP_SOURCE} />
+          <span className={styles.audioDetail} data-testid="source-audio-detail">
+            <MetricValue value={describeAudioCodec(source)} tooltip={NA_TOOLTIP_SOURCE} />
+            {describeAudioSampleRate(source.audioSampleRate) && (
+              <span className={styles.audioDetailPart}>
+                {describeAudioSampleRate(source.audioSampleRate)}
+              </span>
+            )}
+            {source.audioChannels !== undefined && source.audioChannels !== null && (
+              <span className={styles.audioDetailPart}>
+                {source.audioChannels === 1 && (
+                  <Translation
+                    translationKey={Localization.Admin.LiveStreaming.Status.audioMono}
+                    defaultText="mono"
+                  />
+                )}
+                {source.audioChannels === 2 && (
+                  <Translation
+                    translationKey={Localization.Admin.LiveStreaming.Status.audioStereo}
+                    defaultText="stereo"
+                  />
+                )}
+                {source.audioChannels > 2 && (
+                  <>
+                    {source.audioChannels}{' '}
+                    <Translation
+                      translationKey={Localization.Admin.LiveStreaming.Status.audioChannelsSuffix}
+                      defaultText="channels"
+                    />
+                  </>
+                )}
+              </span>
+            )}
+          </span>
         </StatCard>
         <StatCard
           titleKey={Localization.Admin.LiveStreaming.Status.videoBitrate}

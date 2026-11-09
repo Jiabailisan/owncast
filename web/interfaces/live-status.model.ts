@@ -20,6 +20,13 @@ export interface LiveSource {
   videoBitrateKbps: number | null;
   audioBitrateKbps: number | null;
   hasBFrames?: boolean | null;
+
+  // Additive audio codec details (SRT via the MPEG-TS/AAC inspector). They are
+  // omitted by protocols that do not carry them, keeping the RTMP payload
+  // byte-identical.
+  audioProfile?: string;
+  audioSampleRate?: number;
+  audioChannels?: number;
 }
 
 export interface LiveIngest {
@@ -73,10 +80,40 @@ export interface LiveWebRTCStatus {
   warnings: LiveWarning[];
 }
 
+// One loaded (or attempted) GeoIP database file. Sources are ordered primary
+// first; the secondary database fills in missing city data.
+export interface LiveGeoIPSource {
+  role: string; // 'primary' | 'secondary'
+  configured: boolean;
+  path?: string;
+  databaseType?: string;
+  buildDate?: string;
+  hasCity?: boolean;
+  error?: string;
+}
+
 export interface LiveGeoIPStatus {
   configured: boolean;
   databaseType?: string;
   buildDate?: string;
+  sources?: LiveGeoIPSource[];
+}
+
+// One planned outbound stream (one output variant). Bitrates are the
+// configured/planned targets, not measured throughput; null means the plan or
+// source does not provide a value and must render N/A (never 0/Unknown).
+export interface LiveOutboundStream {
+  variantIndex: number;
+  name?: string;
+  videoEncoder?: string;
+  videoBitrateKbps: number | null;
+  audioEncoder?: string;
+  audioBitrateKbps: number | null;
+  protocols: string[];
+}
+
+export interface LiveOutboundStatus {
+  streams: LiveOutboundStream[];
 }
 
 // GET /api/admin/live/status
@@ -93,6 +130,9 @@ export interface LiveStatus {
   webrtc: LiveWebRTCStatus;
   warnings: LiveWarning[];
   geoip: LiveGeoIPStatus;
+  // Additive: planned outbound streams for the active plan. Optional for
+  // compatibility; the UI hides the table when streams is empty/absent.
+  outbound?: LiveOutboundStatus;
 }
 
 // GET /api/admin/live/viewers
@@ -202,5 +242,6 @@ export function makeEmptyLiveStatus(): LiveStatus {
     webrtc: { enabled: false, capacity: { used: 0, limit: 0 }, warnings: [] },
     warnings: [],
     geoip: { configured: false, databaseType: '', buildDate: '' },
+    outbound: { streams: [] },
   };
 }

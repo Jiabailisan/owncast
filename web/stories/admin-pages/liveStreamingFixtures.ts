@@ -176,6 +176,64 @@ export const liveStatus = {
   geoip: { configured: false, databaseType: '', buildDate: '' },
 };
 
+// Additive live-status details added by task-29/task-28: SRT audio codec
+// details, dual GeoIP databases and planned outbound streams (with a
+// passthrough variant whose bitrates are unknown -> N/A).
+export const liveStatusDetailed = {
+  ...liveStatus,
+  source: {
+    ...liveStatus.source,
+    audioProfile: 'LC',
+    audioSampleRate: 48000,
+    audioChannels: 2,
+  },
+  geoip: {
+    configured: true,
+    databaseType: 'GeoLite2-City',
+    buildDate: '2026-01-01',
+    sources: [
+      {
+        role: 'primary',
+        configured: true,
+        path: 'data/GeoLite2-City.mmdb',
+        databaseType: 'GeoLite2-City',
+        buildDate: '2026-01-01',
+        hasCity: true,
+      },
+      {
+        role: 'secondary',
+        configured: true,
+        path: 'data/dbip-city-lite.mmdb',
+        databaseType: 'DBIP-City-Lite',
+        buildDate: '2026-02-01',
+        hasCity: true,
+      },
+    ],
+  },
+  outbound: {
+    streams: [
+      {
+        variantIndex: 0,
+        name: '720p @1200 kbps',
+        videoEncoder: 'libx264',
+        videoBitrateKbps: 1200,
+        audioEncoder: 'aac',
+        audioBitrateKbps: 128,
+        protocols: ['hls', 'webrtc'],
+      },
+      {
+        variantIndex: 1,
+        name: 'Source',
+        videoEncoder: 'copy',
+        videoBitrateKbps: null,
+        audioEncoder: 'copy',
+        audioBitrateKbps: null,
+        protocols: ['hls', 'webrtc'],
+      },
+    ],
+  },
+};
+
 export const viewersResponse = {
   viewers: [
     {
