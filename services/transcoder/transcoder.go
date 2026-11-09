@@ -346,6 +346,16 @@ func (t *Transcoder) getFlags() *execInfo {
 		}
 	}
 
+	// Shared HLS + WebRTC tee output: each transcode variant is encoded once
+	// and the same encoded stream feeds both HLS and the WebRTC RTP legs.
+	if t.sharedOutputEnabled() {
+		ffmpegFlags = append(ffmpegFlags, t.getSharedOutputFlags(localListenerAddress)...)
+		return &execInfo{
+			binPath: t.ffmpegPath,
+			command: ffmpegFlags,
+		}
+	}
+
 	ffmpegFlags = append(ffmpegFlags, t.getVariantsString()...)
 	ffmpegFlags = append(ffmpegFlags, []string{
 		// HLS Output

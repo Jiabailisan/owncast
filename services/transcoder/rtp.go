@@ -60,14 +60,6 @@ const (
 	ffmpegTuneZeroLatency = "zerolatency"
 )
 
-// rtpOutputFlags renders argv for one complete WebRTC RTP output (video and
-// audio). Multi-leg processes use rtpVideoOutputFlags plus one shared audio
-// output so Opus is encoded once for all legs.
-func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
-	args := t.rtpVideoOutputFlags(output)
-	return append(args, t.rtpAudioOutputFlags(output)...)
-}
-
 // rtpVideoOutputFlags renders the video RTP output for one leg.
 func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 	args := make([]string, 0, 24)
@@ -116,6 +108,21 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 	return args
 }
 
+// opusEncoderFlags is the single definition of WebRTC's Opus encoder options.
+// All WebRTC audio paths (single leg, per-leg fallback, shared tee) use it so
+// they cannot drift apart.
+func opusEncoderFlags(bitrateKbps, frameMs int) []string {
+	return []string{
+		ffmpegFlagMap, "0:a:0?",
+		"-c:a", "libopus",
+		"-b:a", strconv.Itoa(bitrateKbps) + "k",
+		"-ar", "48000",
+		"-ac", "2",
+		"-application", "lowdelay",
+		"-frame_duration", strconv.Itoa(frameMs),
+	}
+}
+
 // rtpAudioOutputFlags renders one standalone Opus RTP output for a leg. It is
 // used for single-leg processes and as the fallback when legs disagree on Opus
 // settings (their audio cannot be shared then).
@@ -126,16 +133,7 @@ func (t *Transcoder) rtpAudioOutputFlags(output RTPOutput) []string {
 	// so the encoder option cannot be selected unambiguously from the CLI and
 	// FFmpeg rejects it with "Unsupported FEC protocol". Loss recovery relies on
 	// the browser's NACK/PLC (see the "Not supported" documentation table).
-	audioArgs := make([]string, 0, 19)
-	audioArgs = append(audioArgs, []string{
-		ffmpegFlagMap, "0:a:0?",
-		"-c:a", "libopus",
-		"-b:a", strconv.Itoa(opusBitrate) + "k",
-		"-ar", "48000",
-		"-ac", "2",
-		"-application", "lowdelay",
-		"-frame_duration", strconv.Itoa(opusFrame),
-	}...)
+	audioArgs := opusEncoderFlags(opusBitrate, opusFrame)
 	audioArgs = append(
 		audioArgs,
 		"-f", "rtp",
@@ -183,16 +181,8 @@ func (t *Transcoder) sharedRTPAudioFlags(outputs []RTPOutput) []string {
 		return nil
 	}
 	opusBitrate, opusFrame := outputs[0].opusSettings()
-	args := []string{
-		ffmpegFlagMap, "0:a:0?",
-		"-c:a", "libopus",
-		"-b:a", strconv.Itoa(opusBitrate) + "k",
-		"-ar", "48000",
-		"-ac", "2",
-		"-application", "lowdelay",
-		"-frame_duration", strconv.Itoa(opusFrame),
-		"-f", "tee",
-	}
+	args := opusEncoderFlags(opusBitrate, opusFrame)
+	args = append(args, "-f", "tee")
 	slaves := make([]string, 0, len(outputs))
 	for _, output := range outputs {
 		slaves = append(slaves,

@@ -65,7 +65,7 @@ func TestRTPEncoderTuningPerCodec(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := newGoldenTranscoder()
 			tr.codec = tc.codec
-			args := strings.Join(tr.rtpOutputFlags(rtpTestOutput(tc.codecName)), " ")
+			args := strings.Join(rtpTestFlags(tr, rtpTestOutput(tc.codecName)), " ")
 
 			if !strings.Contains(args, "-c:v "+tc.codecName) {
 				t.Fatalf("expected encoder %s in %s", tc.codecName, args)
@@ -92,7 +92,7 @@ func TestRTPCopyLegHasNoEncoderFlags(t *testing.T) {
 	tr.codec = &NvencCodec{}
 	output := rtpTestOutput("h264_nvenc")
 	output.CopyVideo = true
-	args := strings.Join(tr.rtpOutputFlags(output), " ")
+	args := strings.Join(rtpTestFlags(tr, output), " ")
 
 	if !strings.Contains(args, "-c:v copy") {
 		t.Fatalf("expected copy leg: %s", args)
@@ -102,4 +102,10 @@ func TestRTPCopyLegHasNoEncoderFlags(t *testing.T) {
 			t.Fatalf("copy leg must not contain %q: %s", forbidden, args)
 		}
 	}
+}
+
+// rtpTestFlags renders one complete leg (video + audio) for assertions.
+func rtpTestFlags(tr *Transcoder, output RTPOutput) []string {
+	args := tr.rtpVideoOutputFlags(output)
+	return append(args, tr.rtpAudioOutputFlags(output)...)
 }

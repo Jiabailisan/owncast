@@ -131,4 +131,7 @@ func (t *Transcoder) createVariantDirectories() {
 			log.Fatalln(err)
 		}
 	}
+	// The shared tee output writes one variant playlist per HLS muxer, so
+	// ffmpeg no longer emits the master playlist; assemble it here.
+	t.writeMasterPlaylist()
 }
