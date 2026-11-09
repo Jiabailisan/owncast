@@ -26,6 +26,7 @@ func (a *Admin) Status(w http.ResponseWriter, r *http.Request) {
 		SessionPeakViewerCount: status.SessionMaxViewerCount,
 		VersionNumber:          status.VersionNumber,
 		StreamTitle:            a.configRepository.GetStreamTitle(),
+		InputProtocol:          status.InputProtocol,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -47,4 +48,7 @@ type adminStatusResponse struct {
 	OverallPeakViewerCount int                          `json:"overallPeakViewerCount"`
 	SessionPeakViewerCount int                          `json:"sessionPeakViewerCount"`
 	Online                 bool                         `json:"online"`
+	// InputProtocol is the active ingest protocol ("rtmp"/"srt", empty when
+	// offline). Additive; the admin home uses it to label SRT publishers.
+	InputProtocol string `json:"inputProtocol,omitempty"`
 }
