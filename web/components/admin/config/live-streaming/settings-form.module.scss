@@ -95,6 +95,43 @@
   align-items: center;
 }
 
+.listInput {
+  max-width: 100%;
+}
+
+.listInput .listSelect {
+  width: 100%;
+  min-width: 0;
+}
+
+// Tags controls grow with their tags; keep the control at a comfortable
+// control height and let long tags wrap instead of collapsing.
+.listInput .listSelect :global(.ant-select-content) {
+  flex-wrap: wrap;
+  min-height: 24px;
+  padding-block: 2px;
+}
+
+.listInput .listSelect :global(.ant-select-selection-item) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+// The dropdown matches the full control width (popupMatchSelectWidth); keep
+// its empty state inside the popup and readable.
+.listSelectPopup {
+  min-width: 240px;
+
+  :global(.ant-select-item) {
+    overflow-wrap: anywhere;
+  }
+
+  :global(.ant-select-item-empty) {
+    padding: 8px 12px;
+    color: rgb(0 0 0 / 55%);
+  }
+}
+
 .settingDescription {
   margin: 6px 0 0;
   color: rgb(0 0 0 / 55%);

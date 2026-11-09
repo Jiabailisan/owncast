@@ -72,6 +72,48 @@ export const SecretField: Story = {
   },
 };
 
+export const CidrListField: Story = {
+  args: {
+    meta: {
+      ...baseMeta,
+      key: 'allowedCIDRs',
+      type: 'cidrList',
+      default: [],
+      applyMode: 'live',
+    },
+    value: ['10.0.0.0/8', '192.168.0.0/16', '2001:db8::/32'],
+    defaultValue: [],
+    modified: true,
+    onChange: () => {},
+    onReset: () => {},
+  },
+};
+
+export const CidrListEmptyField: Story = {
+  args: {
+    ...CidrListField.args,
+    value: [],
+    modified: false,
+  },
+};
+
+export const StringListField: Story = {
+  args: {
+    meta: {
+      ...baseMeta,
+      key: 'allowedOrigins',
+      type: 'stringList',
+      default: [],
+      applyMode: 'live',
+    },
+    value: ['https://example.org', 'https://embed.example.org'],
+    defaultValue: [],
+    modified: true,
+    onChange: () => {},
+    onReset: () => {},
+  },
+};
+
 export const FieldError: Story = {
   args: {
     meta: {

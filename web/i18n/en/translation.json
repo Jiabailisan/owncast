@@ -212,9 +212,12 @@
 				"restarts": "Restarts"
 			},
 			"Settings": {
+				"addCidr": "Add CIDR...",
+				"addValue": "Add value...",
 				"defaultValue": "Default:",
 				"fixed": "Fixed",
 				"modified": "Modified",
+				"noListValues": "Type a value and press Enter",
 				"pendingRestart": "Pending restart",
 				"pendingRestartDescription": "The server is still running with the previous values for these settings. Restart the affected service or start a new stream for the change to take effect.",
 				"resetAll": "Cancel changes",

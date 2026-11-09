@@ -104,6 +104,14 @@ export const SettingField: FC<SettingFieldProps> = ({
   };
   const inputId = 'setting-' + meta.key.replace(/[^a-zA-Z0-9_-]/g, '-');
   const readOnly = meta.readOnly || disabled;
+  // List-style fields (tags selects and the TURN editor) need the whole form
+  // column: their controls otherwise shrink to their empty content inside the
+  // flex row and the dropdown anchors to a tiny box.
+  const isListField =
+    meta.type === 'stringList' || meta.type === 'cidrList' || meta.type === 'turnServerList';
+  const settingInputClassName = isListField
+    ? `${styles.settingInput} ${styles.listInput}`
+    : styles.settingInput;
 
   const handleSecretChange = (next: string) => {
     setSecretDraft(next);
@@ -273,11 +281,25 @@ export const SettingField: FC<SettingFieldProps> = ({
           <Select
             id={inputId}
             mode="tags"
+            className={styles.listSelect}
+            data-testid={`setting-list-${meta.key}`}
             value={asStringList(value)}
             disabled={readOnly}
             aria-label={label}
             tokenSeparators={[',']}
-            placeholder={meta.type === 'cidrList' ? '10.0.0.0/8' : ''}
+            popupMatchSelectWidth
+            placeholder={
+              meta.type === 'cidrList'
+                ? t(Localization.Admin.LiveStreaming.Settings.addCidr)
+                : t(Localization.Admin.LiveStreaming.Settings.addValue)
+            }
+            notFoundContent={
+              <Translation
+                translationKey={Localization.Admin.LiveStreaming.Settings.noListValues}
+                defaultText="Type a value and press Enter"
+              />
+            }
+            classNames={{ popup: { root: styles.listSelectPopup } }}
             onChange={next => onChange(meta.key, next)}
           />
         );
@@ -365,7 +387,7 @@ export const SettingField: FC<SettingFieldProps> = ({
             <ApplyModeBadge applyMode={meta.applyMode} />
           </span>
         </div>
-        <div className={styles.settingInput}>
+        <div className={settingInputClassName}>
           <Text>{fixedValueLabel(meta.default)}</Text>
         </div>
         <p className={styles.settingDescription}>{meta.description}</p>
@@ -416,7 +438,9 @@ export const SettingField: FC<SettingFieldProps> = ({
           </Tooltip>
         </span>
       </div>
-      <div className={styles.settingInput}>{renderInput()}</div>
+      <div className={settingInputClassName} data-list-input={isListField ? 'true' : undefined}>
+        {renderInput()}
+      </div>
       <p className={styles.settingDescription}>{meta.description}</p>
       {disabled && disabledReason && <Alert type="info" showIcon message={disabledReason} />}
       {error && <Alert type="error" showIcon className={styles.settingError} message={error} />}

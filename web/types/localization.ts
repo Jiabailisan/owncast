@@ -209,6 +209,9 @@ export const Localization = {
         turnServerCredential: 'Admin.LiveStreaming.Settings.turnServerCredential',
         turnServerStaticSecret: 'Admin.LiveStreaming.Settings.turnServerStaticSecret',
         turnServerRemove: 'Admin.LiveStreaming.Settings.turnServerRemove',
+        addCidr: 'Admin.LiveStreaming.Settings.addCidr',
+        addValue: 'Admin.LiveStreaming.Settings.addValue',
+        noListValues: 'Admin.LiveStreaming.Settings.noListValues',
       },
       Srt: {
         listenerTitle: 'Admin.LiveStreaming.Srt.listenerTitle',
