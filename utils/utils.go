@@ -252,32 +252,49 @@ func IsValidURL(urlToTest string) bool {
 	return true
 }
 
-// ValidatedFfmpegPath will take a proposed path to ffmpeg and return a validated path.
-func ValidatedFfmpegPath(ffmpegPath string) string {
+// FindFfmpegPath resolves the FFmpeg binary the transcoder will use: the
+// configured path when it is valid, otherwise ./ffmpeg next to the working
+// directory (the layout used by the packaged server), otherwise FFmpeg from
+// PATH. Unlike ValidatedFfmpegPath it returns an error instead of terminating,
+// so diagnostics endpoints (admin preflight) can report a missing binary.
+func FindFfmpegPath(ffmpegPath string) (string, error) {
 	if ffmpegPath != "" {
 		if err := VerifyFFMpegPath(ffmpegPath); err == nil {
-			return ffmpegPath
+			return absolutePath(ffmpegPath)
 		}
 		log.Warnln(ffmpegPath, "is an invalid path to ffmpeg will try to use a copy in your path, if possible")
 	}
 
 	// First, check for ffmpeg in the current working directory.
 	if err := VerifyFFMpegPath("./ffmpeg"); err == nil {
-		ffmpegPath = "./ffmpeg"
-	} else {
-		// Fall back to looking for ffmpeg in the system path.
-		ffmpegPath, err = exec.LookPath("ffmpeg")
-		if err != nil || VerifyFFMpegPath(ffmpegPath) != nil {
-			log.Fatalln("Unable to locate ffmpeg. Either install it globally on your system or put the ffmpeg binary in the same directory as Owncast. The binary must be named ffmpeg.")
-		}
+		return absolutePath("./ffmpeg")
 	}
 
-	// Resolve to an absolute path.
-	absPath, err := filepath.Abs(ffmpegPath)
-	if err != nil {
-		return ffmpegPath
+	// Fall back to looking for ffmpeg in the system path.
+	path, err := exec.LookPath("ffmpeg")
+	if err != nil || VerifyFFMpegPath(path) != nil {
+		return "", errors.New("unable to locate ffmpeg: configure the FFmpeg path, place an ffmpeg binary next to the server, or install it on PATH")
 	}
-	return absPath
+	return absolutePath(path)
+}
+
+// absolutePath resolves a path to an absolute one, keeping it unchanged when
+// that fails.
+func absolutePath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return path, nil
+	}
+	return absPath, nil
+}
+
+// ValidatedFfmpegPath will take a proposed path to ffmpeg and return a validated path.
+func ValidatedFfmpegPath(ffmpegPath string) string {
+	path, err := FindFfmpegPath(ffmpegPath)
+	if err != nil {
+		log.Fatalln("Unable to locate ffmpeg. Either install it globally on your system or put the ffmpeg binary in the same directory as Owncast. The binary must be named ffmpeg.")
+	}
+	return path
 }
 
 // VerifyFFMpegPath verifies that the path exists, is a file, and is executable.

@@ -32,6 +32,7 @@ import (
 	"github.com/owncast/owncast/config/settings"
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/persistence/configrepository"
+	"github.com/owncast/owncast/utils"
 )
 
 // maxConfigBodyBytes bounds a config PUT/POST body. The configs are small and
@@ -588,15 +589,15 @@ type preflightRequest struct {
 	Target string `json:"target"`
 }
 
-// resolveFFmpegPath returns the configured FFmpeg path, falling back to PATH.
+// resolveFFmpegPath resolves the FFmpeg binary the way the transcoder does:
+// configured path first, then ./ffmpeg next to the working directory, then
+// PATH. Diagnostics must inspect the same binary the server will actually run.
 func resolveFFmpegPath(configRepository configrepository.ConfigRepository) string {
-	if path := configRepository.GetFfMpegPath(); path != "" {
-		return path
+	path, err := utils.FindFfmpegPath(configRepository.GetFfMpegPath())
+	if err != nil {
+		return ""
 	}
-	if path, err := exec.LookPath("ffmpeg"); err == nil {
-		return path
-	}
-	return ""
+	return path
 }
 
 // probeFFmpeg inspects the configured FFmpeg build for the capabilities the
@@ -777,10 +778,12 @@ func (a *Admin) probeConfiguredPorts(target string) []portProbe {
 	ports := make([]portProbe, 0, 4)
 	if target == preflightTargetAll || target == preflightTargetSRT {
 		srtConfig := a.configRepository.GetSRTConfig()
+		available := probeUDPPort(srtConfig.BindAddress, srtConfig.Port) ||
+			a.portOwnedByRunningServices(portProtocolUDP, srtConfig.Port)
 		ports = append(ports, portProbe{
 			Protocol:  portProtocolUDP,
 			Port:      srtConfig.Port,
-			Available: probeUDPPort(srtConfig.BindAddress, srtConfig.Port),
+			Available: available,
 		})
 	}
 	if target != preflightTargetAll && target != preflightTargetWebRTC {
@@ -789,25 +792,61 @@ func (a *Admin) probeConfiguredPorts(target string) []portProbe {
 
 	webrtcConfig := a.configRepository.GetWebRTCConfig()
 	ports = append(ports, portProbe{
-		Protocol:  portProtocolUDP,
-		Port:      webrtcConfig.UDPPort,
-		Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPort),
+		Protocol: portProtocolUDP,
+		Port:     webrtcConfig.UDPPort,
+		Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPort) ||
+			a.portOwnedByRunningServices(portProtocolUDP, webrtcConfig.UDPPort),
 	})
 	if webrtcConfig.TCPEnabled {
 		ports = append(ports, portProbe{
-			Protocol:  portProtocolTCP,
-			Port:      webrtcConfig.TCPPort,
-			Available: probeTCPPort(webrtcConfig.BindAddress, webrtcConfig.TCPPort),
+			Protocol: portProtocolTCP,
+			Port:     webrtcConfig.TCPPort,
+			Available: probeTCPPort(webrtcConfig.BindAddress, webrtcConfig.TCPPort) ||
+				a.portOwnedByRunningServices(portProtocolTCP, webrtcConfig.TCPPort),
 		})
 	}
 	if webrtcConfig.UDPMode == "range" {
+		minAvailable := probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMin) ||
+			a.portOwnedByRunningServices(portProtocolUDP, webrtcConfig.UDPPortMin)
+		maxAvailable := probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMax) ||
+			a.portOwnedByRunningServices(portProtocolUDP, webrtcConfig.UDPPortMax)
 		ports = append(
 			ports,
-			portProbe{Protocol: portProtocolUDP, Port: webrtcConfig.UDPPortMin, Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMin)},
-			portProbe{Protocol: portProtocolUDP, Port: webrtcConfig.UDPPortMax, Available: probeUDPPort(webrtcConfig.BindAddress, webrtcConfig.UDPPortMax)},
+			portProbe{Protocol: portProtocolUDP, Port: webrtcConfig.UDPPortMin, Available: minAvailable},
+			portProbe{Protocol: portProtocolUDP, Port: webrtcConfig.UDPPortMax, Available: maxAvailable},
 		)
 	}
 	return ports
+}
+
+// portOwnedByRunningServices reports whether this Owncast process already owns
+// the probed port. A running listener is available *to the configuration that
+// owns it*: without this, running preflight with SRT/WebRTC enabled always
+// reported their own ports as "in use".
+func (a *Admin) portOwnedByRunningServices(protocol string, port int) bool {
+	if a.srt != nil && protocol == portProtocolUDP {
+		snapshot := a.srt.Snapshot()
+		if snapshot.Listening && snapshot.Port == port {
+			return true
+		}
+	}
+	if a.webrtc == nil {
+		return false
+	}
+	if a.webrtc.Snapshot().Listening == "" {
+		return false
+	}
+	live := a.webrtc.Config()
+	if protocol == portProtocolUDP {
+		if live.UDPMode == "range" {
+			return port >= live.UDPPortMin && port <= live.UDPPortMax
+		}
+		return live.UDPPort == port
+	}
+	if protocol == portProtocolTCP {
+		return live.TCPEnabled && live.TCPPort == port
+	}
+	return false
 }
 
 // portWarnings turns unavailable ports into preflight warnings.

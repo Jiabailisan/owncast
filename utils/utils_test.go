@@ -197,3 +197,30 @@ func TestVerifyFFMpegPath(t *testing.T) {
 		}
 	}
 }
+
+// TestFindFfmpegPath covers the diagnostics resolver: a valid configured path
+// is returned absolute, and a missing binary (with an empty PATH) is an error
+// instead of terminating the process like ValidatedFfmpegPath.
+func TestFindFfmpegPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("executable permissions differ on Windows")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "ffmpeg")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho fake"), 0o755); err != nil {
+		t.Fatalf("writing fake ffmpeg: %v", err)
+	}
+	got, err := FindFfmpegPath(fake)
+	if err != nil {
+		t.Fatalf("FindFfmpegPath(%q) error: %v", fake, err)
+	}
+	want, _ := filepath.Abs(fake)
+	if got != want {
+		t.Fatalf("FindFfmpegPath(%q) = %q, want %q", fake, got, want)
+	}
+
+	t.Setenv("PATH", "")
+	if _, err := FindFfmpegPath(filepath.Join(dir, "missing-ffmpeg")); err == nil {
+		t.Fatal("missing ffmpeg with empty PATH should return an error")
+	}
+}
