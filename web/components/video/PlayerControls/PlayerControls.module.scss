@@ -178,11 +178,51 @@ $blur: var(--owncast-overlay-blur, 12px);
 }
 
 .volumeSlider {
+  position: relative;
   width: 78px;
   height: 24px;
-  padding: 0;
   cursor: pointer;
-  accent-color: #fff;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.volumeTrack {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  left: 8px;
+  height: 3px;
+  overflow: visible;
+  pointer-events: none;
+  background: rgb(255 255 255 / 35%);
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+.volumeFill {
+  height: 100%;
+  background: #fff;
+  border-radius: 2px;
+}
+
+.volumeThumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  pointer-events: none;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+  transform: translateY(-50%);
+}
+
+.volumeSlider:focus-visible .volumeThumb {
+  box-shadow:
+    0 0 0 4px rgb(255 255 255 / 24%),
+    0 1px 4px rgb(0 0 0 / 35%);
 }
 
 .transportError {

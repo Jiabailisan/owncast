@@ -5,12 +5,12 @@ import PauseOutlined from '@ant-design/icons/PauseOutlined';
 import SoundFilled from '@ant-design/icons/SoundFilled';
 import MutedFilled from '@ant-design/icons/MutedFilled';
 import SettingOutlined from '@ant-design/icons/SettingOutlined';
-import PictureOutlined from '@ant-design/icons/PictureOutlined';
 import FullscreenOutlined from '@ant-design/icons/FullscreenOutlined';
 import FullscreenExitOutlined from '@ant-design/icons/FullscreenExitOutlined';
 import CheckOutlined from '@ant-design/icons/CheckOutlined';
 
 import { StatsPanel } from './StatsPanel';
+import { VolumeSlider } from './VolumeSlider';
 import { StatsSnapshot, SparklineState, TransportPreference, PlayerQuality } from './types';
 import styles from './PlayerControls.module.scss';
 
@@ -231,15 +231,10 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
             </button>
             {volumeVisible && (
               <div className={classNames(styles.volumePopover, styles.volumeVisible)}>
-                <input
-                  className={styles.volumeSlider}
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  aria-label="Volume"
+                <VolumeSlider
                   value={muted ? 0 : volume}
-                  onChange={event => callbacks.onVolumeChange(Number(event.target.value))}
+                  onChange={callbacks.onVolumeChange}
+                  onFocusChange={focused => setVolumeVisible(focused)}
                 />
               </div>
             )}
@@ -298,7 +293,9 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
               data-player-control="true"
               onClick={callbacks.onTogglePip}
             >
-              <PictureOutlined />
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 5h16v14H4V5zm2 2v10h12V7H6zm6 4h6v5h-6v-5z" fill="currentColor" />
+              </svg>
             </button>
           )}
 

@@ -100,7 +100,8 @@ describe('stats presentation helpers', () => {
 
 describe('PlayerControls overlay', () => {
   test('renders the control bar with transport pill, live state and settings', () => {
-    render(<PlayerControls {...makeProps()} />);
+    const callbacks = makeCallbacks();
+    render(<PlayerControls {...makeProps({ callbacks })} />);
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Playback transport' })).toHaveTextContent('Auto');
     expect(screen.getByRole('button', { name: 'Live' })).toHaveTextContent('LIVE');
@@ -109,10 +110,19 @@ describe('PlayerControls overlay', () => {
     const volumeGroup = screen.getByRole('button', { name: 'Mute' }).parentElement as Element;
     fireEvent.mouseEnter(volumeGroup);
     expect(screen.getByLabelText('Volume')).toBeInTheDocument();
-    // The volume pill is one continuous control: no caret arrow and the slider
-    // lives inside the same pill.
+    // The volume pill is one continuous control: no caret arrow, a custom
+    // div-based slider (not a native input) lives inside the same pill.
     expect(volumeGroup.querySelector('.anticon-down')).toBeNull();
-    expect(volumeGroup.contains(screen.getByLabelText('Volume'))).toBe(true);
+    expect(volumeGroup.querySelector('input[type="range"]')).toBeNull();
+    const slider = screen.getByLabelText('Volume');
+    expect(slider).toHaveAttribute('role', 'slider');
+    expect(slider).toHaveAttribute('aria-valuenow', '80');
+    expect(volumeGroup.contains(slider)).toBe(true);
+
+    fireEvent.keyDown(slider, { key: 'ArrowRight' });
+    expect(callbacks.onVolumeChange).toHaveBeenCalledWith(0.8500000000000001);
+    fireEvent.keyDown(slider, { key: 'Home' });
+    expect(callbacks.onVolumeChange).toHaveBeenCalledWith(0);
   });
 
   test('routes play/pause, mute and live-edge actions to the callbacks', () => {
@@ -129,6 +139,18 @@ describe('PlayerControls overlay', () => {
     expect(callbacks.onTogglePlay).toHaveBeenCalled();
     expect(callbacks.onToggleMute).toHaveBeenCalled();
     expect(callbacks.onGoLive).toHaveBeenCalled();
+  });
+
+  test('PiP uses the provided inline SVG icon', () => {
+    Object.defineProperty(document, 'pictureInPictureEnabled', {
+      configurable: true,
+      value: true,
+    });
+    render(<PlayerControls {...makeProps()} />);
+    const pip = screen.getByRole('button', { name: 'Picture in picture' });
+    const path = pip.querySelector('svg path');
+    expect(path).toHaveAttribute('d', 'M4 5h16v14H4V5zm2 2v10h12V7H6zm6 4h6v5h-6v-5z');
+    delete (document as unknown as { pictureInPictureEnabled?: boolean }).pictureInPictureEnabled;
   });
 
   test('opens the transport menu and disables WebRTC when unavailable', () => {
