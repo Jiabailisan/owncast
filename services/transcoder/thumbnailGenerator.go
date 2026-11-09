@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -121,11 +120,9 @@ func (g *ThumbnailGenerator) fireThumbnailGenerator(segmentPath string, variantI
 // (plain -hwaccel cuda); VAAPI/QSV flag sets need explicit hwdownload filters
 // before image encoders, so they intentionally keep the software path.
 func thumbnailDecodeFlags(codecName string) []string {
-	if strings.Contains(strings.ToLower(codecName), "nvenc") {
-		return []string{hwAccelFlag, "cuda"}
-	}
-
-	return nil
+	// Decode acceleration is codec-defined so a hardware encoder's flags can
+	// never leak into a software encoder's argv (or vice versa).
+	return getCodec(codecName).DecodeFlags()
 }
 
 // thumbnailCommandFlags builds the still-frame extraction command. Kept pure so

@@ -338,9 +338,7 @@ func (t *Transcoder) getFlags() *execInfo {
 
 	// RTP-only process: the RTP legs are the whole command.
 	if t.rtpOnly {
-		for _, output := range t.rtpOutputs {
-			ffmpegFlags = append(ffmpegFlags, t.rtpOutputFlags(output)...)
-		}
+		ffmpegFlags = t.appendRTPOutputs(ffmpegFlags)
 
 		return &execInfo{
 			binPath: t.ffmpegPath,
@@ -379,17 +377,31 @@ func (t *Transcoder) getFlags() *execInfo {
 		localListenerAddress + "/%v/stream.m3u8", // Send HLS playlists back to us over HTTP
 	}...)
 
-	// Additional WebRTC RTP output legs (multi-output). Each is a separate
-	// output context following the HLS output, so the HLS argv above is
-	// untouched when no legs are configured.
-	for _, output := range t.rtpOutputs {
-		ffmpegFlags = append(ffmpegFlags, t.rtpOutputFlags(output)...)
-	}
+	// Additional WebRTC RTP output legs (multi-output). Videos are separate
+	// outputs; when every leg uses the same Opus settings, audio is encoded
+	// once and fanned out with the tee muxer. The HLS argv above is untouched
+	// when no legs are configured.
+	ffmpegFlags = t.appendRTPOutputs(ffmpegFlags)
 
 	return &execInfo{
 		binPath: t.ffmpegPath,
 		command: ffmpegFlags,
 	}
+}
+
+// appendRTPOutputs renders the WebRTC video legs and then either one shared
+// Opus audio output (tee) or per-leg audio outputs when settings differ.
+func (t *Transcoder) appendRTPOutputs(flags []string) []string {
+	for _, output := range t.rtpOutputs {
+		flags = append(flags, t.rtpVideoOutputFlags(output)...)
+	}
+	if shared := t.sharedRTPAudioFlags(t.rtpOutputs); shared != nil {
+		return append(flags, shared...)
+	}
+	for _, output := range t.rtpOutputs {
+		flags = append(flags, t.rtpAudioOutputFlags(output)...)
+	}
+	return flags
 }
 
 // SetRTPOutputs configures the WebRTC RTP legs emitted by this ffmpeg process

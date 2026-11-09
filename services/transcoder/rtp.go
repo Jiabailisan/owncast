@@ -60,11 +60,17 @@ const (
 	ffmpegTuneZeroLatency = "zerolatency"
 )
 
-// rtpOutputFlags renders argv for one WebRTC RTP output. It is a separate
-// output context that follows the HLS output, so its options only apply to the
-// RTP muxers.
+// rtpOutputFlags renders argv for one complete WebRTC RTP output (video and
+// audio). Multi-leg processes use rtpVideoOutputFlags plus one shared audio
+// output so Opus is encoded once for all legs.
 func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
-	args := make([]string, 0, 40)
+	args := t.rtpVideoOutputFlags(output)
+	return append(args, t.rtpAudioOutputFlags(output)...)
+}
+
+// rtpVideoOutputFlags renders the video RTP output for one leg.
+func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
+	args := make([]string, 0, 24)
 
 	// Video leg.
 	args = append(args, ffmpegFlagMap, "0:v:0")
@@ -107,15 +113,14 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 		withRTPPacketSize(output.VideoURL),
 	)
 
-	// Audio leg: WebRTC audio is always Opus.
-	opusBitrate := output.OpusBitrateKbps
-	if opusBitrate <= 0 {
-		opusBitrate = 96
-	}
-	opusFrame := output.OpusFrameMs
-	if opusFrame <= 0 {
-		opusFrame = 20
-	}
+	return args
+}
+
+// rtpAudioOutputFlags renders one standalone Opus RTP output for a leg. It is
+// used for single-leg processes and as the fallback when legs disagree on Opus
+// settings (their audio cannot be shared then).
+func (t *Transcoder) rtpAudioOutputFlags(output RTPOutput) []string {
+	opusBitrate, opusFrame := output.opusSettings()
 	// Opus encoding for WebRTC. libopus in-band FEC/DTX flags are NOT emitted:
 	// FFmpeg's RTP muxer also defines "-fec" (expecting an FEC protocol name),
 	// so the encoder option cannot be selected unambiguously from the CLI and
@@ -137,7 +142,64 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 		"-payload_type", strconv.Itoa(output.AudioPayloadType),
 		withRTPPacketSize(output.AudioURL),
 	)
-	args = append(args, audioArgs...)
+	return audioArgs
+}
+
+// opusSettings applies the WebRTC audio defaults.
+func (o RTPOutput) opusSettings() (bitrateKbps, frameMs int) {
+	bitrateKbps = o.OpusBitrateKbps
+	if bitrateKbps <= 0 {
+		bitrateKbps = 96
+	}
+	frameMs = o.OpusFrameMs
+	if frameMs <= 0 {
+		frameMs = 20
+	}
+	return bitrateKbps, frameMs
+}
+
+// sharedAudioCompatible reports whether all legs use identical Opus settings
+// and payload type, so one encoded audio stream can feed every leg.
+func sharedAudioCompatible(outputs []RTPOutput) bool {
+	if len(outputs) < 2 {
+		return false
+	}
+	bitrate, frame := outputs[0].opusSettings()
+	payloadType := outputs[0].AudioPayloadType
+	for _, output := range outputs[1:] {
+		otherBitrate, otherFrame := output.opusSettings()
+		if otherBitrate != bitrate || otherFrame != frame || output.AudioPayloadType != payloadType {
+			return false
+		}
+	}
+	return true
+}
+
+// sharedRTPAudioFlags renders a single Opus encode fanned out to every WebRTC
+// leg with the tee muxer. Each RTP slave receives only the one audio stream, so
+// no stream selection is required.
+func (t *Transcoder) sharedRTPAudioFlags(outputs []RTPOutput) []string {
+	if !sharedAudioCompatible(outputs) {
+		return nil
+	}
+	opusBitrate, opusFrame := outputs[0].opusSettings()
+	args := []string{
+		ffmpegFlagMap, "0:a:0?",
+		"-c:a", "libopus",
+		"-b:a", strconv.Itoa(opusBitrate) + "k",
+		"-ar", "48000",
+		"-ac", "2",
+		"-application", "lowdelay",
+		"-frame_duration", strconv.Itoa(opusFrame),
+		"-f", "tee",
+	}
+	slaves := make([]string, 0, len(outputs))
+	for _, output := range outputs {
+		slaves = append(slaves,
+			"[f=rtp:payload_type="+strconv.Itoa(output.AudioPayloadType)+"]"+withRTPPacketSize(output.AudioURL))
+	}
+	args = append(args, strings.Join(slaves, "|"))
+
 	return args
 }
 

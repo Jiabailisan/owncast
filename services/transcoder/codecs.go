@@ -35,6 +35,11 @@ type Codec interface {
 	ExtraFilters() string
 	VariantFlags(v *HLSVariant) []string
 	GetPresetForLevel(l int) string
+	// DecodeFlags returns hardware decode acceleration flags for this codec, or
+	// nil when the codec has no safe hardware decode path. Encoder-specific
+	// flags live here so switching codecs can never leak one encoder's options
+	// into another encoder's argv.
+	DecodeFlags() []string
 }
 
 var supportedCodecs = map[string]string{
@@ -568,3 +573,18 @@ func getCodec(name string) Codec {
 		return &Libx264Codec{}
 	}
 }
+
+// DecodeFlags implementations.
+func (c *Libx264Codec) DecodeFlags() []string { return nil }
+
+func (c *OmxCodec) DecodeFlags() []string { return nil }
+
+func (c *VaapiCodec) DecodeFlags() []string { return nil }
+
+func (c *NvencCodec) DecodeFlags() []string { return []string{hwAccelFlag, "cuda"} }
+
+func (c *QuicksyncCodec) DecodeFlags() []string { return nil }
+
+func (c *Video4Linux) DecodeFlags() []string { return nil }
+
+func (c *VideoToolboxCodec) DecodeFlags() []string { return nil }
