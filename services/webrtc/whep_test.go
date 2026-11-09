@@ -273,13 +273,41 @@ func TestWHEPClientReportAndLiveViewers(t *testing.T) {
 	location := created.Header().Get("Location")
 	id := strings.TrimPrefix(location, "/webrtc/whep/session/")
 
-	assert.True(t, svc.ApplyClientReport(id, ClientReport{DecodedWidth: 1280, DecodedHeight: 720, FPS: 29.8, JitterMs: 4.1}))
+	packetLoss := 1.42
+	clientBitrate := 5980.0
+	assert.True(t, svc.ApplyClientReport(id, ClientReport{
+		DecodedWidth:     2560,
+		DecodedHeight:    1440,
+		FPS:              52.4,
+		PacketsLost:      126,
+		PacketsReceived:  8763,
+		PacketLossPct:    &packetLoss,
+		JitterMs:         4.1,
+		Transport:        "udp",
+		VideoBitrateKbps: &clientBitrate,
+	}))
 	viewers := svc.LiveViewers()
 	require.Len(t, viewers, 1)
 	assert.Equal(t, "webrtc", viewers[0].Protocol)
 	assert.Equal(t, "client", viewers[0].Source)
+	assert.Equal(t, "2560x1440", viewers[0].Resolution)
 	require.NotNil(t, viewers[0].FPS)
-	assert.InDelta(t, 30, *viewers[0].FPS, 1.5)
+	assert.InDelta(t, 52.4, *viewers[0].FPS, 0.001)
+	require.NotNil(t, viewers[0].BitrateKbps)
+	assert.InDelta(t, 5980, *viewers[0].BitrateKbps, 0.001)
+	require.NotNil(t, viewers[0].PacketLossPct)
+	assert.InDelta(t, 1.42, *viewers[0].PacketLossPct, 0.001)
+	assert.Equal(t, "udp", viewers[0].ICETransport)
+
+	// An unvalidated spike (571 fps) and a bogus resolution/loss are ignored;
+	// only the usable transport fallback remains, so the row is no longer
+	// labelled client-reported.
+	assert.True(t, svc.ApplyClientReport(id, ClientReport{FPS: 571, DecodedWidth: 8, DecodedHeight: 8, Transport: "udp"}))
+	viewers = svc.LiveViewers()
+	require.Len(t, viewers, 1)
+	assert.NotEqual(t, 571.0, viewers[0].FPS)
+	assert.Equal(t, "udp", viewers[0].ICETransport)
+	assert.Equal(t, "server", viewers[0].Source)
 
 	snapshot := svc.Snapshot()
 	assert.True(t, snapshot.Enabled)

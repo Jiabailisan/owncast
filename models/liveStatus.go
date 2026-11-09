@@ -85,9 +85,14 @@ type FFmpegProcessStatus struct {
 	DuplicateFrames *int64    `json:"duplicateFrames"`
 	CPUPercent      *float64  `json:"cpuPercent"`
 	RSSBytes        *int64    `json:"rssBytes"`
+	// GPU utilization for hardware encoders. Best effort: nil when the
+	// encoder is not an NVIDIA NVENC encoder or nvidia-smi is unavailable.
+	GPUPercent     *float64 `json:"gpuPercent"`
+	GPUMemoryBytes *int64   `json:"gpuMemoryBytes"`
+	GPUName        string   `json:"gpuName,omitempty"`
 	// Argv is the exact executed command line, secrets redacted with ***.
 	Argv []string `json:"argv,omitempty"`
-	// Sections splits Argv into input/video/audio/output/other/environment
+	// Sections splits Argv into common/hls/webrtc/environment
 	// groups for the collapsible admin FFmpeg panel (spec 6.4).
 	Sections map[string][]string `json:"sections,omitempty"`
 }
@@ -121,14 +126,17 @@ type StatusWarning struct {
 
 // LiveViewer is one row of the admin viewer table (spec 6.3).
 type LiveViewer struct {
-	ClientID        string    `json:"clientID"`
-	IPAddress       string    `json:"ipAddress"`
-	UserAgent       string    `json:"userAgent,omitempty"`
-	Country         string    `json:"country,omitempty"`
-	Region          string    `json:"region,omitempty"`
-	City            string    `json:"city,omitempty"`
-	LocationApprox  bool      `json:"locationApproximate,omitempty"`
-	Protocol        string    `json:"protocol"`
+	ClientID       string `json:"clientID"`
+	IPAddress      string `json:"ipAddress"`
+	UserAgent      string `json:"userAgent,omitempty"`
+	Country        string `json:"country,omitempty"`
+	Region         string `json:"region,omitempty"`
+	City           string `json:"city,omitempty"`
+	LocationApprox bool   `json:"locationApproximate,omitempty"`
+	Protocol       string `json:"protocol"`
+	// ICETransport is the protocol of the selected ICE candidate pair for
+	// WebRTC rows ("udp" or "tcp"), empty when unknown or not applicable.
+	ICETransport    string    `json:"iceTransport,omitempty"`
 	BitrateKbps     *float64  `json:"bitrateKbps"`
 	Resolution      string    `json:"resolution,omitempty"`
 	FPS             *float64  `json:"fps"`

@@ -303,35 +303,77 @@ func (s *Service) LiveViewers() []models.LiveViewer {
 	rows := make([]models.LiveViewer, 0, len(sessions))
 	for _, sess := range sessions {
 		snapshot := sess.snapshot(now)
-		row := models.LiveViewer{
-			ClientID:        snapshot.ClientID + "",
-			IPAddress:       snapshot.IPAddress,
-			UserAgent:       snapshot.UserAgent,
-			Protocol:        "webrtc",
-			BitrateKbps:     snapshot.BitrateKbps,
-			Resolution:      snapshot.Resolution,
-			FPS:             snapshot.FPS,
-			PacketLossPct:   snapshot.PacketLossPct,
-			JitterMs:        snapshot.JitterMs,
-			ConnectedAt:     snapshot.ConnectedAt,
-			DurationSeconds: snapshot.DurationSeconds,
-			Source:          snapshot.Source,
-		}
-		if row.FPS == nil && snapshot.Client != nil && snapshot.Client.FPS > 0 {
-			clientFPS := snapshot.Client.FPS
-			row.FPS = &clientFPS
-		}
-		if row.FPS == nil {
-			if leg := s.mediaLeg(snapshot.Variant); leg != nil {
-				if measured := leg.Stats().MeasuredVideoFPS; measured > 0 {
-					row.FPS = &measured
-				}
+		var serverMeasuredFPS *float64
+		if leg := s.mediaLeg(snapshot.Variant); leg != nil {
+			if measured := leg.Stats().MeasuredVideoFPS; measured > 0 {
+				serverMeasuredFPS = &measured
 			}
 		}
-		rows = append(rows, row)
+		rows = append(rows, liveViewerRow(snapshot, serverMeasuredFPS))
 	}
 
 	return rows
+}
+
+// liveViewerRow maps one WebRTC viewer snapshot to an admin row. Validated
+// client measurements take precedence for the fields the operator sees
+// (bitrate, resolution, fps, packet loss); server measurements are the
+// fallback. The row is only labelled "client" when a client value was
+// actually used, so a report that failed validation cannot mislabel
+// server-derived values as player-reported.
+func liveViewerRow(snapshot ViewerSnapshot, serverMeasuredFPS *float64) models.LiveViewer {
+	row := models.LiveViewer{
+		ClientID:        snapshot.ClientID,
+		IPAddress:       snapshot.IPAddress,
+		UserAgent:       snapshot.UserAgent,
+		Protocol:        "webrtc",
+		ICETransport:    snapshot.ICETransport,
+		BitrateKbps:     snapshot.BitrateKbps,
+		Resolution:      snapshot.Resolution,
+		PacketLossPct:   snapshot.PacketLossPct,
+		JitterMs:        snapshot.JitterMs,
+		ConnectedAt:     snapshot.ConnectedAt,
+		DurationSeconds: snapshot.DurationSeconds,
+		Source:          string(models.PlaybackSourceServer),
+	}
+
+	client := snapshot.Client
+	usedClientValue := false
+	if client != nil {
+		if validClientResolution(client.DecodedWidth, client.DecodedHeight) {
+			row.Resolution = fmt.Sprintf("%dx%d", client.DecodedWidth, client.DecodedHeight)
+			usedClientValue = true
+		}
+		if validClientFPS(client.FPS) {
+			clientFPS := client.FPS
+			row.FPS = &clientFPS
+			usedClientValue = true
+		}
+		if client.VideoBitrateKbps != nil && validClientBitrate(*client.VideoBitrateKbps) {
+			clientBitrate := *client.VideoBitrateKbps
+			row.BitrateKbps = &clientBitrate
+			usedClientValue = true
+		}
+		if client.PacketLossPct != nil && validPacketLossPct(*client.PacketLossPct) {
+			clientLoss := *client.PacketLossPct
+			row.PacketLossPct = &clientLoss
+			usedClientValue = true
+		}
+		// Server-detected candidate-pair transport wins; the client can only
+		// supply the fallback when the server could not detect it.
+		if row.ICETransport == "" {
+			row.ICETransport = client.Transport
+		}
+	}
+
+	if row.FPS == nil && serverMeasuredFPS != nil {
+		row.FPS = serverMeasuredFPS
+	}
+	if usedClientValue {
+		row.Source = string(models.PlaybackSourceClient)
+	}
+
+	return row
 }
 
 // Capacity returns the viewer capacity counters for the admin API.

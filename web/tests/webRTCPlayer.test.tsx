@@ -164,6 +164,66 @@ describe('WebRTCPlayer', () => {
     expect(screen.queryByText('720p')).not.toBeInTheDocument();
   });
 
+  test('stats panel shows the ICE transport and resolution with fps', async () => {
+    const report = new Map([
+      [
+        'video',
+        {
+          id: 'video',
+          type: 'inbound-rtp',
+          kind: 'video',
+          frameWidth: 2560,
+          frameHeight: 1440,
+          framesPerSecond: 60,
+          framesDecoded: 600,
+          packetsLost: 126,
+          packetsReceived: 8750,
+          jitter: 0.005,
+          bytesReceived: 8_000_000,
+          timestamp: 10_000,
+        },
+      ],
+      [
+        'pair',
+        {
+          id: 'pair',
+          type: 'candidate-pair',
+          nominated: true,
+          state: 'succeeded',
+          localCandidateId: 'local',
+          remoteCandidateId: 'remote',
+          currentRoundTripTime: 0.003,
+        },
+      ],
+      ['local', { id: 'local', type: 'candidate', protocol: 'udp' }],
+      ['remote', { id: 'remote', type: 'candidate', protocol: 'udp' }],
+    ]) as unknown as RTCStatsReport;
+    const session = {
+      ...makeSession(),
+      pc: { getStats: async () => report } as unknown as RTCPeerConnection,
+    };
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats={false}
+        sessionFactory={async () => session}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByText('Stats for nerds'));
+
+    await waitFor(() =>
+      expect(screen.getByText('2560x1440@60fps / 2560x1440@60fps')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('WebRTC-U')).toBeInTheDocument();
+  });
+
   test('shows the big unmute overlay only when autoplay muted playback itself', async () => {
     // First unmuted play is blocked (mimicking browser autoplay policy), the
     // muted retry succeeds: the player muted itself, so the overlay appears.

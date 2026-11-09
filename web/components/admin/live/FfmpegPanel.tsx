@@ -7,7 +7,12 @@ import {
   FfmpegPanelProcess,
 } from '../../../interfaces/live-status.model';
 import { Localization, LocalizationKey } from '../../../types/localization';
-import { parseSecondsToDurationString } from '../../../utils/format';
+import {
+  formatBytes,
+  formatMetricNumber,
+  formatMetricPercent,
+  parseSecondsToDurationString,
+} from '../../../utils/format';
 import { Translation } from '../../ui/Translation/Translation';
 import styles from './live.module.scss';
 
@@ -28,6 +33,19 @@ export function formatArgvForCopy(argv: string[]): string {
 }
 
 const SECTION_LABELS: Record<string, { key: LocalizationKey; defaultText: string }> = {
+  common: {
+    key: Localization.Admin.LiveStreaming.Ffmpeg.common,
+    defaultText: 'Common',
+  },
+  hls: {
+    key: Localization.Admin.LiveStreaming.Ffmpeg.hls,
+    defaultText: 'HLS',
+  },
+  webrtc: {
+    key: Localization.Admin.LiveStreaming.Ffmpeg.webrtc,
+    defaultText: 'WebRTC',
+  },
+  // Legacy section ids remain readable for older API payloads.
   input: {
     key: Localization.Admin.LiveStreaming.Ffmpeg.input,
     defaultText: 'Input',
@@ -60,6 +78,29 @@ type FfmpegProcessCardProps = {
 
 const FfmpegProcessCard: FC<FfmpegProcessCardProps> = ({ process }) => {
   const [copied, setCopied] = useState(false);
+
+  // Per-process metrics shown next to the process id. Values are omitted when
+  // the backend cannot measure them (old payloads / no progress yet).
+  const speedValue =
+    process.speed === null || process.speed === undefined
+      ? null
+      : formatMetricNumber(process.speed, 2) + 'x';
+  const cpuValue =
+    process.cpuPercent === null || process.cpuPercent === undefined
+      ? null
+      : formatMetricPercent(process.cpuPercent, 1);
+  const rssValue =
+    process.rssBytes === null || process.rssBytes === undefined
+      ? null
+      : formatBytes(process.rssBytes);
+  const gpuParts: string[] = [];
+  if (process.gpuPercent !== null && process.gpuPercent !== undefined) {
+    gpuParts.push('GPU ' + formatMetricPercent(process.gpuPercent, 0));
+  }
+  if (process.gpuMemoryBytes !== null && process.gpuMemoryBytes !== undefined) {
+    gpuParts.push(formatBytes(process.gpuMemoryBytes));
+  }
+  const gpuValue = gpuParts.length > 0 ? gpuParts.join(', ') : null;
 
   const handleCopy = async () => {
     const command = formatArgvForCopy(process.argv);
@@ -134,6 +175,41 @@ const FfmpegProcessCard: FC<FfmpegProcessCardProps> = ({ process }) => {
               {purpose}
             </Tag>
           ))}
+          {speedValue && (
+            <Tag data-testid="ffmpeg-process-speed">
+              <Translation
+                translationKey={Localization.Admin.LiveStreaming.Ffmpeg.speed}
+                defaultText="Speed"
+              />
+              {': '}
+              {speedValue}
+            </Tag>
+          )}
+          {cpuValue && (
+            <Tag data-testid="ffmpeg-process-cpu">
+              <Translation
+                translationKey={Localization.Admin.LiveStreaming.Ffmpeg.cpu}
+                defaultText="CPU"
+              />
+              {': '}
+              {cpuValue}
+            </Tag>
+          )}
+          {rssValue && (
+            <Tag data-testid="ffmpeg-process-rss">
+              <Translation
+                translationKey={Localization.Admin.LiveStreaming.Ffmpeg.rss}
+                defaultText="RSS"
+              />
+              {': '}
+              {rssValue}
+            </Tag>
+          )}
+          {gpuValue && (
+            <Tag color="geekblue" data-testid="ffmpeg-process-gpu" title={process.gpuName}>
+              {gpuValue}
+            </Tag>
+          )}
         </Space>
       }
       extra={

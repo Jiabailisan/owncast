@@ -4983,12 +4983,25 @@ components:
           type: ['number', 'null']
         rssBytes:
           type: ['integer', 'null']
+        gpuPercent:
+          type: ['number', 'null']
+          description: Best-effort GPU utilization (0-100) for hardware encoders; null when unavailable.
+        gpuMemoryBytes:
+          type: ['integer', 'null']
+          description: Best-effort per-process GPU memory in bytes; null when unavailable.
+        gpuName:
+          type: string
+          description: GPU device name when GPU metrics are available.
         argv:
           type: array
           items:
             type: string
         sections:
           type: object
+          description: >-
+            The exact argv split into the display groups common, hls, webrtc and
+            environment (environment is redacted). Every argv element appears in
+            exactly one group.
           additionalProperties:
             type: array
             items:
@@ -5015,7 +5028,12 @@ components:
         One live viewer row. HLS rows populate the additive bitrateKbps,
         resolution and fps fields from the variant playlist the viewer is
         currently requesting (field population only; the schema already allowed
-        these fields). WebRTC rows come from Pion stats.
+        these fields). WebRTC rows merge Pion server measurements with the
+        player's validated stats beacon: validated client-measured bitrate,
+        resolution, fps and packetLossPct win, server measurements are the
+        fallback, and the source field is "client" only when a client value was
+        actually used. WebRTC rows also carry the selected ICE transport so the
+        admin UI can render WebRTC-U (udp) or WebRTC-T (tcp).
       properties:
         clientID:
           type: string
@@ -5034,6 +5052,13 @@ components:
         protocol:
           type: string
           enum: [hls, webrtc]
+        iceTransport:
+          type: string
+          enum: [udp, tcp]
+          description: >-
+            Selected ICE candidate-pair transport for WebRTC rows. Server
+            detection wins; the player-reported transport is only a fallback.
+            Omitted when unknown and never present for HLS rows.
         bitrateKbps:
           type: ['number', 'null']
         resolution:
@@ -5903,7 +5928,12 @@ components:
       required: [message]
     WebRTCClientReportRequest:
       type: object
-      description: Browser-measured WebRTC playback statistics
+      description: >-
+        Browser-measured WebRTC playback statistics. The server validates every
+        value before it can reach the admin viewer row: fps only 0..240,
+        decodedWidth/decodedHeight only when both >= 16, packetLossPct only
+        0..100, non-negative packet counters, and transport only udp/tcp.
+        Invalid values are ignored.
       properties:
         sessionId:
           type: string
@@ -5915,10 +5945,28 @@ components:
           type: number
         packetsLost:
           type: integer
+        packetsReceived:
+          type: integer
+          description: Cumulative inbound-rtp packetsReceived counter.
+        packetLossPct:
+          type: number
+          description: >-
+            Loss percentage exactly as the player's stats panel shows it
+            (0..100). When absent the server derives it from packetsLost and
+            packetsReceived.
         jitterMs:
           type: number
         roundTripTimeMs:
           type: number
+        transport:
+          type: string
+          enum: [udp, tcp]
+          description: >-
+            Client-observed selected ICE candidate-pair protocol. Used as a
+            fallback only; server-side detection is authoritative.
+        videoBitrateKbps:
+          type: number
+          description: Client-measured inbound video bitrate in kbps.
       required: [sessionId]
     CustomPlayerLoadError:
       type: object

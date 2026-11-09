@@ -247,3 +247,47 @@ export const ReadOnly: Story = {
     disabledReason: 'Ignored while a custom frontend directory is active.',
   },
 };
+
+const enumGroups = [{ id: 'webrtc.media', label: 'Media' }];
+
+const enumFields: FieldMeta[] = [
+  {
+    key: 'h264Profile',
+    group: 'webrtc.media',
+    type: 'enum',
+    default: 'constrained-baseline',
+    enum: ['constrained-baseline', 'baseline', 'main', 'high'],
+    description: 'H.264 profile used when transcoding for WebRTC.',
+    secret: false,
+    applyMode: 'restart-stream',
+    readOnly: false,
+  },
+  {
+    key: 'videoCodec',
+    group: 'webrtc.media',
+    type: 'enum',
+    default: 'h264_nvenc',
+    enum: ['libx264', 'h264_nvenc', 'h264_qsv', 'h264_vaapi', 'h264_videotoolbox'],
+    description: 'Encoder preference for the transcoder.',
+    secret: false,
+    applyMode: 'restart-stream',
+    readOnly: false,
+  },
+];
+
+const enumValues = { h264Profile: 'constrained-baseline', videoCodec: 'h264_videotoolbox' };
+const enumDefaults = { h264Profile: 'constrained-baseline', videoCodec: 'h264_nvenc' };
+
+// Regression baseline for long enum values: the collapsed value and the
+// expanded dropdown must show the full label (e.g. "constrained-baseline"),
+// never "con..."/"bas...".
+export const EnumSelects: Story = {
+  args: {
+    fields: enumFields,
+    groups: enumGroups,
+    values: enumValues,
+    defaults: enumDefaults,
+    pendingRestart: { pending: false, fields: [] },
+    onSave: async () => {},
+  },
+};

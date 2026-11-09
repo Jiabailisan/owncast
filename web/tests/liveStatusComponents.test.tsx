@@ -269,6 +269,63 @@ describe('OutboundStreamsTable', () => {
   });
 });
 
+describe('StreamStatusCards process metrics', () => {
+  test('shows speed as N/A (never "N/Ax") when the backend has no value', () => {
+    render(
+      <StreamStatusCards
+        status={makeStatus({
+          ffmpeg: {
+            processModel: 'shared',
+            processes: [
+              {
+                id: 'main',
+                pid: 4242,
+                uptimeSeconds: 10,
+                restartCount: 0,
+                speed: null,
+                droppedFrames: null,
+                duplicateFrames: null,
+                cpuPercent: 12.5,
+                rssBytes: 104857600,
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(screen.queryByText('N/Ax')).not.toBeInTheDocument();
+  });
+
+  test('includes GPU usage in the Processes summary when provided', () => {
+    render(
+      <StreamStatusCards
+        status={makeStatus({
+          ffmpeg: {
+            processModel: 'shared',
+            processes: [
+              {
+                id: 'main',
+                pid: 4242,
+                uptimeSeconds: 10,
+                restartCount: 0,
+                speed: 0.98,
+                droppedFrames: 0,
+                duplicateFrames: 0,
+                cpuPercent: 112.5,
+                rssBytes: 104857600,
+                gpuPercent: 12,
+                gpuMemoryBytes: 335544320,
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/GPU 12%/)).toBeInTheDocument();
+    expect(screen.getByText(/320\.0 MB/)).toBeInTheDocument();
+  });
+});
+
 describe('FfmpegPanel', () => {
   const panel = {
     processModel: 'shared',
@@ -280,11 +337,16 @@ describe('FfmpegPanel', () => {
         startedAt: '2026-11-09T03:00:00Z',
         uptimeSeconds: 120,
         restartCount: 2,
+        speed: 0.98,
+        cpuPercent: 112.5,
+        rssBytes: 104857600,
+        gpuPercent: 12,
+        gpuMemoryBytes: 335544320,
+        gpuName: 'NVIDIA Quadro P600',
         sections: {
-          input: ['-i', 'pipe:0'],
-          video: ['-c:v:0', 'libx264'],
-          audio: ['-c:a:0', 'copy'],
-          output: ['-f', 'hls'],
+          common: ['-hide_banner', '-i', 'pipe:0'],
+          hls: ['-c:v:0', 'libx264', '-f', 'hls'],
+          webrtc: ['-c:v:1', 'libx264', '-f', 'rtp', 'rtp://127.0.0.1:9000'],
           environment: ['PATH=***'],
         },
         argv: ['ffmpeg', '-hide_banner'],
@@ -305,6 +367,22 @@ describe('FfmpegPanel', () => {
     expect(screen.getByText('PID 4242')).toBeInTheDocument();
     expect(screen.getByText('Copy command')).toBeInTheDocument();
     expect(screen.getByText(/shared/i)).toBeInTheDocument();
+  });
+
+  test('renders the simplified section groups and process metrics', () => {
+    render(<FfmpegPanel panel={panel} />);
+    // New backend section keys replace input/video/audio/output/other.
+    expect(screen.getByText('Common')).toBeInTheDocument();
+    expect(screen.getByText('HLS')).toBeInTheDocument();
+    expect(screen.getByText('WebRTC')).toBeInTheDocument();
+    expect(screen.getByText(/Environment \(redacted\)/i)).toBeInTheDocument();
+    expect(screen.queryByText('Input')).not.toBeInTheDocument();
+    // Per-process Speed/CPU/RSS/GPU values.
+    expect(screen.getByTestId('ffmpeg-process-speed')).toHaveTextContent(/0\.98x/);
+    expect(screen.getByTestId('ffmpeg-process-cpu')).toHaveTextContent(/112\.5%/);
+    expect(screen.getByTestId('ffmpeg-process-rss')).toHaveTextContent(/100\.0 MB/);
+    expect(screen.getByTestId('ffmpeg-process-gpu')).toHaveTextContent(/GPU 12%/);
+    expect(screen.getByTestId('ffmpeg-process-gpu')).toHaveTextContent(/320\.0 MB/);
   });
 
   test('renders the empty state when no process runs', () => {

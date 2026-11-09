@@ -133,7 +133,9 @@ const FIELD_ACRONYMS: Record<string, string> = {
 export function humanizeFieldKey(key: string): string {
   const words = key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    // Require at least two lowercase letters after the capital so plural
+    // acronyms ("IPs", "IDs", "URLs") are not split into single letters.
+    .replace(/([A-Z]+)([A-Z][a-z]{2,})/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
     .trim()
     .split(/\s+/);
@@ -141,6 +143,13 @@ export function humanizeFieldKey(key: string): string {
   return words
     .map(word => {
       const capitalized = word.charAt(0).toUpperCase() + word.slice(1);
+      // Plural acronyms are otherwise split by the camel-case rules
+      // ("publicIPs" -> "Public I Ps"). Resolve the singular acronym and
+      // re-append the plural s ("Public IPs", "Stream IDs", "Public URLs").
+      if (!FIELD_ACRONYMS[capitalized] && capitalized.endsWith('s')) {
+        const singular = capitalized.slice(0, -1);
+        if (FIELD_ACRONYMS[singular]) return FIELD_ACRONYMS[singular] + 's';
+      }
       return FIELD_ACRONYMS[capitalized] ?? capitalized;
     })
     .join(' ');

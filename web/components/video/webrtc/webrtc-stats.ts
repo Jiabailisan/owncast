@@ -14,8 +14,15 @@ export interface WebRTCStatsSummary {
   decodedHeight?: number;
   fps?: number;
   packetsLost?: number;
+  packetsReceived?: number;
+  packetLossPct?: number;
   jitterMs?: number;
   roundTripTimeMs?: number;
+  // Transport of the selected ICE candidate pair ("udp" / "tcp"), used by the
+  // admin viewer table and the Stats for nerds "WebRTC-U / WebRTC-T" label.
+  transport?: 'udp' | 'tcp';
+  // Inbound video bitrate measured between beacon samples (admin row bitrate).
+  videoBitrateKbps?: number;
 }
 
 export interface WebRTCStatsBeaconOptions {
@@ -35,6 +42,96 @@ export interface WebRTCStatsBeacon {
 interface InboundVideoSample {
   framesDecoded: number;
   timestampSeconds: number;
+  bytesReceived?: number;
+}
+
+export type IceTransport = 'udp' | 'tcp';
+
+// A receiver-reported or window-measured frame rate is only accepted when it is
+// physically plausible; values outside 1..240 are dropped instead of being
+// forwarded to the admin table (a 571 FPS row came from an unvalidated delta).
+export function plausibleFrameRate(value: unknown): number | null {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric < 1 || numeric > 240) return null;
+  return Math.round(numeric * 10) / 10;
+}
+
+// Shared packet-loss formula for the panel and the client stats beacon:
+// lost / (lost + received) * 100, rounded to two decimals. Negative cumulative
+// counters (common after receiver restarts) are clamped to zero.
+export function packetLossPercent(
+  packetsLost: number | null | undefined,
+  packetsReceived: number | null | undefined,
+): number | null {
+  if (
+    packetsLost === null ||
+    packetsLost === undefined ||
+    packetsReceived === null ||
+    packetsReceived === undefined ||
+    !Number.isFinite(packetsLost) ||
+    !Number.isFinite(packetsReceived)
+  ) {
+    return null;
+  }
+  const lost = Math.max(0, packetsLost);
+  const received = Math.max(0, packetsReceived);
+  const total = lost + received;
+  if (total <= 0) return 0;
+  return Math.round((lost / total) * 10000) / 100;
+}
+
+// "WebRTC-U" / "WebRTC-T" for the Live Mode row (per the field report), with a
+// plain "WebRTC" when the ICE transport cannot be determined yet.
+export function webRTCLiveMode(transport: IceTransport | null | undefined): string {
+  if (transport === 'udp') return 'WebRTC-U';
+  if (transport === 'tcp') return 'WebRTC-T';
+  return 'WebRTC';
+}
+
+// "2560x1440@60fps" style resolution for the Current / Optimal Res rows.
+export function formatWebRTCResolution(
+  width: number | null | undefined,
+  height: number | null | undefined,
+  fps: number | null,
+): string {
+  if (!width || !height || width <= 0 || height <= 0) return 'N/A';
+  const suffix = fps !== null && fps > 0 ? '@' + Math.round(fps) + 'fps' : '';
+  return width + 'x' + height + suffix;
+}
+
+// Transport of the selected ICE candidate pair. Prefer a nominated+succeeded
+// pair, then any nominated pair, then any succeeded pair with a known
+// local/remote candidate protocol.
+export function selectedIceTransport(report: RTCStatsReport): IceTransport | null {
+  const candidateProtocols = new Map<string, string>();
+  const pairs: Record<string, unknown>[] = [];
+  report.forEach((stat: Record<string, unknown>) => {
+    // Chrome reports ICE candidate stats as "local-candidate"/"remote-candidate"
+    // while other implementations use the spec name "candidate".
+    if (
+      stat.type === 'candidate' ||
+      stat.type === 'local-candidate' ||
+      stat.type === 'remote-candidate'
+    ) {
+      candidateProtocols.set(String(stat.id), String(stat.protocol || '').toLowerCase());
+    }
+    if (stat.type === 'candidate-pair') pairs.push(stat);
+  });
+  const nominated = pairs.filter(pair => pair.nominated === true);
+  const succeeded = pairs.filter(pair => pair.state === 'succeeded');
+  const selected =
+    nominated.find(pair => pair.state === 'succeeded') ||
+    nominated[0] ||
+    succeeded.find(pair => Number(pair.bytesReceived) > 0) ||
+    succeeded[0] ||
+    null;
+  if (!selected) return null;
+  const protocol =
+    candidateProtocols.get(String(selected.localCandidateId || '')) ||
+    candidateProtocols.get(String(selected.remoteCandidateId || ''));
+  if (protocol === 'udp') return 'udp';
+  if (protocol === 'tcp') return 'tcp';
+  return null;
 }
 
 // Convert a WebRTC stats report into the compact beacon payload. Missing
@@ -45,6 +142,8 @@ export function summarizeWebRTCStats(
 ): { summary: Omit<WebRTCStatsSummary, 'sessionId'>; videoSample: InboundVideoSample | null } {
   const summary: Omit<WebRTCStatsSummary, 'sessionId'> = {};
   let videoSample: InboundVideoSample | null = null;
+  let reportedFrameRate: number | null = null;
+  let measuredFrameRate: number | null = null;
 
   report.forEach((stat: Record<string, unknown>) => {
     const type = stat.type as string;
@@ -53,18 +152,39 @@ export function summarizeWebRTCStats(
     if (type === 'inbound-rtp' && kind === 'video') {
       if (typeof stat.frameWidth === 'number') summary.decodedWidth = stat.frameWidth;
       if (typeof stat.frameHeight === 'number') summary.decodedHeight = stat.frameHeight;
-      if (typeof stat.packetsLost === 'number') summary.packetsLost = stat.packetsLost;
+      const packetsLost =
+        typeof stat.packetsLost === 'number' ? Math.max(0, stat.packetsLost) : null;
+      const packetsReceived =
+        typeof stat.packetsReceived === 'number' ? Math.max(0, stat.packetsReceived) : null;
+      if (packetsLost !== null) summary.packetsLost = packetsLost;
+      if (packetsReceived !== null) summary.packetsReceived = packetsReceived;
+      const lossPct = packetLossPercent(packetsLost, packetsReceived);
+      if (lossPct !== null) summary.packetLossPct = lossPct;
       if (typeof stat.jitter === 'number') summary.jitterMs = Math.round(stat.jitter * 10000) / 10;
+      reportedFrameRate = plausibleFrameRate(stat.framesPerSecond);
 
       const framesDecoded = stat.framesDecoded as number | undefined;
       const timestamp = stat.timestamp as number | undefined;
+      const bytesReceived =
+        typeof stat.bytesReceived === 'number' ? Math.max(0, stat.bytesReceived) : undefined;
       if (typeof framesDecoded === 'number' && typeof timestamp === 'number') {
-        videoSample = { framesDecoded, timestampSeconds: timestamp / 1000 };
+        videoSample = { framesDecoded, timestampSeconds: timestamp / 1000, bytesReceived };
         if (previousVideoSample) {
+          if (bytesReceived !== undefined && previousVideoSample.bytesReceived !== undefined) {
+            const byteDelta = bytesReceived - previousVideoSample.bytesReceived;
+            const bitrateSeconds =
+              videoSample.timestampSeconds - previousVideoSample.timestampSeconds;
+            if (byteDelta > 0 && bitrateSeconds >= 1) {
+              const kbps = Math.round((byteDelta * 8) / bitrateSeconds / 10) / 100;
+              if (kbps > 0 && kbps <= 1_000_000) summary.videoBitrateKbps = kbps;
+            }
+          }
           const frameDelta = framesDecoded - previousVideoSample.framesDecoded;
           const timeDelta = videoSample.timestampSeconds - previousVideoSample.timestampSeconds;
-          if (frameDelta >= 0 && timeDelta > 0) {
-            summary.fps = Math.round((frameDelta / timeDelta) * 10) / 10;
+          // Measured decoded frames over a >=1s window are the truest values;
+          // shorter windows or absurd rates are ignored (571 FPS report).
+          if (frameDelta > 0 && timeDelta >= 1) {
+            measuredFrameRate = plausibleFrameRate(frameDelta / timeDelta);
           }
         }
       }
@@ -81,6 +201,10 @@ export function summarizeWebRTCStats(
     }
   });
 
+  const frameRate = measuredFrameRate ?? reportedFrameRate;
+  if (frameRate !== null) summary.fps = frameRate;
+  const transport = selectedIceTransport(report);
+  if (transport !== null) summary.transport = transport;
   return { summary, videoSample };
 }
 
@@ -102,6 +226,7 @@ export interface WebRTCStatsPanelSample {
   framesDecoded: number | null;
   videoCodec: string | null;
   audioCodec: string | null;
+  transport: IceTransport | null;
   timestamp: number;
   videoBytes: number;
   audioBytes: number;
@@ -111,6 +236,7 @@ interface WebRTCBytesSample {
   timestamp: number;
   videoBytes: number;
   audioBytes: number;
+  framesDecoded: number | null;
 }
 
 export function collectWebRTCStatsPanel(
@@ -144,6 +270,11 @@ export function collectWebRTCStatsPanel(
   const timestamp = Date.now();
   const videoBytes = Number(video.bytesReceived) || 0;
   const audioBytes = Number(audio.bytesReceived) || 0;
+  const transport = selectedIceTransport(report);
+  const framesDecoded = typeof video.framesDecoded === 'number' ? video.framesDecoded : null;
+  const packetsLost = typeof video.packetsLost === 'number' ? Math.max(0, video.packetsLost) : null;
+  const packetsReceived =
+    typeof video.packetsReceived === 'number' ? Math.max(0, video.packetsReceived) : null;
 
   const kbps = (bytes: number, seconds: number): number | null => {
     if (!Number.isFinite(bytes) || seconds <= 0 || bytes < 0) return null;
@@ -162,6 +293,21 @@ export function collectWebRTCStatsPanel(
     }
   }
 
+  // Measure decoded frames over a window of at least one second first; the
+  // receiver-reported framesPerSecond is a fallback because it can lag or
+  // report values that disagree with the actually decoded frames.
+  let framesPerSecond: number | null = null;
+  if (previous && framesDecoded !== null && previous.framesDecoded !== null) {
+    const frameDelta = framesDecoded - previous.framesDecoded;
+    const seconds = (timestamp - previous.timestamp) / 1000;
+    if (frameDelta > 0 && seconds >= 1) {
+      framesPerSecond = plausibleFrameRate(frameDelta / seconds);
+    }
+  }
+  if (framesPerSecond === null) {
+    framesPerSecond = plausibleFrameRate(video.framesPerSecond);
+  }
+
   const videoCodecId = video.codecId ? String(video.codecId) : '';
   const audioCodecId = audio.codecId ? String(audio.codecId) : '';
   const simplifyCodec = (mime: string | undefined): string | null => {
@@ -177,20 +323,21 @@ export function collectWebRTCStatsPanel(
       connectionSpeedKbps,
       rttMs: candidateRtt,
       jitterMs: typeof video.jitter === 'number' ? video.jitter * 1000 : null,
-      packetsLost: typeof video.packetsLost === 'number' ? video.packetsLost : null,
-      packetsReceived: typeof video.packetsReceived === 'number' ? video.packetsReceived : null,
+      packetsLost,
+      packetsReceived,
       frameWidth: typeof video.frameWidth === 'number' ? video.frameWidth : null,
       frameHeight: typeof video.frameHeight === 'number' ? video.frameHeight : null,
-      framesPerSecond: typeof video.framesPerSecond === 'number' ? video.framesPerSecond : null,
+      framesPerSecond,
       framesDropped: typeof video.framesDropped === 'number' ? video.framesDropped : null,
-      framesDecoded: typeof video.framesDecoded === 'number' ? video.framesDecoded : null,
+      framesDecoded,
       videoCodec: simplifyCodec(codecs[videoCodecId]),
       audioCodec: simplifyCodec(codecs[audioCodecId]),
+      transport,
       timestamp,
       videoBytes,
       audioBytes,
     },
-    bytes: { timestamp, videoBytes, audioBytes },
+    bytes: { timestamp, videoBytes, audioBytes, framesDecoded },
   };
 }
 

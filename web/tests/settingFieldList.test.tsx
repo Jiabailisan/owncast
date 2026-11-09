@@ -104,6 +104,27 @@ describe('SettingField list controls', () => {
     expect(next).toEqual(expect.arrayContaining(['10.0.0.0/8', '192.168.0.0/16']));
   });
 
+  test('enum selects reserve room for long values and full option labels', async () => {
+    const meta: FieldMeta = {
+      ...baseMeta,
+      key: 'h264Profile',
+      type: 'enum',
+      enum: ['constrained-baseline', 'baseline', 'main', 'high'],
+      default: 'constrained-baseline',
+    };
+    renderField({ meta, value: 'constrained-baseline' });
+
+    const control = screen.getByTestId('setting-enum-h264Profile');
+    expect(control.className).toContain('enumSelect');
+    fireEvent.mouseDown(control);
+    await waitFor(() =>
+      expect(screen.getAllByText('constrained-baseline').length).toBeGreaterThan(0),
+    );
+    ['constrained-baseline', 'baseline', 'main', 'high'].forEach(label => {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    });
+  });
+
   test('TURN server lists also use the full-width list layout', () => {
     renderField({
       meta: {

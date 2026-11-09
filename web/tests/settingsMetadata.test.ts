@@ -24,6 +24,11 @@ describe('settings metadata helpers', () => {
     expect(humanizeFieldKey('receiverLatencyMs')).toBe('Receiver Latency (ms)');
     expect(humanizeFieldKey('streamIdFormats')).toBe('Stream ID Formats');
     expect(humanizeFieldKey('udpPortMin')).toBe('UDP Port Min');
+    // Plural acronyms must not be split into single letters ("Public I Ps").
+    expect(humanizeFieldKey('publicIPs')).toBe('Public IPs');
+    expect(humanizeFieldKey('clientIDs')).toBe('Client IDs');
+    expect(humanizeFieldKey('publicURLs')).toBe('Public URLs');
+    expect(humanizeFieldKey('allowedCIDRs')).toBe('Allowed CIDRs');
   });
 
   test('defaultsFromMetadata maps keys to their defaults', () => {

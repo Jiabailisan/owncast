@@ -31,6 +31,7 @@ const viewersResponse = {
       region: 'CA',
       locationApproximate: true,
       protocol: 'webrtc',
+      iceTransport: 'udp',
       bitrateKbps: 2450,
       resolution: '1280x720',
       fps: 30,
@@ -39,6 +40,20 @@ const viewersResponse = {
       connectedAt: '2026-11-09T03:10:00Z',
       durationSeconds: 300,
       source: 'client',
+    },
+    {
+      clientID: 'client-tcp',
+      ipAddress: '203.0.113.8',
+      protocol: 'webrtc',
+      iceTransport: 'tcp',
+      bitrateKbps: null,
+      resolution: '640x360',
+      fps: 24,
+      packetLossPct: null,
+      jitterMs: null,
+      connectedAt: '2026-11-09T03:12:00Z',
+      durationSeconds: 120,
+      source: 'server',
     },
     {
       clientID: 'client-2',
@@ -54,7 +69,7 @@ const viewersResponse = {
       source: 'server',
     },
   ],
-  total: 2,
+  total: 3,
   page: 1,
   pageSize: 25,
 };
@@ -69,10 +84,11 @@ describe('LiveViewerTable', () => {
     render(<LiveViewerTable enabled />);
     await waitFor(() => expect(screen.getByText('203.0.113.7')).toBeInTheDocument());
     expect(mockedService.getViewers).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('WebRTC')).toBeInTheDocument();
+    expect(screen.getByText('WebRTC-U')).toBeInTheDocument();
+    expect(screen.getByText('WebRTC-T')).toBeInTheDocument();
     expect(screen.getByText('2450 kbps')).toBeInTheDocument();
-    expect(screen.getByText('Player reported')).toBeInTheDocument();
-    expect(screen.getByText('Server measured')).toBeInTheDocument();
+    expect(screen.getAllByText('Player reported').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Server measured').length).toBeGreaterThan(0);
     // The server-measured HLS viewer has unknown bitrate/FPS: N/A, never an estimate.
     expect(screen.getAllByText('N/A').length).toBeGreaterThan(0);
   });
@@ -89,6 +105,9 @@ describe('LiveViewerTable', () => {
     await waitFor(() => expect(screen.getByText('203.0.113.7')).toBeInTheDocument());
     // The card list does not render an antd table.
     expect(document.querySelector('.ant-table')).toBeNull();
+    // Mobile cards keep the same transport tags and source labels.
+    expect(screen.getByText('WebRTC-U')).toBeInTheDocument();
+    expect(screen.getAllByText('Player reported').length).toBeGreaterThan(0);
   });
 
   test('shows an error with retry when the request fails', async () => {

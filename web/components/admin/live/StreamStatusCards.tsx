@@ -93,6 +93,18 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
     0,
   );
   const totalRssBytes = ffmpeg.processes.reduce((sum, process) => sum + (process.rssBytes ?? 0), 0);
+  // GPU metrics are per-process and optional (only hardware encoders are
+  // measurable); aggregate them for the Processes summary when present.
+  const gpuPercentValues = ffmpeg.processes
+    .map(process => process.gpuPercent)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const gpuMemoryValues = ffmpeg.processes
+    .map(process => process.gpuMemoryBytes)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const maxGpuPercent = gpuPercentValues.length > 0 ? Math.max(...gpuPercentValues) : null;
+  const totalGpuMemoryBytes =
+    gpuMemoryValues.length > 0 ? gpuMemoryValues.reduce((sum, value) => sum + value, 0) : null;
+  const hasGpuMetrics = maxGpuPercent !== null || totalGpuMemoryBytes !== null;
 
   return (
     <div className={styles.streamStatus}>
@@ -381,7 +393,9 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
         >
           <MetricValue
             value={
-              ffmpeg.processes.length > 0
+              ffmpeg.processes.length > 0 &&
+              ffmpeg.processes[0].speed !== null &&
+              ffmpeg.processes[0].speed !== undefined
                 ? formatMetricNumber(ffmpeg.processes[0].speed, 2) + 'x'
                 : null
             }
@@ -412,7 +426,12 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
               '), CPU ' +
               formatMetricPercent(maxCpuPercent, 1) +
               ', RSS ' +
-              formatBytes(totalRssBytes)
+              formatBytes(totalRssBytes) +
+              (hasGpuMetrics
+                ? ', GPU ' +
+                  (maxGpuPercent !== null ? formatMetricPercent(maxGpuPercent, 0) : 'N/A') +
+                  (totalGpuMemoryBytes !== null ? ', ' + formatBytes(totalGpuMemoryBytes) : '')
+                : '')
             }
           />
         </StatCard>

@@ -91,10 +91,23 @@ func TestEndToEndMediaDelivery(t *testing.T) {
 	}, 5*time.Second, 20*time.Millisecond, "viewer did not receive forwarded RTP")
 
 	mu.Lock()
-	defer mu.Unlock()
-	assert.GreaterOrEqual(t, len(video), 3)
-	assert.GreaterOrEqual(t, len(audio), 3)
+	videoCount := len(video)
+	audioCount := len(audio)
+	firstVideoSSRC := video[0].Header.SSRC
+	firstAudioSSRC := audio[0].Header.SSRC
+	mu.Unlock()
+
+	assert.GreaterOrEqual(t, videoCount, 3)
+	assert.GreaterOrEqual(t, audioCount, 3)
 	// Pion must have rewritten the FFmpeg-side SSRC per binding.
-	assert.NotEqualValues(t, uint32(0x1111), video[0].Header.SSRC)
-	assert.NotEqualValues(t, uint32(0x2222), audio[0].Header.SSRC)
+	assert.NotEqualValues(t, uint32(0x1111), firstVideoSSRC)
+	assert.NotEqualValues(t, uint32(0x2222), firstAudioSSRC)
+
+	// The admin row must expose which ICE transport the connection selected.
+	// Detection reads the nominated+succeeded candidate pair from
+	// PeerConnection.GetStats(), which the janitor samples every 2 seconds.
+	require.Eventually(t, func() bool {
+		viewers := svc.LiveViewers()
+		return len(viewers) == 1 && viewers[0].ICETransport == "udp"
+	}, 8*time.Second, 50*time.Millisecond, "server did not detect the selected ICE transport (udp)")
 }

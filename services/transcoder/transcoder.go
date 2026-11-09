@@ -196,7 +196,15 @@ func (t *Transcoder) Start(shouldLog bool) {
 		cmd.Stdin = t.stdin
 	}
 
-	stdout, err := cmd.StderrPipe()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Errorln("transcoder: unable to capture ffmpeg progress output:", err)
+		t.finishWithError(err)
+
+		return
+	}
+
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		log.Errorln("transcoder: unable to capture ffmpeg stderr:", err)
 		t.finishWithError(err)
@@ -220,11 +228,17 @@ func (t *Transcoder) Start(shouldLog bool) {
 	argv := append([]string{flags.binPath}, flags.command...)
 	t.recordStarted(argv, cmd.Process.Pid)
 
+	// Live metrics for the FFmpeg panel: -progress lines (speed) plus /proc
+	// CPU/RSS sampling and best-effort nvidia-smi GPU sampling for NVENC.
+	sampler := t.startProcessSampler(cmd.Process.Pid)
+	metrics := &t.state.metrics
+	go metrics.consumeProgress(stdout)
+
 	transcoderLog := logging.GetTranscoderLogWriter(t.cfg.LogDirectory)
 	fmt.Fprintf(transcoderLog, "ffmpeg started on %s\nCommand line:\n%s\n", time.Now().Format(time.RFC3339), command)
 
 	go func() {
-		scanner := bufio.NewScanner(stdout)
+		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(transcoderLog, line)
@@ -235,6 +249,7 @@ func (t *Transcoder) Start(shouldLog bool) {
 	}()
 
 	err = cmd.Wait()
+	sampler.Stop()
 	t.recordStopped()
 	if t.TranscoderCompleted != nil {
 		t.TranscoderCompleted(err)
@@ -297,7 +312,9 @@ func (t *Transcoder) getFlags() *execInfo {
 	// level+info tags each stderr line with its log level so the scanner can
 	// separate diagnostic output (kept in transcoder.log) from problems that
 	// get surfaced to the owncast log.
-	ffmpegFlags = append(ffmpegFlags, "-hide_banner", "-nostats", "-loglevel", "level+info")
+	// -progress writes machine-readable key=value progress blocks (including
+	// speed=) to stdout; the stderr scanner keeps handling human log lines.
+	ffmpegFlags = append(ffmpegFlags, "-hide_banner", "-nostats", "-loglevel", "level+info", "-progress", "pipe:1")
 	ffmpegFlags = append(ffmpegFlags, t.codec.GlobalFlags()...)
 	if t.rtpOnly {
 		// Isolated WebRTC process: bias input processing toward latency. The

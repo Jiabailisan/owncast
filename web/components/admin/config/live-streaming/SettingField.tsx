@@ -268,9 +268,12 @@ export const SettingField: FC<SettingFieldProps> = ({
         return (
           <Select
             id={inputId}
+            className={styles.enumSelect}
+            data-testid={`setting-enum-${meta.key}`}
             value={(value as string) ?? undefined}
             disabled={readOnly}
             aria-label={label}
+            popupMatchSelectWidth={false}
             options={(meta.enum || []).map(option => ({ value: option, label: option }))}
             onChange={next => onChange(meta.key, next)}
           />

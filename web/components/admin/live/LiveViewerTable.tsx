@@ -51,6 +51,41 @@ const na = (tooltip: string, value: string | null) => (
   </Tooltip>
 );
 
+// WebRTC viewers report the ICE transport that was actually selected: UDP is
+// the low-latency path, TCP the fallback. Unknown transports keep the plain
+// WebRTC label.
+export const renderViewerProtocol = (viewer: LiveViewer) => {
+  if (viewer.protocol !== 'webrtc') {
+    return <Tag color="purple">HLS</Tag>;
+  }
+  if (viewer.iceTransport === 'udp') {
+    return <Tag color="geekblue">WebRTC-U</Tag>;
+  }
+  if (viewer.iceTransport === 'tcp') {
+    return <Tag color="geekblue">WebRTC-T</Tag>;
+  }
+  return <Tag color="geekblue">WebRTC</Tag>;
+};
+
+// One metric cell with consistent provenance: player-reported values are only
+// shown when the backend validated them; otherwise the value is server-measured
+// or honestly N/A. The tooltip always says where the number came from.
+export const renderViewerMetric = (
+  viewer: LiveViewer,
+  value: string | null,
+  missingReason: string,
+) => {
+  const sourceText =
+    viewer.source === 'client'
+      ? 'Reported by the player and validated by the server.'
+      : 'Measured by the server.';
+  return (
+    <Tooltip title={value === null ? missingReason : sourceText}>
+      <span>{value === null ? 'N/A' : value}</span>
+    </Tooltip>
+  );
+};
+
 // Per-viewer table for the admin Live Stream Status section. Server-paged and
 // sortable/filterable; switches to a card list on narrow viewports. Only
 // server-known values are shown, or client-reported ones when the player sends
@@ -144,8 +179,7 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       ),
       dataIndex: 'protocol',
       key: 'protocol',
-      render: (protocol: LiveViewer['protocol']) =>
-        protocol === 'webrtc' ? <Tag color="geekblue">WebRTC</Tag> : <Tag color="purple">HLS</Tag>,
+      render: (_protocol: LiveViewer['protocol'], viewer) => renderViewerProtocol(viewer),
     },
     {
       title: (
@@ -157,8 +191,12 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       dataIndex: 'bitrateKbps',
       key: 'bitrateKbps',
       sorter: true,
-      render: (value: number | null) =>
-        na('Not measured for this viewer.', formatMetricKbps(value)),
+      render: (value: number | null, viewer) =>
+        renderViewerMetric(
+          viewer,
+          value === null ? null : formatMetricKbps(value),
+          'No bitrate measurement is available for this viewer yet.',
+        ),
     },
     {
       title: (
@@ -169,7 +207,12 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       ),
       dataIndex: 'resolution',
       key: 'resolution',
-      render: (value: string | null) => na('Not measured for this viewer.', value),
+      render: (value: string | null, viewer) =>
+        renderViewerMetric(
+          viewer,
+          value,
+          'No resolution measurement is available for this viewer yet.',
+        ),
     },
     {
       title: (
@@ -180,8 +223,12 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       ),
       dataIndex: 'fps',
       key: 'fps',
-      render: (value: number | null) =>
-        na('Not measured for this viewer.', value === null ? null : formatMetricNumber(value, 1)),
+      render: (value: number | null, viewer) =>
+        renderViewerMetric(
+          viewer,
+          value === null ? null : formatMetricNumber(value, 1),
+          'No FPS measurement is available for this viewer yet.',
+        ),
     },
     {
       title: (
@@ -192,8 +239,17 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       ),
       dataIndex: 'packetLossPct',
       key: 'packetLossPct',
-      render: (value: number | null) =>
-        na('HTTP/TCP playback has no packet loss to measure.', formatMetricPercent(value, 2)),
+      render: (value: number | null, viewer) => {
+        const hlsMissing =
+          viewer.protocol === 'hls'
+            ? 'HTTP/TCP playback has no packet loss to measure.'
+            : 'No packet-loss measurement is available for this viewer yet.';
+        return renderViewerMetric(
+          viewer,
+          value === null ? null : formatMetricPercent(value, 2),
+          hlsMissing,
+        );
+      },
     },
     {
       title: (
@@ -248,11 +304,19 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
           <Card key={viewer.clientID} size="small" className={styles.viewerCard}>
             <div className={styles.viewerCardHeader}>
               <Text strong>{viewer.ipAddress || 'N/A'}</Text>
-              {viewer.protocol === 'webrtc' ? (
-                <Tag color="geekblue">WebRTC</Tag>
-              ) : (
-                <Tag color="purple">HLS</Tag>
-              )}
+              <Space size={4} wrap>
+                {renderViewerProtocol(viewer)}
+                <Tag color={viewer.source === 'client' ? 'blue' : 'default'}>
+                  <Translation
+                    translationKey={
+                      viewer.source === 'client'
+                        ? Localization.Admin.LiveStreaming.Viewers.clientReported
+                        : Localization.Admin.LiveStreaming.Viewers.serverMeasured
+                    }
+                    defaultText={viewer.source === 'client' ? 'Player reported' : 'Server measured'}
+                  />
+                </Tag>
+              </Space>
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
@@ -270,7 +334,11 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
                   defaultText="Bitrate"
                 />
               </Text>
-              <span>{formatMetricKbps(viewer.bitrateKbps)}</span>
+              {renderViewerMetric(
+                viewer,
+                viewer.bitrateKbps === null ? null : formatMetricKbps(viewer.bitrateKbps),
+                'No bitrate measurement is available for this viewer yet.',
+              )}
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
@@ -279,7 +347,39 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
                   defaultText="Resolution"
                 />
               </Text>
-              <span>{viewer.resolution || 'N/A'}</span>
+              {renderViewerMetric(
+                viewer,
+                viewer.resolution || null,
+                'No resolution measurement is available for this viewer yet.',
+              )}
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.fps}
+                  defaultText="FPS"
+                />
+              </Text>
+              {renderViewerMetric(
+                viewer,
+                viewer.fps === null ? null : formatMetricNumber(viewer.fps, 1),
+                'No FPS measurement is available for this viewer yet.',
+              )}
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.packetLoss}
+                  defaultText="Packet loss"
+                />
+              </Text>
+              {renderViewerMetric(
+                viewer,
+                viewer.packetLossPct === null ? null : formatMetricPercent(viewer.packetLossPct, 2),
+                viewer.protocol === 'hls'
+                  ? 'HTTP/TCP playback has no packet loss to measure.'
+                  : 'No packet-loss measurement is available for this viewer yet.',
+              )}
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">

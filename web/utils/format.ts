@@ -88,6 +88,23 @@ export function formatUAstring(uaString: string) {
 // formatMetricNumber renders a nullable measurable value. The admin live
 // status UI must show N/A rather than an estimate whenever a value is unknown;
 // this is the single formatting primitive for that rule.
+// Admin home ingest row: SRT has no encoder name (the backend leaves it empty),
+// so label the publisher by protocol and remote address instead of rendering
+// "Unknown encoder <ip>".
+export function formatIngestPublisher(
+  inputProtocol: string | undefined,
+  encoder: string | undefined,
+  remoteAddr: string | undefined,
+): string {
+  const address = remoteAddr ? formatIPAddress(remoteAddr) : '';
+  const suffix = address ? ' ' + address : '';
+  if (inputProtocol === 'srt') return 'SRT publisher' + suffix;
+  const name = (encoder || '').trim();
+  if (name) return name + suffix;
+  if (inputProtocol === 'rtmp') return 'RTMP publisher' + suffix;
+  return 'Unknown publisher' + suffix;
+}
+
 export function formatMetricNumber(value: number | null | undefined, digits = 0): string {
   if (value === null || value === undefined || Number.isFinite(value) === false) return 'N/A';
   return value.toFixed(digits);

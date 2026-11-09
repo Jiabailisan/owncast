@@ -77,6 +77,19 @@
   margin-top: 6px;
 }
 
+// Enum selects can carry long values (e.g. H.264 profile "constrained-baseline").
+// Reserve enough width for the selected value and let the dropdown size to its
+// content instead of truncating option labels.
+.enumSelect {
+  min-width: min(240px, 100%);
+  max-width: 100%;
+}
+
+.enumSelect :global(.ant-select-content) {
+  overflow: visible;
+  white-space: nowrap;
+}
+
 .numberField,
 .secretField {
   display: flex;

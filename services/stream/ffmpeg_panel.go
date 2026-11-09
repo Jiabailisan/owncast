@@ -50,20 +50,31 @@ func (s *Service) transcoderProcessStatus(tr *transcoder.Transcoder) models.FFmp
 	argv := transcoder.RedactArgv(snapshot.Argv, secrets)
 	sections := transcoder.ClassifyArgv(argv, nil)
 
+	return ffmpegProcessStatusFromSnapshot(snapshot, argv, sections)
+}
+
+// ffmpegProcessStatusFromSnapshot maps one transcoder snapshot into the admin
+// FFmpeg panel payload. It is pure (no service state) so the metric fields and
+// the section keys are unit-testable without a running stream.
+func ffmpegProcessStatusFromSnapshot(snapshot transcoder.ProcessSnapshot, argv []string, sections transcoder.ArgvSections) models.FFmpegProcessStatus {
 	process := models.FFmpegProcessStatus{
-		ID:            snapshot.ID,
-		Purpose:       snapshot.Purpose,
-		PID:           snapshot.PID,
-		StartedAt:     snapshot.StartedAt,
-		UptimeSeconds: snapshot.UptimeSeconds,
-		RestartCount:  snapshot.RestartCount,
-		Argv:          argv,
+		ID:             snapshot.ID,
+		Purpose:        append([]string(nil), snapshot.Purpose...),
+		PID:            snapshot.PID,
+		StartedAt:      snapshot.StartedAt,
+		UptimeSeconds:  snapshot.UptimeSeconds,
+		RestartCount:   snapshot.RestartCount,
+		Speed:          snapshot.Speed,
+		CPUPercent:     snapshot.CPUPercent,
+		RSSBytes:       snapshot.RSSBytes,
+		GPUPercent:     snapshot.GPUPercent,
+		GPUMemoryBytes: snapshot.GPUMemoryBytes,
+		GPUName:        snapshot.GPUName,
+		Argv:           argv,
 		Sections: map[string][]string{
-			"input":       nonNilSection(sections.Input),
-			"video":       nonNilSection(sections.Video),
-			"audio":       nonNilSection(sections.Audio),
-			"output":      nonNilSection(sections.Output),
-			"other":       nonNilSection(sections.Other),
+			"common":      nonNilSection(sections.Common),
+			"hls":         nonNilSection(sections.HLS),
+			"webrtc":      nonNilSection(sections.WebRTC),
 			"environment": nonNilSection(sections.Environment),
 		},
 	}

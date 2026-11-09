@@ -3,6 +3,8 @@ package webrtc
 import (
 	"errors"
 	"io"
+	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,9 +24,29 @@ type ClientReport struct {
 	DecodedHeight   int     `json:"decodedHeight"`
 	FPS             float64 `json:"fps"`
 	PacketsLost     int64   `json:"packetsLost"`
-	JitterMs        float64 `json:"jitterMs"`
-	RoundTripTimeMs float64 `json:"roundTripTimeMs"`
+	PacketsReceived int64   `json:"packetsReceived"`
+	// PacketLossPct is the loss percentage exactly as the player's own stats
+	// panel shows it. When it is absent or invalid the server derives a
+	// percentage from PacketsLost/(PacketsLost+PacketsReceived).
+	PacketLossPct   *float64 `json:"packetLossPct,omitempty"`
+	JitterMs        float64  `json:"jitterMs"`
+	RoundTripTimeMs float64  `json:"roundTripTimeMs"`
+	// Transport is the client-observed selected ICE candidate pair protocol
+	// ("udp" or "tcp"). It is only a fallback: server-side detection of the
+	// nominated candidate pair wins when available.
+	Transport string `json:"transport,omitempty"`
+	// VideoBitrateKbps is the player's measured inbound video bitrate.
+	VideoBitrateKbps *float64 `json:"videoBitrateKbps,omitempty"`
 }
+
+// Client-report sanity bounds. The beacon is untrusted input: values outside
+// these bounds are ignored rather than shown to the operator.
+const (
+	maxClientFPS               = 240.0
+	minClientResolution        = 16
+	maxClientBitrateKbps       = 1_000_000.0
+	maxClientRoundTripMillisec = 60_000.0
+)
 
 // ViewerSnapshot is one WHEP viewer row for the admin API. Server-measured
 // fields are nil when unknown; the handler renders them as N/A (spec 6.3).
@@ -45,6 +67,7 @@ type ViewerSnapshot struct {
 	JitterMs        *float64      `json:"jitterMs"`
 	RoundTripTimeMs *float64      `json:"roundTripTimeMs"`
 	ICEState        string        `json:"iceState"`
+	ICETransport    string        `json:"iceTransport,omitempty"`
 	DTLSState       string        `json:"dtlsState"`
 	PLICount        uint64        `json:"pliCount"`
 	FIRCount        uint64        `json:"firCount"`
@@ -59,6 +82,7 @@ type sessionStats struct {
 	jitterMs        *float64
 	roundTripTimeMs *float64
 	iceState        string
+	iceTransport    string
 	dtlsState       string
 	lastBytesSent   uint64
 	lastSampleAt    time.Time
@@ -193,8 +217,106 @@ func (s *session) drainRTCP(sender *webrtc.RTPSender) {
 }
 
 func (s *session) recordClientReport(report ClientReport) {
-	s.clientReport.Store(&report)
+	sanitized := sanitizedClientReport(report)
+	s.clientReport.Store(&sanitized)
 	s.touch()
+}
+
+// sanitizedClientReport clears client measurements that are out of bounds so
+// an absurd or malicious beacon can never reach the admin table.
+func sanitizedClientReport(report ClientReport) ClientReport {
+	if !validClientResolution(report.DecodedWidth, report.DecodedHeight) {
+		report.DecodedWidth = 0
+		report.DecodedHeight = 0
+	}
+	if !validClientFPS(report.FPS) {
+		report.FPS = 0
+	}
+	if report.PacketsLost < 0 {
+		report.PacketsLost = 0
+	}
+	if report.PacketsReceived < 0 {
+		report.PacketsReceived = 0
+	}
+	report.JitterMs = sanitizeNonNegative(report.JitterMs)
+	report.RoundTripTimeMs = sanitizeNonNegativeBounded(report.RoundTripTimeMs, maxClientRoundTripMillisec)
+	if report.PacketLossPct != nil && !validPacketLossPct(*report.PacketLossPct) {
+		report.PacketLossPct = nil
+	}
+	if report.PacketLossPct == nil {
+		report.PacketLossPct = derivePacketLossPct(report)
+	}
+	report.Transport = normalizeICETransport(report.Transport)
+	if report.VideoBitrateKbps != nil && !validClientBitrate(*report.VideoBitrateKbps) {
+		report.VideoBitrateKbps = nil
+	}
+
+	return report
+}
+
+// validClientResolution reports whether the decoded frame size is plausible.
+func validClientResolution(width, height int) bool {
+	return width >= minClientResolution && height >= minClientResolution
+}
+
+// validClientFPS reports whether a client frame rate is plausible. The player
+// has been observed sending absurd values (571 fps); those are rejected.
+func validClientFPS(fps float64) bool {
+	return !math.IsNaN(fps) && !math.IsInf(fps, 0) && fps > 0 && fps <= maxClientFPS
+}
+
+// validPacketLossPct reports whether a client loss percentage is possible.
+func validPacketLossPct(loss float64) bool {
+	return !math.IsNaN(loss) && !math.IsInf(loss, 0) && loss >= 0 && loss <= 100
+}
+
+// validClientBitrate reports whether a measured inbound bitrate is plausible.
+func validClientBitrate(kbps float64) bool {
+	return !math.IsNaN(kbps) && !math.IsInf(kbps, 0) && kbps > 0 && kbps <= maxClientBitrateKbps
+}
+
+// derivePacketLossPct computes the loss percentage from the client counters
+// when the player did not send a percentage itself.
+func derivePacketLossPct(report ClientReport) *float64 {
+	total := report.PacketsLost + report.PacketsReceived
+	if total <= 0 {
+		return nil
+	}
+	loss := float64(report.PacketsLost) / float64(total) * 100
+	if !validPacketLossPct(loss) {
+		return nil
+	}
+
+	return &loss
+}
+
+func sanitizeNonNegative(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return 0
+	}
+
+	return value
+}
+
+func sanitizeNonNegativeBounded(value, maxValue float64) float64 {
+	value = sanitizeNonNegative(value)
+	if value > maxValue {
+		return 0
+	}
+
+	return value
+}
+
+// normalizeICETransport maps a candidate protocol to the admin vocabulary.
+func normalizeICETransport(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "udp":
+		return "udp"
+	case "tcp":
+		return "tcp"
+	default:
+		return ""
+	}
 }
 
 func (s *session) snapshot(now time.Time) ViewerSnapshot {
@@ -229,6 +351,7 @@ func (s *session) snapshot(now time.Time) ViewerSnapshot {
 	snapshot.JitterMs = s.stats.jitterMs
 	snapshot.RoundTripTimeMs = s.stats.roundTripTimeMs
 	snapshot.ICEState = s.stats.iceState
+	snapshot.ICETransport = s.stats.iceTransport
 	snapshot.DTLSState = s.stats.dtlsState
 	s.statsMu.Unlock()
 

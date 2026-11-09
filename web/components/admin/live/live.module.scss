@@ -229,6 +229,12 @@
   overflow-x: auto;
 }
 
+.ffmpegProcess :global(.ant-collapse-content-box) {
+  min-width: 0;
+  overflow-x: auto;
+  white-space: normal;
+}
+
 .ffmpegSection pre {
   margin: 0;
   white-space: pre-wrap;

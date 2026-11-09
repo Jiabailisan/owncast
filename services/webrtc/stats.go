@@ -77,18 +77,77 @@ func (s *Service) sampleOutboundStats(sess *session, now time.Time) sessionStats
 	return sampled
 }
 
-// sampleTransportStats reads ICE/DTLS state from PeerConnection.GetStats().
+// sampleTransportStats reads ICE/DTLS state and the selected ICE transport
+// from PeerConnection.GetStats().
 func (s *Service) sampleTransportStats(sess *session, sampled *sessionStats) {
 	if sess.pc == nil {
 		return
 	}
+	report := sess.pc.GetStats()
 	sampled.iceState = sess.pc.ICEConnectionState().String()
-	for _, entry := range sess.pc.GetStats() {
+	for _, entry := range report {
 		if transport, ok := entry.(webrtc.TransportStats); ok {
 			sampled.dtlsState = transport.DTLSState.String()
 			sampled.iceState = transport.ICEState.String()
 		}
 	}
+	sampled.iceTransport = iceTransportFromStats(report)
+}
+
+// iceTransportFromStats returns the protocol ("udp" or "tcp") of the selected
+// ICE candidate pair: the nominated pair that succeeded, the nominated pair
+// while the checklist is still settling, or the highest-volume succeeded pair.
+// Empty when no usable pair is present yet.
+func iceTransportFromStats(report webrtc.StatsReport) string {
+	candidates := make(map[string]string)
+	var pairs []webrtc.ICECandidatePairStats
+	for _, entry := range report {
+		switch stat := entry.(type) {
+		case webrtc.ICECandidateStats:
+			candidates[stat.ID] = stat.Protocol
+		case webrtc.ICECandidatePairStats:
+			pairs = append(pairs, stat)
+		}
+	}
+
+	selected, ok := selectedCandidatePair(pairs)
+	if !ok {
+		return ""
+	}
+	if protocol := normalizeICETransport(candidates[selected.LocalCandidateID]); protocol != "" {
+		return protocol
+	}
+
+	return normalizeICETransport(candidates[selected.RemoteCandidateID])
+}
+
+// selectedCandidatePair picks the pair the ICE agent uses for media. A
+// nominated+succeeded pair is authoritative; while nomination has not been
+// observed yet a nominated pair is used, then the busiest succeeded pair.
+func selectedCandidatePair(pairs []webrtc.ICECandidatePairStats) (webrtc.ICECandidatePairStats, bool) {
+	var nominated *webrtc.ICECandidatePairStats
+	var busiestSucceeded *webrtc.ICECandidatePairStats
+	for index := range pairs {
+		pair := &pairs[index]
+		if pair.Nominated && pair.State == webrtc.StatsICECandidatePairStateSucceeded {
+			return *pair, true
+		}
+		if pair.Nominated && nominated == nil {
+			nominated = pair
+		}
+		if pair.State == webrtc.StatsICECandidatePairStateSucceeded &&
+			(busiestSucceeded == nil || pair.PacketsSent > busiestSucceeded.PacketsSent) {
+			busiestSucceeded = pair
+		}
+	}
+	if nominated != nil {
+		return *nominated, true
+	}
+	if busiestSucceeded != nil {
+		return *busiestSucceeded, true
+	}
+
+	return webrtc.ICECandidatePairStats{}, false
 }
 
 // mergeSessionStats keeps the previous bitrate sample when this tick had no
@@ -103,6 +162,9 @@ func (s *Service) mergeSessionStats(sess *session, sampled *sessionStats) {
 	if sampled.lastSampleAt.IsZero() {
 		sampled.lastSampleAt = sess.stats.lastSampleAt
 		sampled.lastBytesSent = sess.stats.lastBytesSent
+	}
+	if sampled.iceTransport == "" {
+		sampled.iceTransport = sess.stats.iceTransport
 	}
 	sess.stats = *sampled
 }

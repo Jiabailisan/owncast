@@ -59,6 +59,10 @@ export interface LiveFfmpegProcess {
   duplicateFrames: number | null;
   cpuPercent: number | null;
   rssBytes: number | null;
+  // Best-effort GPU metrics for hardware encoders (null when not measurable).
+  gpuPercent?: number | null;
+  gpuMemoryBytes?: number | null;
+  gpuName?: string;
   // Populated by the command inspector; secrets are redacted with ***.
   argv?: string[];
   sections?: Record<string, string[]>;
@@ -148,6 +152,8 @@ export interface LiveViewer {
   city?: string;
   locationApproximate?: boolean;
   protocol: 'hls' | 'webrtc';
+  // WebRTC only: ICE transport selected by the client. Omitted when unknown.
+  iceTransport?: 'udp' | 'tcp';
   bitrateKbps: number | null;
   resolution?: string;
   fps: number | null;
@@ -181,14 +187,7 @@ export interface LiveViewersResponse {
 // the known groups are listed below, unknown groups are still renderable.
 export type FfmpegArgSections = Record<string, string[]>;
 
-export const FFMPEG_SECTION_ORDER = [
-  'input',
-  'video',
-  'audio',
-  'output',
-  'other',
-  'environment',
-] as const;
+export const FFMPEG_SECTION_ORDER = ['common', 'hls', 'webrtc', 'environment'] as const;
 
 export interface FfmpegPanelProcess {
   id: string;
@@ -197,6 +196,12 @@ export interface FfmpegPanelProcess {
   startedAt: string;
   uptimeSeconds: number;
   restartCount: number;
+  speed?: number | null;
+  cpuPercent?: number | null;
+  rssBytes?: number | null;
+  gpuPercent?: number | null;
+  gpuMemoryBytes?: number | null;
+  gpuName?: string;
   sections: FfmpegArgSections;
   argv: string[];
   lastLogLines: string[];

@@ -202,14 +202,21 @@
 		},
 		"LiveStreaming": {
 			"Ffmpeg": {
+				"common": "Common",
 				"copied": "Copied",
 				"copy": "Copy command",
+				"cpu": "CPU",
+				"environment": "Environment (redacted)",
+				"hls": "HLS",
 				"lastLogLines": "Recent log output",
 				"modelIsolated": "isolated (separate process per protocol)",
 				"modelShared": "shared (one process serves all outputs)",
 				"noProcesses": "No FFmpeg process is running.",
 				"processModel": "Process model",
-				"restarts": "Restarts"
+				"restarts": "Restarts",
+				"rss": "RSS",
+				"speed": "Speed",
+				"webrtc": "WebRTC"
 			},
 			"Settings": {
 				"addCidr": "Add CIDR...",

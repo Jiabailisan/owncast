@@ -13,7 +13,14 @@ import { WHEPIceServer } from '../../../interfaces/whep.model';
 import { WebRTCVariantInfo } from '../../../interfaces/client-config.model';
 import { WHEPError } from '../../../services/whep-client';
 import { ConnectWHEPRequest, WHEPSessionHandle, connectWHEP } from '../../../services/whep-client';
-import { startWebRTCStatsBeacon, WebRTCStatsBeacon, collectWebRTCStatsPanel } from './webrtc-stats';
+import {
+  startWebRTCStatsBeacon,
+  WebRTCStatsBeacon,
+  collectWebRTCStatsPanel,
+  formatWebRTCResolution,
+  plausibleFrameRate,
+  webRTCLiveMode,
+} from './webrtc-stats';
 import { PlayerControls } from '../PlayerControls/PlayerControls';
 import {
   TransportPreference,
@@ -276,7 +283,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           statsRef.current = startWebRTCStatsBeacon({
             pc: session.pc,
             sessionId,
-            intervalMs: statsIntervalMs,
+            intervalMs: statsIntervalMs ?? 2000,
             endpoint: statsEndpoint,
           });
         }
@@ -343,6 +350,15 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         previousBytes = bytes;
         const video = videoRef.current;
         const volumeInfo = formatVolume(video?.volume ?? 1, Boolean(video?.muted));
+        // Current / Optimal Res: WxH@<fps>fps when a plausible frame rate is
+        // known (reference formatting); Live Mode shows the selected ICE
+        // transport (WebRTC-U for UDP / WebRTC-T for TCP).
+        const fps = plausibleFrameRate(panelSample.framesPerSecond);
+        const resolution = formatWebRTCResolution(
+          panelSample.frameWidth,
+          panelSample.frameHeight,
+          fps,
+        );
         setStats({
           collecting: false,
           isWebRTC: true,
@@ -359,14 +375,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             panelSample.framesDropped,
             panelSample.framesDecoded,
           ),
-          resolution:
-            panelSample.frameWidth && panelSample.frameHeight
-              ? panelSample.frameWidth + 'x' + panelSample.frameHeight
-              : 'N/A',
-          optimalResolution:
-            panelSample.frameWidth && panelSample.frameHeight
-              ? panelSample.frameWidth + 'x' + panelSample.frameHeight
-              : 'N/A',
+          resolution,
+          optimalResolution: resolution,
           volume: volumeInfo.volume,
           normalizedVolume: volumeInfo.normalizedVolume,
           codecs:
@@ -383,7 +393,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           packetsReceived: panelSample.packetsReceived,
           bufferSeconds: null,
           liveLatencySeconds: null,
-          liveMode: 'WebRTC (auto)',
+          liveMode: webRTCLiveMode(panelSample.transport),
           date: new Date().toLocaleString(),
         });
         setSparklines(current => ({

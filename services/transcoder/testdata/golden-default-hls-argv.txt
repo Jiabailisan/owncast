@@ -2,6 +2,8 @@
 -nostats
 -loglevel
 level+info
+-progress
+pipe:1
 -fflags
 +genpts
 -flags

@@ -184,13 +184,17 @@ func (a *Admin) ReportCustomPlayerError(w http.ResponseWriter, r *http.Request) 
 
 // webrtcClientReportRequest is the public WebRTC stats beacon body.
 type webrtcClientReportRequest struct {
-	SessionID       string  `json:"sessionId"`
-	DecodedWidth    int     `json:"decodedWidth"`
-	DecodedHeight   int     `json:"decodedHeight"`
-	FPS             float64 `json:"fps"`
-	PacketsLost     int64   `json:"packetsLost"`
-	JitterMs        float64 `json:"jitterMs"`
-	RoundTripTimeMs float64 `json:"roundTripTimeMs"`
+	SessionID        string   `json:"sessionId"`
+	DecodedWidth     int      `json:"decodedWidth"`
+	DecodedHeight    int      `json:"decodedHeight"`
+	FPS              float64  `json:"fps"`
+	PacketsLost      int64    `json:"packetsLost"`
+	PacketsReceived  int64    `json:"packetsReceived"`
+	PacketLossPct    *float64 `json:"packetLossPct"`
+	JitterMs         float64  `json:"jitterMs"`
+	RoundTripTimeMs  float64  `json:"roundTripTimeMs"`
+	Transport        string   `json:"transport"`
+	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
 }
 
 // ReportWebRTCClientReport accepts the optional browser playback stats beacon
@@ -222,12 +226,16 @@ func (a *Admin) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request)
 	}
 
 	accepted := a.webrtc.ApplyClientReport(request.SessionID, webrtc.ClientReport{
-		DecodedWidth:    request.DecodedWidth,
-		DecodedHeight:   request.DecodedHeight,
-		FPS:             request.FPS,
-		PacketsLost:     request.PacketsLost,
-		JitterMs:        request.JitterMs,
-		RoundTripTimeMs: request.RoundTripTimeMs,
+		DecodedWidth:     request.DecodedWidth,
+		DecodedHeight:    request.DecodedHeight,
+		FPS:              request.FPS,
+		PacketsLost:      request.PacketsLost,
+		PacketsReceived:  request.PacketsReceived,
+		PacketLossPct:    request.PacketLossPct,
+		JitterMs:         request.JitterMs,
+		RoundTripTimeMs:  request.RoundTripTimeMs,
+		Transport:        request.Transport,
+		VideoBitrateKbps: request.VideoBitrateKbps,
 	})
 	if !accepted {
 		w.WriteHeader(http.StatusNotFound)

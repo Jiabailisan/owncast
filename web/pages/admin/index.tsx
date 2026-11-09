@@ -10,7 +10,7 @@ import { Offline } from '../../components/admin/Offline';
 import { StreamHealthOverview } from '../../components/admin/StreamHealthOverview';
 
 import { LOGS_WARN, fetchData, FETCH_INTERVAL } from '../../utils/apis';
-import { formatIPAddress, isEmptyObject } from '../../utils/format';
+import { formatIngestPublisher, isEmptyObject } from '../../utils/format';
 import { NewsFeed } from '../../components/admin/NewsFeed';
 
 import { AdminLayout } from '../../components/layouts/AdminLayout';
@@ -42,11 +42,14 @@ function streamDetailsFormatter(streamDetails) {
 export default function Home() {
   const { t } = useTranslation();
 
-  const serverStatusData = useContext(ServerStatusContext);
+  const serverStatusData = useContext(ServerStatusContext) as Record<string, any> | undefined;
   const { broadcaster, serverConfig: configData } = serverStatusData || {};
+  const { inputProtocol } = serverStatusData || {};
   const { remoteAddr, streamDetails } = broadcaster || {};
 
-  const encoder = streamDetails?.encoder || 'Unknown encoder';
+  // Never render "Unknown encoder <ip>" (SRT has no encoder field); label the
+  // ingest publisher from protocol + remote address instead.
+  const encoder = formatIngestPublisher(inputProtocol, streamDetails?.encoder, remoteAddr);
 
   const [logsData, setLogs] = useState([]);
   const getLogs = async () => {
@@ -165,11 +168,7 @@ export default function Home() {
             </Card>
 
             <Card size="small" title={t('Inbound Stream Details')} type="inner">
-              <Statistic
-                className="stream-details-item"
-                title={t('Input')}
-                value={`${encoder} ${formatIPAddress(remoteAddr)}`}
-              />
+              <Statistic className="stream-details-item" title={t('Input')} value={encoder} />
               <Statistic
                 className="stream-details-item"
                 title={t('Inbound Video Stream')}
