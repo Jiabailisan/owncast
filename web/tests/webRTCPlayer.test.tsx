@@ -1,7 +1,13 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 import { WebRTCPlayer } from '../components/video/webrtc/WebRTCPlayer';
+import { startWebRTCStatsBeacon } from '../components/video/webrtc/webrtc-stats';
 import { WHEPSessionHandle, WHEPError } from '../services/whep-client';
+
+jest.mock('../components/video/webrtc/webrtc-stats', () => ({
+  ...jest.requireActual('../components/video/webrtc/webrtc-stats'),
+  startWebRTCStatsBeacon: jest.fn(() => ({ stop: jest.fn(), sampleOnce: jest.fn() })),
+}));
 
 jest.mock('next-export-i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -68,6 +74,25 @@ describe('WebRTCPlayer', () => {
     await waitFor(() => expect(onReady).toHaveBeenCalledWith(session));
     expect(screen.getAllByLabelText('Play').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Fullscreen')).toBeInTheDocument();
+  });
+
+  test('reports the bare WHEP resource id with the client stats beacon', async () => {
+    const session = makeSession();
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats
+        sessionFactory={async () => session}
+      />,
+    );
+
+    await waitFor(() => expect(startWebRTCStatsBeacon).toHaveBeenCalled());
+    const options = (startWebRTCStatsBeacon as jest.Mock).mock.calls[0][0];
+    // The server keys sessions by the bare id; reporting the Location path
+    // made every beacon 404.
+    expect(options.sessionId).toBe('abc');
   });
 
   test('reports a fatal error to the container for the HLS fallback', async () => {

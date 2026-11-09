@@ -268,9 +268,13 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         onReadyRef.current?.(session);
 
         if (enableStats) {
+          // The server keys sessions by the bare resource id; the WHEP client
+          // exposes the full Location path. Reporting the path made every
+          // beacon 404 (and logged a console error), so send only the id.
+          const sessionId = session.sessionUrl.split('/').filter(Boolean).pop() || session.sessionUrl;
           statsRef.current = startWebRTCStatsBeacon({
             pc: session.pc,
-            sessionId: session.sessionUrl,
+            sessionId,
             intervalMs: statsIntervalMs,
             endpoint: statsEndpoint,
           });
