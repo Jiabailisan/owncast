@@ -16,6 +16,17 @@ type Viewer struct {
 	UserAgent string            `json:"userAgent"`
 	IPAddress string            `json:"ipAddress"`
 	ClientID  string            `json:"clientID"`
+
+	// Playback quality observed from the delivery path the viewer is using.
+	// For HLS viewers these are derived from the variant playlist the player
+	// is currently requesting (/hls/<variant>/...). They are additive and stay
+	// nil/empty until a variant is observed: a master-playlist request or a
+	// player that does not report a variant must not invent a quality.
+	VariantIndex *int     `json:"variantIndex,omitempty"`
+	VariantName  string   `json:"variantName,omitempty"`
+	BitrateKbps  *float64 `json:"bitrateKbps,omitempty"`
+	Resolution   string   `json:"resolution,omitempty"`
+	FPS          *float64 `json:"fps,omitempty"`
 }
 
 // GenerateViewerFromRequest will return a chat client from a http request.

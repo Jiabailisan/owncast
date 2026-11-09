@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -178,5 +180,46 @@ func TestCodecDisplayNames(t *testing.T) {
 		if got := audioCodecDisplayName(input); got != want {
 			t.Errorf("audioCodecDisplayName(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestSessionRefreshSourceMetadataPopulatesMediaDetails(t *testing.T) {
+	fixture := filepath.Join("..", "..", "ingest", "mpegts", "testdata", "sample-720p30-nob-2s.ts")
+	data, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Skipf("fixture not available: %v", err)
+	}
+
+	session := newSession(&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}, "key:test", 5, false, nil)
+	defer session.Close(ErrRemoteClosed)
+
+	const chunk = 1000
+	for offset := 0; offset < len(data); offset += chunk {
+		end := offset + chunk
+		if end > len(data) {
+			end = len(data)
+		}
+		if _, err := session.inspector.Write(data[offset:end]); err != nil {
+			t.Fatalf("inspector write: %v", err)
+		}
+	}
+	session.refreshSourceMetadata()
+
+	broadcaster := session.Broadcaster()
+	if broadcaster == nil {
+		t.Fatal("expected broadcaster metadata after inspecting the fixture")
+	}
+	details := broadcaster.StreamDetails
+	if details.VideoBitrate < 1800 || details.VideoBitrate > 4000 {
+		t.Errorf("video bitrate = %d, want 1800..4000", details.VideoBitrate)
+	}
+	if details.AudioBitrate < 100 || details.AudioBitrate > 180 {
+		t.Errorf("audio bitrate = %d, want 100..180", details.AudioBitrate)
+	}
+	if details.AudioProfile != "LC" || details.AudioSampleRate != 48000 || details.AudioChannels != 2 {
+		t.Errorf("AAC details = %q %dHz %dch", details.AudioProfile, details.AudioSampleRate, details.AudioChannels)
+	}
+	if details.VideoCodec != "H.264" || details.AudioCodec != "AAC" {
+		t.Errorf("codec labels = %q/%q", details.VideoCodec, details.AudioCodec)
 	}
 }

@@ -206,8 +206,12 @@ func main() {
 	// data/GeoLite2-City.mmdb; without it viewer locations render as N/A.
 	// Lookups are in-memory only and never leave this process.
 	geoIPClient := geoip.NewClient()
-	if metadata := geoIPClient.DatabaseMetadata(); metadata.Configured {
-		log.Infof("geoip: %s database loaded (build %s)", metadata.DatabaseType, metadata.BuildDate)
+	geoIPMetadata := geoIPClient.DatabaseMetadata()
+	if geoIPMetadata.Configured {
+		log.Infoln("geoip:", geoIPClient.String())
+		if geoIPMetadata.Secondary != nil {
+			log.Infoln("geoip: secondary database fills missing city/region/timezone data:", geoIPMetadata.Secondary.Path)
+		}
 	} else {
 		log.Infoln("geoip: no MaxMind database found at", geoIPClient.DatabasePath(), "- viewer location will show N/A")
 	}
@@ -582,13 +586,7 @@ type geoIPStatusProvider struct {
 
 // GeoIPStatus implements livestatus.GeoIPProvider.
 func (p geoIPStatusProvider) GeoIPStatus() models.GeoIPStatus {
-	metadata := p.client.DatabaseMetadata()
-	status := models.GeoIPStatus{Configured: metadata.Configured}
-	if metadata.Configured {
-		status.DatabaseType = metadata.DatabaseType
-		status.BuildDate = metadata.BuildDate
-	}
-	return status
+	return livestatus.GeoIPStatusFromDatabaseMetadata(p.client.DatabaseMetadata())
 }
 
 func configureLogging(logDirectory string, enableDebugFeatures bool, enableVerboseLogging bool) {

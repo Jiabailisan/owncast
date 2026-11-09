@@ -28,6 +28,13 @@ type InboundStreamDetails struct {
 	VideoProfile string `json:"videoProfile,omitempty"`
 	VideoLevel   string `json:"videoLevel,omitempty"`
 	HasBFrames   *bool  `json:"hasBFrames,omitempty"`
+
+	// Audio codec details. They are populated for SRT from the MPEG-TS/AAC
+	// inspector (RTMP onMetaData does not carry them, so RTMP leaves them
+	// unset and the UI shows N/A). AudioSampleRate is in Hz.
+	AudioProfile    string `json:"audioProfile,omitempty"`
+	AudioSampleRate int    `json:"audioSampleRate,omitempty"`
+	AudioChannels   int    `json:"audioChannels,omitempty"`
 }
 
 // RTMPStreamMetadata is the raw metadata that comes in with a RTMP connection.

@@ -1,7 +1,9 @@
 package stream
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -86,13 +88,216 @@ func (s *Service) SetViewerActive(viewer *models.Viewer) {
 		}
 	}(viewer.ClientID, viewer.IPAddress)
 
-	if _, exists := s.stats.Viewers[viewer.ClientID]; exists {
-		s.stats.Viewers[viewer.ClientID].LastSeen = time.Now()
+	if stored, exists := s.stats.Viewers[viewer.ClientID]; exists {
+		stored.LastSeen = time.Now()
+		mergeViewerQuality(stored, viewer)
 	} else {
 		s.stats.Viewers[viewer.ClientID] = viewer
 	}
 	s.stats.SessionMaxViewerCount = int(math.Max(float64(len(s.stats.Viewers)), float64(s.stats.SessionMaxViewerCount)))
 	s.stats.OverallMaxViewerCount = int(math.Max(float64(s.stats.SessionMaxViewerCount), float64(s.stats.OverallMaxViewerCount)))
+}
+
+// SetViewerActiveWithVariant marks a viewer as active and records the
+// playback quality of the HLS variant it is currently consuming.
+// variantIndex is the numeric variant directory of the requested HLS path
+// (/hls/<index>/...); the master playlist carries no variant. An out-of-range
+// or non-HLS variant index still records the viewer as active but leaves the
+// quality fields untouched: quality is never invented.
+func (s *Service) SetViewerActiveWithVariant(viewer *models.Viewer, variantIndex int) {
+	if s.stats == nil || !s.stats.StreamConnected {
+		return
+	}
+
+	s.applyViewerQuality(viewer, variantIndex)
+	s.SetViewerActive(viewer)
+}
+
+// applyViewerQuality fills a request's viewer record with the advertised
+// quality of the active output variant at variantIndex.
+func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int) {
+	variants := s.activeOutputVariants()
+	if variantIndex < 0 || variantIndex >= len(variants) {
+		return
+	}
+
+	variant := variants[variantIndex]
+	if !variant.HLSEnabled() {
+		return
+	}
+
+	index := variantIndex
+	viewer.VariantIndex = &index
+	viewer.VariantName = variant.GetName()
+	viewer.BitrateKbps, viewer.Resolution, viewer.FPS = hlsVariantPlaybackQuality(variant, s.sourceStreamDetails())
+}
+
+// activeOutputVariants returns the output settings of the current broadcast,
+// falling back to the persisted configuration when no broadcast snapshot is
+// held (offline, tests).
+func (s *Service) activeOutputVariants() []models.StreamOutputVariant {
+	if s.currentBroadcast != nil && len(s.currentBroadcast.OutputSettings) > 0 {
+		return s.currentBroadcast.OutputSettings
+	}
+	if s.configRepository == nil {
+		return nil
+	}
+
+	return s.configRepository.GetStreamOutputVariants()
+}
+
+// sourceStreamDetails returns the ingress source properties, or nil when no
+// broadcaster metadata has arrived yet.
+func (s *Service) sourceStreamDetails() *models.InboundStreamDetails {
+	broadcaster := s.GetBroadcaster()
+	if broadcaster == nil {
+		return nil
+	}
+
+	details := broadcaster.StreamDetails
+
+	return &details
+}
+
+// mergeViewerQuality copies newly observed playback quality onto an existing
+// viewer record. A request that carries no variant information (the ping
+// endpoint, a master-playlist request) must not erase quality observed from an
+// earlier variant playlist request.
+func mergeViewerQuality(stored, observed *models.Viewer) {
+	if observed.VariantIndex == nil {
+		return
+	}
+
+	stored.VariantIndex = observed.VariantIndex
+	stored.VariantName = observed.VariantName
+	stored.BitrateKbps = observed.BitrateKbps
+	stored.Resolution = observed.Resolution
+	stored.FPS = observed.FPS
+}
+
+// hlsVariantPlaybackQuality derives the quality an HLS viewer receives from
+// one output variant. copyVariant variants (video passthrough) carry no
+// encoder settings, so their values come from the ingress source when it is
+// known. Unknown source properties stay nil/empty instead of being guessed.
+func hlsVariantPlaybackQuality(variant models.StreamOutputVariant, source *models.InboundStreamDetails) (*float64, string, *float64) {
+	copyVariant := variant.IsVideoPassthrough ||
+		(variant.HLSOutput() != nil && strings.EqualFold(variant.HLSOutput().Mode, models.OutputModeCopy))
+
+	return hlsVariantBitrate(variant, source, copyVariant),
+		hlsVariantResolution(variant, source, copyVariant),
+		hlsVariantFPS(variant, source, copyVariant)
+}
+
+// hlsVariantBitrate returns the total (video+audio) bitrate of the variant.
+// The video bitrate must be known for the total to be meaningful; a known
+// audio bitrate is added when available.
+func hlsVariantBitrate(variant models.StreamOutputVariant, source *models.InboundStreamDetails, copyVariant bool) *float64 {
+	videoBitrateKbps := 0
+	audioBitrateKbps := 0
+
+	if copyVariant {
+		if source != nil {
+			videoBitrateKbps = source.VideoBitrate
+			audioBitrateKbps = source.AudioBitrate
+		}
+	} else {
+		videoBitrateKbps = variant.VideoBitrate
+		if variant.GetIsAudioPassthrough() {
+			if source != nil {
+				audioBitrateKbps = source.AudioBitrate
+			}
+		} else {
+			audioBitrateKbps = variant.AudioBitrate
+		}
+	}
+
+	if videoBitrateKbps <= 0 {
+		return nil
+	}
+	if audioBitrateKbps < 0 {
+		audioBitrateKbps = 0
+	}
+
+	total := float64(videoBitrateKbps + audioBitrateKbps)
+
+	return &total
+}
+
+// hlsVariantResolution returns "WxH" for the variant's output resolution.
+// A copy variant keeps the source resolution; a scaled transcode variant uses
+// its configured dimensions (deriving the unset dimension from the source
+// aspect ratio like FFmpeg's -2); an unscaled transcode keeps the source
+// resolution. Unknown source geometry yields an empty string.
+func hlsVariantResolution(variant models.StreamOutputVariant, source *models.InboundStreamDetails, copyVariant bool) string {
+	if copyVariant {
+		return sourceResolution(source)
+	}
+
+	width := variant.ScaledWidth
+	height := variant.ScaledHeight
+	switch {
+	case width > 0 && height > 0:
+		return fmt.Sprintf("%dx%d", width, height)
+	case width == 0 && height == 0:
+		return sourceResolution(source)
+	case source == nil || source.Width <= 0 || source.Height <= 0:
+		return ""
+	case width > 0:
+		derivedHeight := evenRound(float64(width) * float64(source.Height) / float64(source.Width))
+		if derivedHeight > 0 {
+			return fmt.Sprintf("%dx%d", width, derivedHeight)
+		}
+	case height > 0:
+		derivedWidth := evenRound(float64(height) * float64(source.Width) / float64(source.Height))
+		if derivedWidth > 0 {
+			return fmt.Sprintf("%dx%d", derivedWidth, height)
+		}
+	}
+
+	return ""
+}
+
+// hlsVariantFPS returns the frame rate the variant is encoded at. Copy
+// variants carry the source frame rate; transcoded variants use their
+// configured frame rate (the encoder default when unset).
+func hlsVariantFPS(variant models.StreamOutputVariant, source *models.InboundStreamDetails, copyVariant bool) *float64 {
+	if copyVariant {
+		return sourceFPS(source)
+	}
+
+	fps := float64(variant.GetFramerate())
+	if fps <= 0 {
+		return sourceFPS(source)
+	}
+
+	return &fps
+}
+
+// sourceResolution formats the ingress source resolution, or returns "" when
+// it is unknown.
+func sourceResolution(source *models.InboundStreamDetails) string {
+	if source == nil || source.Width <= 0 || source.Height <= 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("%dx%d", source.Width, source.Height)
+}
+
+// sourceFPS returns the ingress source frame rate, or nil when unknown.
+func sourceFPS(source *models.InboundStreamDetails) *float64 {
+	if source == nil || source.VideoFramerate <= 0 {
+		return nil
+	}
+
+	fps := float64(source.VideoFramerate)
+
+	return &fps
+}
+
+// evenRound rounds a derived dimension to the nearest even number, matching
+// the even-dimension rounding of FFmpeg's aspect-ratio preserving scaling.
+func evenRound(value float64) int {
+	return int(math.Round(value/2)) * 2
 }
 
 // GetActiveViewers returns a snapshot of the currently-tracked viewers.

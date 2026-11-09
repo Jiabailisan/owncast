@@ -11,6 +11,42 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AdminLiveGeoIPSourceRole.
+const (
+	Primary   AdminLiveGeoIPSourceRole = "primary"
+	Secondary AdminLiveGeoIPSourceRole = "secondary"
+)
+
+// Valid indicates whether the value is a known member of the AdminLiveGeoIPSourceRole enum.
+func (e AdminLiveGeoIPSourceRole) Valid() bool {
+	switch e {
+	case Primary:
+		return true
+	case Secondary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdminLiveOutboundStreamProtocols.
+const (
+	AdminLiveOutboundStreamProtocolsHls    AdminLiveOutboundStreamProtocols = "hls"
+	AdminLiveOutboundStreamProtocolsWebrtc AdminLiveOutboundStreamProtocols = "webrtc"
+)
+
+// Valid indicates whether the value is a known member of the AdminLiveOutboundStreamProtocols enum.
+func (e AdminLiveOutboundStreamProtocols) Valid() bool {
+	switch e {
+	case AdminLiveOutboundStreamProtocolsHls:
+		return true
+	case AdminLiveOutboundStreamProtocolsWebrtc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AdminLiveStatusInputProtocol.
 const (
 	AdminLiveStatusInputProtocolEmpty AdminLiveStatusInputProtocol = ""
@@ -600,11 +636,28 @@ type AdminLiveFFmpegStatus struct {
 	Processes    []AdminLiveFFmpegProcess `json:"processes"`
 }
 
+// AdminLiveGeoIPSource One loaded offline GeoIP database (additive)
+type AdminLiveGeoIPSource struct {
+	BuildDate    *string                  `json:"buildDate,omitempty"`
+	Configured   bool                     `json:"configured"`
+	DatabaseType *string                  `json:"databaseType,omitempty"`
+	Error        *string                  `json:"error,omitempty"`
+	HasCity      *bool                    `json:"hasCity,omitempty"`
+	Path         *string                  `json:"path,omitempty"`
+	Role         AdminLiveGeoIPSourceRole `json:"role"`
+}
+
+// AdminLiveGeoIPSourceRole defines model for AdminLiveGeoIPSource.Role.
+type AdminLiveGeoIPSourceRole string
+
 // AdminLiveGeoIPStatus Offline GeoIP database state
 type AdminLiveGeoIPStatus struct {
 	BuildDate    *string `json:"buildDate,omitempty"`
 	Configured   bool    `json:"configured"`
 	DatabaseType *string `json:"databaseType,omitempty"`
+
+	// Sources Loaded GeoIP databases, primary first (additive).
+	Sources *[]AdminLiveGeoIPSource `json:"sources,omitempty"`
 }
 
 // AdminLiveIngest Protocol-neutral ingest statistics and per-protocol detail
@@ -619,10 +672,47 @@ type AdminLiveIngest struct {
 	SessionID            *string             `json:"sessionID,omitempty"`
 }
 
+// AdminLiveOutbound Planned outbound streams for the active stream plan (additive)
+type AdminLiveOutbound struct {
+	Streams []AdminLiveOutboundStream `json:"streams"`
+}
+
+// AdminLiveOutboundStream One planned outbound stream (one output variant)
+type AdminLiveOutboundStream struct {
+	// AudioBitrateKbps Planned audio bitrate; null when unknown (N/A), never zero
+	AudioBitrateKbps *float32 `json:"audioBitrateKbps"`
+
+	// AudioEncoder aac for transcode variants, copy for passthrough variants
+	AudioEncoder *string `json:"audioEncoder,omitempty"`
+	Name         *string `json:"name,omitempty"`
+
+	// Protocols Planned delivery protocols; webrtc only when globally enabled
+	Protocols    []AdminLiveOutboundStreamProtocols `json:"protocols"`
+	VariantIndex int                                `json:"variantIndex"`
+
+	// VideoBitrateKbps Planned target bitrate for transcode variants, inbound source bitrate for passthrough variants; null when unknown (N/A)
+	VideoBitrateKbps *float32 `json:"videoBitrateKbps"`
+
+	// VideoEncoder Configured H.264 encoder name, or copy for passthrough variants
+	VideoEncoder *string `json:"videoEncoder,omitempty"`
+}
+
+// AdminLiveOutboundStreamProtocols defines model for AdminLiveOutboundStream.Protocols.
+type AdminLiveOutboundStreamProtocols string
+
 // AdminLiveSource Inbound source properties for the Live Stream Status source panel
 type AdminLiveSource struct {
 	AudioBitrateKbps *float32 `json:"audioBitrateKbps"`
-	AudioCodec       *string  `json:"audioCodec,omitempty"`
+
+	// AudioChannels Audio channel count (SRT only); omitted for RTMP sources.
+	AudioChannels *int    `json:"audioChannels,omitempty"`
+	AudioCodec    *string `json:"audioCodec,omitempty"`
+
+	// AudioProfile Audio profile from the SRT MPEG-TS inspector; omitted for RTMP sources.
+	AudioProfile *string `json:"audioProfile,omitempty"`
+
+	// AudioSampleRate Audio sample rate in Hz (SRT only); omitted for RTMP sources.
+	AudioSampleRate  *int     `json:"audioSampleRate,omitempty"`
 	Fps              *float32 `json:"fps"`
 	HasBFrames       *bool    `json:"hasBFrames"`
 	Height           *int     `json:"height"`
@@ -644,6 +734,9 @@ type AdminLiveStatus struct {
 	// Ingest Protocol-neutral ingest statistics and per-protocol detail
 	Ingest        AdminLiveIngest              `json:"ingest"`
 	InputProtocol AdminLiveStatusInputProtocol `json:"inputProtocol"`
+
+	// Outbound Planned outbound streams for the active stream plan (additive)
+	Outbound *AdminLiveOutbound `json:"outbound,omitempty"`
 
 	// Source Inbound source properties for the Live Stream Status source panel
 	Source AdminLiveSource `json:"source"`
@@ -669,7 +762,7 @@ type AdminLiveStatusInputProtocol string
 // AdminLiveStatusState defines model for AdminLiveStatus.State.
 type AdminLiveStatusState string
 
-// AdminLiveViewer One live viewer row
+// AdminLiveViewer One live viewer row. HLS rows populate the additive bitrateKbps, resolution and fps fields from the variant playlist the viewer is currently requesting (field population only; the schema already allowed these fields). WebRTC rows come from Pion stats.
 type AdminLiveViewer struct {
 	BitrateKbps         *float32                `json:"bitrateKbps"`
 	City                *string                 `json:"city,omitempty"`

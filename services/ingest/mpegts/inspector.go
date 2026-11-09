@@ -60,6 +60,21 @@ type SourceInfo struct {
 	BFrameChecked bool
 	VideoStreamTY byte
 	AudioStreamTY byte
+
+	// Rolling media-time bitrate estimates from PES payload byte counts.
+	// Valid flags gate the N/A semantics: a value is only exposed once the
+	// inspector has observed enough media time.
+	VideoBitrateKbps  float64
+	VideoBitrateValid bool
+	AudioBitrateKbps  float64
+	AudioBitrateValid bool
+
+	// AAC details parsed from ADTS headers. Zero values mean unknown (the
+	// audio is not AAC or no complete ADTS frame was observed yet).
+	AudioProfile     string
+	AudioSampleRate  int
+	AudioChannels    int
+	AudioCodecDetail string
 }
 
 // Inspector is an io.Writer that inspects an MPEG-TS stream. It is safe for
@@ -77,6 +92,13 @@ type Inspector struct {
 	es         []byte
 	sliceTypes map[uint]int
 	sliceCount int
+
+	videoRate       sourceBitrateTracker
+	audioRate       sourceBitrateTracker
+	videoPES        pesAccumulator
+	audioPES        pesAccumulator
+	audioES         []byte
+	audioDetailsSet bool
 
 	info SourceInfo
 }
@@ -127,13 +149,20 @@ func (i *Inspector) consumePacket(packet []byte) {
 	header1 := packet[1]
 	payloadStart := header1&0x40 != 0
 	pid := binary.BigEndian.Uint16(packet[1:3]) & pmtPIDMask
-	adaptation := (header1 >> 4) & 0x03
+	// adaptation_field_control lives in the fourth TS header byte (packet[3]),
+	// bits 5-4. Reading it from packet[1] (which carries the PUSI bit) makes
+	// the payload offset wrong whenever an adaptation field is present, which
+	// corrupts PSI/PES parsing for those packets.
+	adaptation := (packet[3] >> 4) & 0x03
 
 	offset := 4
-	if adaptation == 2 {
+	switch adaptation {
+	case 2:
 		return // adaptation field only, no payload
-	}
-	if adaptation == 3 {
+	case 3:
+		if len(packet) < 5 {
+			return
+		}
 		offset += 1 + int(packet[4])
 	}
 	if offset >= tsPacketSize {
@@ -147,13 +176,9 @@ func (i *Inspector) consumePacket(packet []byte) {
 	case i.pmtFound && pid == i.pmtPID:
 		i.parsePMT(payload, payloadStart)
 	case i.videoPID != 0 && pid == i.videoPID:
-		i.es = append(i.es, payload...)
-		if len(i.es) > maxESBuffer {
-			i.es = append([]byte(nil), i.es[len(i.es)-maxESBuffer/2:]...)
-		}
-		i.scanNALs()
+		i.consumeVideoPayload(payload, payloadStart)
 	case i.audioPID != 0 && pid == i.audioPID:
-		i.classifyAudio()
+		i.consumeAudioPayload(payload, payloadStart)
 	}
 }
 
@@ -225,12 +250,6 @@ func (i *Inspector) parsePMT(payload []byte, payloadStart bool) {
 				i.info.AudioCodec = audioCodecName(streamType)
 			}
 		}
-	}
-}
-
-func (i *Inspector) classifyAudio() {
-	if i.info.AudioCodec == "" {
-		i.info.AudioCodec = audioCodecName(i.info.AudioStreamTY)
 	}
 }
 

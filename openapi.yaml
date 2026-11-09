@@ -4865,6 +4865,8 @@ components:
           $ref: '#/components/schemas/AdminLiveWebRTCStatus'
         geoip:
           $ref: '#/components/schemas/AdminLiveGeoIPStatus'
+        outbound:
+          $ref: '#/components/schemas/AdminLiveOutbound'
         warnings:
           type: array
           items:
@@ -4896,6 +4898,16 @@ components:
           type: ['number', 'null']
         hasBFrames:
           type: ['boolean', 'null']
+        # Additive SRT-only audio codec details. RTMP sources omit these keys.
+        audioProfile:
+          type: string
+          description: Audio profile from the SRT MPEG-TS inspector; omitted for RTMP sources.
+        audioSampleRate:
+          type: ['integer', 'null']
+          description: Audio sample rate in Hz (SRT only); omitted for RTMP sources.
+        audioChannels:
+          type: ['integer', 'null']
+          description: Audio channel count (SRT only); omitted for RTMP sources.
       required: [width, height, fps, videoBitrateKbps, audioBitrateKbps, hasBFrames]
     AdminLiveIngest:
       type: object
@@ -4999,7 +5011,11 @@ components:
       required: [viewers, total, page, pageSize]
     AdminLiveViewer:
       type: object
-      description: One live viewer row
+      description: >-
+        One live viewer row. HLS rows populate the additive bitrateKbps,
+        resolution and fps fields from the variant playlist the viewer is
+        currently requesting (field population only; the schema already allowed
+        these fields). WebRTC rows come from Pion stats.
       properties:
         clientID:
           type: string
@@ -5060,6 +5076,11 @@ components:
           type: string
         buildDate:
           type: string
+        sources:
+          type: array
+          description: Loaded GeoIP databases, primary first (additive).
+          items:
+            $ref: '#/components/schemas/AdminLiveGeoIPSource'
       required: [configured]
     AdminLiveWarning:
       type: object
@@ -5070,6 +5091,62 @@ components:
         message:
           type: string
       required: [code, message]
+    AdminLiveGeoIPSource:
+      type: object
+      description: One loaded offline GeoIP database (additive)
+      properties:
+        role:
+          type: string
+          enum: [primary, secondary]
+        configured:
+          type: boolean
+        path:
+          type: string
+        databaseType:
+          type: string
+        buildDate:
+          type: string
+        hasCity:
+          type: boolean
+        error:
+          type: string
+      required: [role, configured]
+    AdminLiveOutbound:
+      type: object
+      description: Planned outbound streams for the active stream plan (additive)
+      properties:
+        streams:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminLiveOutboundStream'
+      required: [streams]
+    AdminLiveOutboundStream:
+      type: object
+      description: One planned outbound stream (one output variant)
+      properties:
+        variantIndex:
+          type: integer
+        name:
+          type: string
+        videoEncoder:
+          type: string
+          description: Configured H.264 encoder name, or copy for passthrough variants
+        videoBitrateKbps:
+          type: ['number', 'null']
+          description: Planned target bitrate for transcode variants, inbound source bitrate for passthrough variants; null when unknown (N/A)
+        audioEncoder:
+          type: string
+          description: aac for transcode variants, copy for passthrough variants
+        audioBitrateKbps:
+          type: ['number', 'null']
+          description: Planned audio bitrate; null when unknown (N/A), never zero
+        protocols:
+          type: array
+          items:
+            type: string
+            enum: [hls, webrtc]
+          description: Planned delivery protocols; webrtc only when globally enabled
+      required: [variantIndex, videoBitrateKbps, audioBitrateKbps, protocols]
 
     TURNServerPublic:
       type: object

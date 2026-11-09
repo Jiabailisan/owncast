@@ -17,10 +17,13 @@ type LiveStatus struct {
 	Ingest  LiveIngestStatus `json:"ingest"`
 	Viewers LiveViewerCounts `json:"viewers"`
 
-	FFmpeg   FFmpegStatus    `json:"ffmpeg"`
-	WebRTC   WebRTCStatus    `json:"webrtc"`
-	GeoIP    GeoIPStatus     `json:"geoip"`
-	Warnings []StatusWarning `json:"warnings"`
+	FFmpeg FFmpegStatus `json:"ffmpeg"`
+	WebRTC WebRTCStatus `json:"webrtc"`
+	GeoIP  GeoIPStatus  `json:"geoip"`
+	// Outbound describes the planned outbound streams for the active
+	// stream plan. Additive to the Live Stream Status payload.
+	Outbound LiveOutboundStatus `json:"outbound"`
+	Warnings []StatusWarning    `json:"warnings"`
 }
 
 // LiveSourceStatus describes the inbound media source properties.
@@ -35,6 +38,13 @@ type LiveSourceStatus struct {
 	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
 	AudioBitrateKbps *float64 `json:"audioBitrateKbps"`
 	HasBFrames       *bool    `json:"hasBFrames"`
+
+	// Additive audio codec details (SRT via the MPEG-TS/AAC inspector). They
+	// are omitted for protocols that do not carry them, keeping the RTMP
+	// payload byte-identical.
+	AudioProfile    string `json:"audioProfile,omitempty"`
+	AudioSampleRate *int   `json:"audioSampleRate,omitempty"`
+	AudioChannels   *int   `json:"audioChannels,omitempty"`
 }
 
 // LiveIngestStatus mirrors models.IngestStatus for the admin payload.
@@ -97,9 +107,10 @@ type WebRTCCapacity struct {
 
 // GeoIPStatus reports the offline GeoIP database state.
 type GeoIPStatus struct {
-	Configured   bool   `json:"configured"`
-	DatabaseType string `json:"databaseType,omitempty"`
-	BuildDate    string `json:"buildDate,omitempty"`
+	Configured   bool                  `json:"configured"`
+	DatabaseType string                `json:"databaseType,omitempty"`
+	BuildDate    string                `json:"buildDate,omitempty"`
+	Sources      []GeoIPDatabaseSource `json:"sources,omitempty"`
 }
 
 // StatusWarning is an admin-visible degraded/error condition.
@@ -134,4 +145,34 @@ type LiveViewersPage struct {
 	Total    int          `json:"total"`
 	Page     int          `json:"page"`
 	PageSize int          `json:"pageSize"`
+}
+
+// GeoIPDatabaseSource describes one loaded GeoIP database file (admin status).
+type GeoIPDatabaseSource struct {
+	Role         string `json:"role"`
+	Configured   bool   `json:"configured"`
+	Path         string `json:"path,omitempty"`
+	DatabaseType string `json:"databaseType,omitempty"`
+	BuildDate    string `json:"buildDate,omitempty"`
+	HasCity      bool   `json:"hasCity,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+// LiveOutboundStatus describes the planned outbound streams for the active
+// stream plan (additive to the Live Stream Status payload). Values are the
+// configured/planned targets, not measured throughput: a passthrough stream
+// uses the inbound source bitrate when it is known and nil (= N/A) otherwise.
+type LiveOutboundStatus struct {
+	Streams []LiveOutboundStream `json:"streams"`
+}
+
+// LiveOutboundStream is one planned outbound stream (one output variant).
+type LiveOutboundStream struct {
+	VariantIndex     int      `json:"variantIndex"`
+	Name             string   `json:"name,omitempty"`
+	VideoEncoder     string   `json:"videoEncoder,omitempty"`
+	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
+	AudioEncoder     string   `json:"audioEncoder,omitempty"`
+	AudioBitrateKbps *float64 `json:"audioBitrateKbps"`
+	Protocols        []string `json:"protocols"`
 }

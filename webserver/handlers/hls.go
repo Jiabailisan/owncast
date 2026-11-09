@@ -16,6 +16,25 @@ import (
 	"github.com/owncast/owncast/webserver/router/middleware"
 )
 
+// hlsVariantIndexFromPath returns the output variant directory of an HLS
+// path, relative to /hls/. HLS playlists and segments for a variant live
+// under "<index>/" (e.g. "0/stream.m3u8", "1/stream-abc-42.ts"); the master
+// playlist "stream.m3u8" has no variant. A path that does not start with a
+// non-negative integer is not a variant path.
+func hlsVariantIndexFromPath(relativePath string) (int, bool) {
+	first, _, found := strings.Cut(relativePath, "/")
+	if !found || first == "" {
+		return 0, false
+	}
+
+	index, err := strconv.Atoi(first)
+	if err != nil || index < 0 {
+		return 0, false
+	}
+
+	return index, true
+}
+
 // HandleHLSRequest will manage all requests to HLS content.
 func (h *Handlers) HandleHLSRequest(w http.ResponseWriter, r *http.Request) {
 	// Sanity check to limit requests to HLS file types.
@@ -55,9 +74,17 @@ func (h *Handlers) HandleHLSRequest(w http.ResponseWriter, r *http.Request) {
 		// Force the correct content type
 		w.Header().Set("Content-Type", "application/x-mpegURL")
 
-		// Use this as an opportunity to mark this viewer as active.
+		// Use this as an opportunity to mark this viewer as active and, when
+		// the player is fetching a variant playlist, record which quality it
+		// is currently consuming. The master playlist carries no variant, so
+		// a first request may legitimately leave the quality unknown until
+		// the player picks a variant (and ABR switches update it again).
 		viewer := models.GenerateViewerFromRequest(r)
-		h.stream.SetViewerActive(&viewer)
+		if variantIndex, ok := hlsVariantIndexFromPath(relativePath); ok {
+			h.stream.SetViewerActiveWithVariant(&viewer, variantIndex)
+		} else {
+			h.stream.SetViewerActive(&viewer)
+		}
 	} else {
 		cacheTime := utils.GetCacheDurationSecondsForPath(relativePath)
 		w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(cacheTime))

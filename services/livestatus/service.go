@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/geoip"
 	"github.com/owncast/owncast/services/stream"
 )
 
@@ -18,6 +19,9 @@ import (
 type ConfigProvider interface {
 	GetWebRTCConfig() models.WebRTCConfig
 	GetOutputProcessModel() string
+	// GetVideoCodec returns the configured H.264 encoder name (libx264,
+	// h264_nvenc, ...) used for outbound-stream details.
+	GetVideoCodec() string
 }
 
 // WebRTCProvider is the read-only view of the WebRTC delivery service.
@@ -141,6 +145,7 @@ func (s *Service) Status() models.LiveStatus {
 	}
 
 	status.GeoIP = geoIPStatusFromProvider(s.geoIP)
+	status.Outbound = outboundStatus(s.stream.GetCurrentBroadcast(), s.stream.GetBroadcaster(), s.config.GetVideoCodec(), s.config.GetWebRTCConfig().Enabled)
 	status.Warnings = append(status.Warnings, geoIPWarnings(status.GeoIP)...)
 	// WebRTC leg-planning warnings: copy fallbacks, process restarts and
 	// capacity/domain notes surfaced by the stream lifecycle.
@@ -274,6 +279,11 @@ func liveViewerFromViewer(viewer models.Viewer) models.LiveViewer {
 		row.City = viewer.Geo.City
 		row.LocationApprox = true
 	}
+	// HLS playback quality observed from the variant playlist the viewer is
+	// currently requesting. Nil/empty until a variant has been observed.
+	row.BitrateKbps = viewer.BitrateKbps
+	row.Resolution = viewer.Resolution
+	row.FPS = viewer.FPS
 	return row
 }
 
@@ -295,6 +305,118 @@ func geoIPWarnings(status models.GeoIPStatus) []models.StatusWarning {
 		Code:    "geoip_database_missing",
 		Message: "GeoIP database not configured; viewer location fields will show N/A. Supply a MaxMind GeoLite2 City .mmdb at data/GeoLite2-City.mmdb.",
 	}}
+}
+
+// GeoIPStatusFromDatabaseMetadata converts the geoip package metadata into the
+// admin Live Stream Status model, including the additive per-database sources
+// list (primary first). It lives here so main.go's provider adapter stays a
+// one-liner and the conversion is unit-testable.
+func GeoIPStatusFromDatabaseMetadata(metadata geoip.DatabaseMetadata) models.GeoIPStatus {
+	status := models.GeoIPStatus{Configured: metadata.Configured}
+	if metadata.Configured {
+		status.DatabaseType = metadata.DatabaseType
+		status.BuildDate = metadata.BuildDate
+	}
+	for _, source := range metadata.Sources {
+		status.Sources = append(status.Sources, models.GeoIPDatabaseSource{
+			Role:         source.Role,
+			Configured:   source.Configured,
+			Path:         source.Path,
+			DatabaseType: source.DatabaseType,
+			BuildDate:    source.BuildDate,
+			HasCity:      source.HasCity,
+			Error:        source.Error,
+		})
+	}
+	return status
+}
+
+// outboundStatus maps the active stream plan (the current broadcast's output
+// variants) to the additive Outbound Stream Details model. Passthrough streams
+// use the inbound source bitrate when known; unknown values stay nil (N/A) and
+// are never estimated as zero.
+func outboundStatus(broadcast *models.CurrentBroadcast, broadcaster *models.Broadcaster, videoCodec string, webRTCEnabled bool) models.LiveOutboundStatus {
+	status := models.LiveOutboundStatus{Streams: []models.LiveOutboundStream{}}
+	if broadcast == nil || len(broadcast.OutputSettings) == 0 {
+		return status
+	}
+
+	source := models.InboundStreamDetails{}
+	if broadcaster != nil {
+		source = broadcaster.StreamDetails
+	}
+
+	explicitWebRTC := false
+	for _, variant := range broadcast.OutputSettings {
+		if variant.WebRTCEnabled() {
+			explicitWebRTC = true
+			break
+		}
+	}
+
+	for index, variant := range broadcast.OutputSettings {
+		stream := models.LiveOutboundStream{
+			VariantIndex: index,
+			Name:         variant.GetName(),
+			Protocols:    outboundProtocols(variant, explicitWebRTC, webRTCEnabled),
+		}
+
+		if variant.IsVideoPassthrough {
+			stream.VideoEncoder = "copy"
+			stream.VideoBitrateKbps = positiveBitrate(source.VideoBitrate)
+		} else {
+			stream.VideoEncoder = outboundVideoEncoder(videoCodec)
+			stream.VideoBitrateKbps = positiveBitrate(variant.VideoBitrate)
+		}
+
+		if variant.GetIsAudioPassthrough() {
+			stream.AudioEncoder = "copy"
+			stream.AudioBitrateKbps = positiveBitrate(source.AudioBitrate)
+		} else {
+			stream.AudioEncoder = "aac"
+			stream.AudioBitrateKbps = positiveBitrate(variant.AudioBitrate)
+		}
+
+		status.Streams = append(status.Streams, stream)
+	}
+	return status
+}
+
+// outboundProtocols reports which delivery protocols this output variant is
+// planned for. The implicit WebRTC rule matches the stream lifecycle: when no
+// variant has an explicit WebRTC mapping, every HLS variant is also delivered
+// over WebRTC.
+func outboundProtocols(variant models.StreamOutputVariant, explicitWebRTC, webRTCEnabled bool) []string {
+	protocols := make([]string, 0, 2)
+	if variant.HLSEnabled() {
+		protocols = append(protocols, "hls")
+	}
+	webRTC := webRTCEnabled && (variant.WebRTCEnabled() || (!explicitWebRTC && variant.HLSEnabled()))
+	if webRTC {
+		protocols = append(protocols, "webrtc")
+	}
+	return protocols
+}
+
+// outboundVideoEncoder converts the configured codec value into the outbound
+// encoder label ("copy" is handled by the caller for passthrough variants).
+func outboundVideoEncoder(codec string) string {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "", "libx264", "x264":
+		return "libx264"
+	default:
+		return codec
+	}
+}
+
+// positiveBitrate returns a pointer to value when it is a usable bitrate, or
+// nil (N/A) when the plan/source does not provide one.
+func positiveBitrate(value int) *float64 {
+	if value <= 0 {
+		return nil
+	}
+	bitrate := float64(value)
+	return &bitrate
 }
 
 func sourceStatus(broadcaster *models.Broadcaster) models.LiveSourceStatus {
@@ -327,6 +449,18 @@ func sourceStatus(broadcaster *models.Broadcaster) models.LiveSourceStatus {
 	if details.AudioBitrate > 0 {
 		bitrate := float64(details.AudioBitrate)
 		status.AudioBitrateKbps = &bitrate
+	}
+
+	// Additive SRT audio codec details. RTMP leaves these zero, so the keys
+	// stay omitted (omitempty) and the existing payload is unchanged.
+	status.AudioProfile = details.AudioProfile
+	if details.AudioSampleRate > 0 {
+		sampleRate := details.AudioSampleRate
+		status.AudioSampleRate = &sampleRate
+	}
+	if details.AudioChannels > 0 {
+		channels := details.AudioChannels
+		status.AudioChannels = &channels
 	}
 	return status
 }

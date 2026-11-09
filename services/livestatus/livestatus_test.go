@@ -1,6 +1,7 @@
 package livestatus
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func (f fakeGeoIPProvider) GeoIPStatus() models.GeoIPStatus {
 }
 
 func TestGeoIPStatusFromProvider(t *testing.T) {
-	if status := geoIPStatusFromProvider(nil); status != (models.GeoIPStatus{}) {
+	if status := geoIPStatusFromProvider(nil); !reflect.DeepEqual(status, models.GeoIPStatus{}) {
 		t.Errorf("nil provider status = %+v, want zero", status)
 	}
 
@@ -94,5 +95,69 @@ func TestLiveViewerFromViewerWithoutGeoIP(t *testing.T) {
 	}
 	if row.LocationApprox {
 		t.Error("LocationApprox must be false without GeoIP")
+	}
+}
+
+func TestSourceStatusMapsSRTMediaDetails(t *testing.T) {
+	hasBFrames := false
+	broadcaster := &models.Broadcaster{StreamDetails: models.InboundStreamDetails{
+		Width:           1280,
+		Height:          720,
+		VideoFramerate:  30,
+		VideoCodec:      "H.264",
+		VideoProfile:    "main",
+		VideoLevel:      "3.1",
+		AudioCodec:      "AAC",
+		VideoBitrate:    2520,
+		AudioBitrate:    130,
+		HasBFrames:      &hasBFrames,
+		AudioProfile:    "LC",
+		AudioSampleRate: 48000,
+		AudioChannels:   2,
+	}}
+
+	status := sourceStatus(broadcaster)
+	if status.Width == nil || *status.Width != 1280 || status.Height == nil || *status.Height != 720 {
+		t.Errorf("resolution not mapped: %+v", status)
+	}
+	if status.VideoBitrateKbps == nil || *status.VideoBitrateKbps != 2520 {
+		t.Errorf("video bitrate = %v", status.VideoBitrateKbps)
+	}
+	if status.AudioBitrateKbps == nil || *status.AudioBitrateKbps != 130 {
+		t.Errorf("audio bitrate = %v", status.AudioBitrateKbps)
+	}
+	if status.AudioProfile != "LC" {
+		t.Errorf("audio profile = %q", status.AudioProfile)
+	}
+	if status.AudioSampleRate == nil || *status.AudioSampleRate != 48000 {
+		t.Errorf("audio sample rate = %v", status.AudioSampleRate)
+	}
+	if status.AudioChannels == nil || *status.AudioChannels != 2 {
+		t.Errorf("audio channels = %v", status.AudioChannels)
+	}
+	if status.HasBFrames == nil || *status.HasBFrames {
+		t.Errorf("B-frame verdict not mapped: %v", status.HasBFrames)
+	}
+}
+
+func TestSourceStatusRTMPBackwardCompatible(t *testing.T) {
+	// The legacy RTMP metadata shape carries bitrates but no AAC details; the
+	// new detail fields must stay unset so the JSON stays additive-only.
+	broadcaster := &models.Broadcaster{StreamDetails: models.InboundStreamDetails{
+		VideoCodec:   "H.264",
+		AudioCodec:   "AAC",
+		VideoBitrate: 8000,
+		AudioBitrate: 320,
+	}}
+
+	status := sourceStatus(broadcaster)
+	if status.VideoBitrateKbps == nil || *status.VideoBitrateKbps != 8000 {
+		t.Errorf("video bitrate = %v", status.VideoBitrateKbps)
+	}
+	if status.AudioBitrateKbps == nil || *status.AudioBitrateKbps != 320 {
+		t.Errorf("audio bitrate = %v", status.AudioBitrateKbps)
+	}
+	if status.AudioProfile != "" || status.AudioSampleRate != nil || status.AudioChannels != nil {
+		t.Errorf("RTMP payload must not gain AAC detail keys: %+v", status)
 	}
 }

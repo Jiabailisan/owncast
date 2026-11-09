@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -166,9 +167,19 @@ func (s *session) refreshSourceMetadata() {
 		return
 	}
 
-	key := fmt.Sprintf("%s|%s|%s|%s|%d|%d|%t|%t|%t",
+	videoBitrate := 0
+	if info.VideoBitrateValid {
+		videoBitrate = int(math.Round(info.VideoBitrateKbps))
+	}
+	audioBitrate := 0
+	if info.AudioBitrateValid {
+		audioBitrate = int(math.Round(info.AudioBitrateKbps))
+	}
+
+	key := fmt.Sprintf("%s|%s|%s|%s|%d|%d|%t|%t|%t|%d|%d|%s|%d|%d",
 		info.VideoCodec, info.AudioCodec, info.Profile, info.Level,
-		info.Width, info.Height, info.FPSValid, info.HasBFrames, info.BFrameChecked)
+		info.Width, info.Height, info.FPSValid, info.HasBFrames, info.BFrameChecked,
+		videoBitrate, audioBitrate, info.AudioProfile, info.AudioSampleRate, info.AudioChannels)
 
 	s.sourceMu.Lock()
 	if key == s.lastSourceKey {
@@ -186,6 +197,14 @@ func (s *session) refreshSourceMetadata() {
 		VideoProfile: info.Profile,
 		VideoLevel:   info.Level,
 		VideoOnly:    info.AudioCodec == "",
+
+		// Measured media details so the Live Stream Status source panel has
+		// the same non-N/A bitrate/audio fields RTMP gets from onMetaData.
+		VideoBitrate:    videoBitrate,
+		AudioBitrate:    audioBitrate,
+		AudioProfile:    info.AudioProfile,
+		AudioSampleRate: info.AudioSampleRate,
+		AudioChannels:   info.AudioChannels,
 	}
 	if info.FPSValid {
 		details.VideoFramerate = float32(info.FPS)
