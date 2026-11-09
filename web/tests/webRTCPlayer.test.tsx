@@ -139,7 +139,7 @@ describe('WebRTCPlayer', () => {
     expect(session.close).toHaveBeenCalledTimes(1);
   });
 
-  test('settings menu shows the WebRTC note and hides the HLS-only quality list', async () => {
+  test('settings menu shows the WebRTC quality list and auto note', async () => {
     const sessionFactory = jest.fn(async () => makeSession());
     render(
       <WebRTCPlayer
@@ -160,8 +160,35 @@ describe('WebRTCPlayer', () => {
     expect(screen.getByText('Stats for nerds')).toBeInTheDocument();
     expect(screen.getByText('Minimize latency')).toBeInTheDocument();
     expect(screen.getByTestId('transport-note')).toHaveTextContent('WebRTC (auto)');
-    // The provided player only lists quality levels for HLS.
-    expect(screen.queryByText('720p')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Auto').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('720p')).toBeInTheDocument();
+    expect(screen.getByText('360p')).toBeInTheDocument();
+  });
+
+  test('selecting a WebRTC quality reconnects with that WHEP variant', async () => {
+    const sessionFactory = jest.fn(async () => makeSession());
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats={false}
+        variants={[
+          { index: 0, name: '720p' },
+          { index: 1, name: '360p' },
+        ]}
+        sessionFactory={sessionFactory}
+      />,
+    );
+
+    await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(1));
+    const calls = sessionFactory.mock.calls as unknown as Array<[{ variantIndex?: number | null }]>;
+    expect(calls[0][0].variantIndex).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByText('360p'));
+    await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(2));
+    expect(calls[1][0].variantIndex).toBe(1);
+    expect(screen.getByTestId('transport-note')).toHaveTextContent('WebRTC (360p)');
   });
 
   test('stats panel shows the ICE transport and resolution with fps', async () => {

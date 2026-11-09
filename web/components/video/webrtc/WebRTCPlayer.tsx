@@ -69,6 +69,7 @@ function useLabel(key: string, fallback: string): string {
 
 export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   whepUrl,
+  variants,
   online,
   autoplay = 'off',
   initiallyMuted = false,
@@ -100,7 +101,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [bigUnmuteVisible, setBigUnmuteVisible] = useState(false);
-  const [selectedVariant] = useState<number | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<number | null>(null);
   const [retryToken, setRetryToken] = useState(0);
 
   const [fullscreen, setFullscreen] = useState(false);
@@ -113,6 +114,19 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
   const unmuteLabel = useLabel(Localization.Frontend.unmute, 'Unmute');
   const retryLabel = useLabel(Localization.Frontend.Player.retry, 'Retry');
+
+  // WebRTC exposes the same quality ladder HLS has; "Auto" lets the server pick
+  // the default variant, while an explicit row pins a WHEP variant. Selecting a
+  // row reconnects the WHEP session with ?variant=<index>.
+  const qualityOptions = (variants || []).map(variant => ({
+    id: String(variant.index),
+    name: variant.name,
+  }));
+  const selectedQuality = selectedVariant === null ? 'auto' : String(selectedVariant);
+  const selectedVariantName =
+    selectedVariant === null
+      ? 'auto'
+      : (variants || []).find(variant => variant.index === selectedVariant)?.name || 'auto';
 
   useEffect(() => {
     onFallbackRef.current = onFallback;
@@ -215,6 +229,14 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     }
     updateBigUnmute();
   }, [autoplay, initiallyMuted, updateBigUnmute]);
+
+  // A configuration refresh can remove the selected variant; fall back to Auto
+  // instead of connecting to a nonexistent WHEP variant.
+  useEffect(() => {
+    if (selectedVariant !== null && !(variants || []).some(v => v.index === selectedVariant)) {
+      setSelectedVariant(null);
+    }
+  }, [variants, selectedVariant]);
 
   // Attach/detach the peer connection session. Runs on URL/variant/online
   // changes and tears the previous session down before reconnecting.
@@ -456,13 +478,43 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       document.exitFullscreen().catch(() => {});
       return;
     }
-    const target = container || video;
-    target?.requestFullscreen?.().catch(() => {});
+    // iPhone/iPad Safari does not implement the standard Element.requestFullscreen
+    // on arbitrary elements; its video element exposes webkitEnterFullscreen.
+    const videoElement = video as
+      (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (videoElement?.webkitEnterFullscreen) {
+      videoElement.webkitEnterFullscreen();
+      return;
+    }
+    const target = (container || video) as
+      (HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
+    if (!target) return;
+    if (target.requestFullscreen) {
+      target.requestFullscreen().catch(() => {});
+    } else if (target.webkitRequestFullscreen) {
+      Promise.resolve(target.webkitRequestFullscreen()).catch(() => {});
+    }
   }, []);
 
   const togglePip = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !document.pictureInPictureEnabled) return;
+    const video = videoRef.current as
+      | (HTMLVideoElement & {
+          webkitSupportsPresentationMode?: (mode: string) => boolean;
+          webkitSetPresentationMode?: (mode: string) => void;
+        })
+      | null;
+    if (!video) return;
+    // Safari uses the WebKit presentation-mode API instead of the standard
+    // requestPictureInPicture API.
+    if (video.webkitSupportsPresentationMode?.('picture-in-picture')) {
+      video.webkitSetPresentationMode?.(
+        video.webkitSupportsPresentationMode('picture-in-picture')
+          ? 'picture-in-picture'
+          : 'inline',
+      );
+      return;
+    }
+    if (!document.pictureInPictureEnabled) return;
     if (document.pictureInPictureElement) {
       document.exitPictureInPicture().catch(() => {});
     } else {
@@ -577,10 +629,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           transport={transport}
           activeTransport="webrtc"
           webrtcAvailable={webrtcAvailable}
-          qualities={[]}
-          selectedQuality="auto"
-          showQuality={false}
-          note="WebRTC (auto)"
+          qualities={qualityOptions}
+          selectedQuality={selectedQuality}
+          showQuality={qualityOptions.length > 0}
+          note={`WebRTC (${selectedVariantName})`}
           latencyEnabled={latencyEnabled}
           latencySupported
           liveEdge
@@ -595,7 +647,14 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             onVolumeChange: setPlayerVolume,
             onGoLive: goLive,
             onTransportChange,
-            onQualityChange: () => {},
+            onQualityChange: quality => {
+              if (quality === 'auto') {
+                setSelectedVariant(null);
+                return;
+              }
+              const parsed = Number(quality);
+              setSelectedVariant(Number.isFinite(parsed) ? parsed : null);
+            },
             onToggleLatency: toggleLatency,
             onToggleStats: () => setStatsOpen(open => !open),
             onTogglePip: togglePip,
