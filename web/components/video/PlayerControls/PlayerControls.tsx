@@ -382,7 +382,12 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
               className={styles.menuRow}
               aria-pressed={statsOpen}
               data-player-control="true"
-              onClick={callbacks.onToggleStats}
+              onClick={() => {
+                // The provided player closes the settings menu when the
+                // stats overlay is toggled.
+                callbacks.onToggleStats();
+                setSettingsOpen(false);
+              }}
             >
               <span>Stats for nerds</span>
               <span
