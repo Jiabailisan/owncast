@@ -430,6 +430,7 @@ export const Localization = {
       fallbackTranscode: 'Admin.VideoVariantForm.fallbackTranscode',
       fallbackDisable: 'Admin.VideoVariantForm.fallbackDisable',
       copyNote: 'Admin.VideoVariantForm.copyNote',
+      secondVariantRecommendation: 'Admin.VideoVariantForm.secondVariantRecommendation',
       implicitEnableNote: 'Admin.VideoVariantForm.implicitEnableNote',
       outputsColumn: 'Admin.VideoVariantForm.outputsColumn',
       webrtcOff: 'Admin.VideoVariantForm.webrtcOff',

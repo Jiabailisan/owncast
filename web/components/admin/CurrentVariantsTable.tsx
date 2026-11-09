@@ -1,7 +1,7 @@
 // Updating a variant will post ALL the variants in an array as an update to the API.
 
 import { FC, useContext, useState } from 'react';
-import { Typography, Table, Modal, Button, Alert, Tag, Space } from 'antd';
+import { Typography, Table, Modal, Button, Tag, Space } from 'antd';
 import { ColumnsType } from 'antd/lib/table';
 import dynamic from 'next/dynamic';
 import { useTranslation } from 'next-export-i18n';
@@ -11,6 +11,7 @@ import { AlertMessageContext } from '../../utils/alert-message-context';
 import { UpdateArgs, VideoVariant } from '../../types/config-section';
 
 import { VideoVariantForm } from './VideoVariantForm';
+import { VideoHintAlert } from './VideoHintAlert';
 import {
   API_VIDEO_VARIANTS,
   DEFAULT_VARIANT_STATE,
@@ -270,14 +271,19 @@ export const CurrentVariantsTable: FC = () => {
       </Title>
 
       {showSecondVariantRecommendation() && (
-        <Alert message={ENCODER_RECOMMENDATION_THRESHOLD.HELP_TEXT} type="info" closable />
+        <VideoHintAlert
+          testId="variant-recommendation-hint"
+          message={
+            <Translation
+              translationKey={Localization.Admin.VideoVariantForm.secondVariantRecommendation}
+              defaultText={ENCODER_RECOMMENDATION_THRESHOLD.HELP_TEXT}
+            />
+          }
+        />
       )}
 
-      <Alert
-        type="info"
-        showIcon
-        closable
-        className="variant-outputs-note"
+      <VideoHintAlert
+        testId="variant-outputs-hint"
         message={
           <Translation
             translationKey={Localization.Admin.VideoVariantForm.implicitEnableNote}

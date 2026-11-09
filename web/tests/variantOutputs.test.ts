@@ -110,6 +110,48 @@ describe('variant output mapping serialization', () => {
     ).toBe('copy');
   });
 
+  test('a serverconfig-shaped variant keeps its mapping through a save/reload cycle', () => {
+    // Shape of GET /api/admin/serverconfig after the backend fix: the outputs
+    // block is present on the variant. Editing/saving another field must not
+    // erase it, and the next reload must still read it as enabled.
+    const fromServerConfig: VideoVariant = {
+      ...legacyVariant,
+      key: 7,
+      name: '720p mapped',
+      outputs: {
+        hls: { enabled: true },
+        webrtc: { enabled: true, mode: 'copy', copyFallback: 'transcode' },
+      },
+    };
+
+    expect(webRTCEnabledForVariant(fromServerConfig)).toBe(true);
+    expect(webRTCOutputModeForVariant(fromServerConfig)).toBe('copy');
+
+    const posted = serializeVariantsForSave([fromServerConfig]);
+    expect(posted[0].key).toBeUndefined();
+    expect(posted[0].outputs).toEqual(fromServerConfig.outputs);
+
+    // Simulated server round-trip: the posted payload is persisted and then
+    // returned by /api/admin/serverconfig on the next page load.
+    const reloaded = JSON.parse(JSON.stringify({ videoQualityVariants: posted }))
+      .videoQualityVariants[0] as VideoVariant;
+    expect(reloaded.outputs).toEqual(fromServerConfig.outputs);
+    expect(webRTCEnabledForVariant(reloaded)).toBe(true);
+    expect(webRTCOutputModeForVariant(reloaded)).toBe('copy');
+  });
+
+  test('editing unrelated fields preserves the existing outputs mapping', () => {
+    const variant: VideoVariant = {
+      ...legacyVariant,
+      outputs: { webrtc: { enabled: true, mode: 'transcode' } },
+    };
+    const edited: VideoVariant = { ...variant, name: 'renamed', videoBitrate: 1500 };
+    const [posted] = serializeVariantsForSave([edited]);
+    expect(posted.name).toBe('renamed');
+    expect(posted.videoBitrate).toBe(1500);
+    expect(posted.outputs).toEqual({ webrtc: { enabled: true, mode: 'transcode' } });
+  });
+
   test('serializeVariantsForSave strips the client table key and undefined fields', () => {
     const variants: VideoVariant[] = [
       { ...legacyVariant, key: 1 },

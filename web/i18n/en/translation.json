@@ -553,6 +553,7 @@
 			"outputsColumn": "WebRTC output",
 			"outputsDescription": "Choose how this variant is delivered. HLS stays enabled by default; WebRTC delivery can be enabled explicitly for this variant.",
 			"outputsTitle": "Output mapping",
+			"secondVariantRecommendation": "You have only set one video quality variant. If your server has the computing resources, consider adding another, lower-quality variant, so more people can view your content!",
 			"webrtcEnabled": "WebRTC delivery",
 			"webrtcMode": "WebRTC mode",
 			"webrtcOff": "Off"

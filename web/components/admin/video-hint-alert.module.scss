@@ -1,0 +1,18 @@
+.hint {
+  // Ant Design v6 renders the alert message as .ant-alert-title. The doubled
+  // class raises specificity above Ant's runtime-injected rules, which style
+  // the title of a description alert at 16px and tint the description
+  // differently; both hint lines must share the same 14px/22px typography.
+  :global(.ant-alert-title.ant-alert-title) {
+    color: rgb(0 0 0 / 88%);
+    font-size: 14px;
+    line-height: 22px;
+  }
+
+  :global(.ant-alert-description.ant-alert-description) {
+    margin-top: 4px;
+    color: rgb(0 0 0 / 88%);
+    font-size: 14px;
+    line-height: 22px;
+  }
+}
