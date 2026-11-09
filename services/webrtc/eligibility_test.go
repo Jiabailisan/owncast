@@ -132,13 +132,23 @@ func TestEligibleForCopy(t *testing.T) {
 		},
 		{
 			name:    "resolution too large",
-			source:  mutate(func(s *SourceInfo) { s.Width = 3840; s.Height = 2160 }),
+			source:  mutate(func(s *SourceInfo) { s.Width = 5120; s.Height = 2880 }),
 			reasons: []string{ReasonResolutionTooLarge},
 		},
 		{
 			name:    "width too large",
-			source:  mutate(func(s *SourceInfo) { s.Width = 2560; s.Height = 1080 }),
+			source:  mutate(func(s *SourceInfo) { s.Width = 5120; s.Height = 2160 }),
 			reasons: []string{ReasonResolutionTooLarge},
+		},
+		{
+			name:     "1440p source is copy eligible",
+			source:   mutate(func(s *SourceInfo) { s.Width = 2560; s.Height = 1440; s.VideoProfile = "main"; s.VideoLevel = "5.1" }),
+			eligible: true,
+		},
+		{
+			name:     "4K source at exactly the cap is copy eligible",
+			source:   mutate(func(s *SourceInfo) { s.Width = 4096; s.Height = 2160; s.VideoLevel = "5.1" }),
+			eligible: true,
 		},
 		{
 			name:    "odd resolution",
@@ -146,7 +156,7 @@ func TestEligibleForCopy(t *testing.T) {
 			reasons: []string{ReasonResolutionOdd},
 		},
 		{
-			name:     "second field source at exactly the cap",
+			name:     "1080p source remains copy eligible",
 			source:   mutate(func(s *SourceInfo) { s.Width = 1920; s.Height = 1080; s.VideoLevel = "5.1" }),
 			eligible: true,
 		},
@@ -244,7 +254,9 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		assert.Equal(t, models.OutputModeCopy, decision.Mode)
 		assert.Zero(t, decision.VideoBitrateKbps)
 		assert.Zero(t, decision.GOPFrames)
-		assert.True(t, hasWarning(decision.Warnings, WarningCopySourceGOP))
+		// Inherited copy is our automatic policy, not an operator choice;
+		// informational warnings are reserved for explicit copy legs.
+		assert.Empty(t, decision.Warnings)
 	})
 
 	t.Run("inherit from HLS copy but ineligible falls back to transcode", func(t *testing.T) {
@@ -258,8 +270,10 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, models.OutputModeTranscode, decision.Mode)
 		assert.False(t, decision.Copy)
-		assert.True(t, hasReason(decision.IneligibilityReasons, ReasonBFramesPresent))
-		assert.True(t, hasWarning(decision.Warnings, WarningCopyFallbackTranscode))
+		// Inherited copy falling back to transcode is normal (the operator did
+		// not ask for copy), so it must not surface warnings or reasons.
+		assert.Empty(t, decision.IneligibilityReasons)
+		assert.False(t, hasWarning(decision.Warnings, WarningCopyFallbackTranscode))
 		assert.Equal(t, DefaultWebRTCVideoBitrateKbps, decision.VideoBitrateKbps)
 	})
 
@@ -354,8 +368,8 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 			v.Outputs.WebRTC.VideoBitrate = 1800
 		})
 		source := eligibleSource()
-		source.Width = 4096
-		source.Height = 2160
+		source.Width = 5120
+		source.Height = 2880
 		decision, err := ResolveWebRTCLeg(source, variant, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, models.OutputModeTranscode, decision.Mode)

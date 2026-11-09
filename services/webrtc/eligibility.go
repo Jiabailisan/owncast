@@ -53,10 +53,12 @@ const (
 	// e.g. 51 == 5.1) accepted for stream copy. Levels above it exceed what
 	// browsers reliably decode from a copied stream.
 	browserSafeMaxLevel = 51
-	// maxCopyWidth/maxCopyHeight cap copied video resolution. Larger sources
-	// must be transcoded to a browser-safe variant.
-	maxCopyWidth  = 1920
-	maxCopyHeight = 1080
+	// maxCopyWidth/maxCopyHeight cap copied video resolution at 4K UHD, which
+	// browsers decode reliably at H.264 level 5.1. The previous 1920x1080 cap
+	// unnecessarily forced common 1440p sources through a transcode; 4K is the
+	// practical browser limit and larger sources must still be transcoded.
+	maxCopyWidth  = 4096
+	maxCopyHeight = 2160
 
 	// DefaultWebRTCVideoBitrateKbps is the transcode fallback bitrate when a
 	// copy variant (which carries no encoder bitrate) has to be transcoded.
@@ -176,7 +178,8 @@ func normalizeProfileName(raw string) string {
 //     and unknown profiles are rejected.
 //  3. B-frames must be known and absent. Unknown B-frame state (RTMP
 //     onMetaData) is not eligible: reordering breaks the browser jitter buffer.
-//  4. Resolution must be known, even in both dimensions and at most 1920x1080.
+//  4. Resolution must be known, even in both dimensions and at most 4096x2160
+//     (4K UHD; the largest size browsers decode reliably at H.264 level 5.1).
 //  5. The H.264 level must be known and at most 5.1 (or the explicitly
 //     configured target level when that is lower).
 //
@@ -338,12 +341,14 @@ func ResolveWebRTCLeg(source SourceInfo, variant models.StreamOutputVariant, cfg
 		return finalizeTranscodeDecision(decision, variant, cfg), nil
 	}
 
+	explicitCopy := configuredMode == models.OutputModeCopy
+
 	eligible, reasons := EligibleForCopy(source, cfg)
 	if eligible {
-		return finalizeCopyDecision(decision, cfg), nil
+		return finalizeCopyDecision(decision, cfg, explicitCopy), nil
 	}
 
-	return applyCopyFallback(decision, variant, cfg, reasons), nil
+	return applyCopyFallback(decision, variant, cfg, reasons, explicitCopy), nil
 }
 
 func configuredWebRTCMode(variant models.StreamOutputVariant) (string, error) {
@@ -405,11 +410,16 @@ func finalizeTranscodeDecision(decision LegDecision, variant models.StreamOutput
 	return decision
 }
 
-func finalizeCopyDecision(decision LegDecision, cfg models.WebRTCConfig) LegDecision {
+func finalizeCopyDecision(decision LegDecision, cfg models.WebRTCConfig, explicitCopy bool) LegDecision {
 	decision.Mode = models.OutputModeCopy
 	decision.Copy = true
 	decision.IneligibilityReasons = nil
 	decision.H264Profile = effectiveH264Profile(cfg)
+	if !explicitCopy {
+		// Copy inherited from an HLS copy variant is our automatic policy, not
+		// an operator choice; keep the admin status quiet for it.
+		return decision
+	}
 	decision.Warnings = append(decision.Warnings,
 		WarningCopySourceGOP+": copy legs keep the source GOP, so join latency is bounded by the encoder's keyframe interval")
 
@@ -423,10 +433,18 @@ func finalizeCopyDecision(decision LegDecision, cfg models.WebRTCConfig) LegDeci
 	return decision
 }
 
+// applyCopyFallback applies the configured fallback when a copy leg cannot be
+// used. explicitCopy is true only when the operator explicitly asked for copy
+// delivery: an inherited copy (an HLS passthrough variant whose WebRTC mode is
+// "inherit") falling back to transcode is normal and must not surface warnings
+// in the admin UI - only an explicit copy request that cannot be honored, or a
+// leg that gets disabled, is operator-actionable.
 func applyCopyFallback(decision LegDecision, variant models.StreamOutputVariant,
-	cfg models.WebRTCConfig, reasons []string,
+	cfg models.WebRTCConfig, reasons []string, explicitCopy bool,
 ) LegDecision {
-	decision.IneligibilityReasons = append([]string(nil), reasons...)
+	if explicitCopy {
+		decision.IneligibilityReasons = append([]string(nil), reasons...)
+	}
 
 	fallback, fallbackWarnings := copyFallbackMode(variant)
 	decision.Warnings = append(decision.Warnings, fallbackWarnings...)
@@ -436,16 +454,26 @@ func applyCopyFallback(decision LegDecision, variant models.StreamOutputVariant,
 		decision.Copy = false
 		decision.VideoBitrateKbps = 0
 		decision.GOPFrames = 0
-		decision.Warnings = append(decision.Warnings, reasonf(WarningCopyDisabled,
-			"WebRTC delivery disabled for this variant because the source is not copy-eligible (%s)",
-			strings.Join(reasons, "; ")))
+		message := "WebRTC delivery disabled for this variant because the source is not copy-eligible"
+		if len(reasons) > 0 {
+			message = fmt.Sprintf("%s (%s)", message, strings.Join(reasons, "; "))
+		}
+		decision.Warnings = append(decision.Warnings, reasonf(WarningCopyDisabled, "%s", message))
 
 		return decision
 	}
 
 	decision = finalizeTranscodeDecision(decision, variant, cfg)
+	if !explicitCopy {
+		// Inherited copy -> transcode is the expected path for ordinary
+		// transcode variants; do not report it as a source problem.
+		decision.IneligibilityReasons = nil
+
+		return decision
+	}
 	decision.Warnings = append(decision.Warnings, reasonf(WarningCopyFallbackTranscode,
-		"source is not copy-eligible, transcoding to H.264 instead (%s)", strings.Join(reasons, "; ")))
+		"copy was requested but the source is not copy-eligible, so it is transcoded to H.264 instead (%s)",
+		strings.Join(reasons, "; ")))
 
 	return decision
 }
