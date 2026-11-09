@@ -80,7 +80,7 @@ func (c *Libx264Codec) Scaler() string {
 // ExtraArguments are the extra arguments used with this codec in the transcoder.
 func (c *Libx264Codec) ExtraArguments() []string {
 	return []string{
-		ffmpegFlagTune, "zerolatency", // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
+		ffmpegFlagTune, ffmpegTuneZeroLatency, // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
 	}
 }
 
@@ -150,7 +150,7 @@ func (c *OmxCodec) Scaler() string {
 // ExtraArguments are the extra arguments used with this codec in the transcoder.
 func (c *OmxCodec) ExtraArguments() []string {
 	return []string{
-		ffmpegFlagTune, "zerolatency", // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
+		ffmpegFlagTune, ffmpegTuneZeroLatency, // Option used for good for fast encoding and low-latency streaming (always includes iframes in each segment)
 	}
 }
 

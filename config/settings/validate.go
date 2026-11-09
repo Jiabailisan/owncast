@@ -102,7 +102,10 @@ func validateSRTListener(errs *FieldErrors, config models.SRTConfig, ctx Validat
 		errs.addf("port", "must be between 1024 and 65535")
 	}
 	addPortCollision(errs, "port", config.Port, ctx.WebServerPort, "web server")
-	addPortCollision(errs, "port", config.Port, ctx.RTMPPort, "RTMP")
+	// SRT is UDP and the RTMP listener is TCP, so the same numeric port is a
+	// legal coexistence (operators commonly reuse 1935 for SRT too). Only real
+	// socket conflicts are reported: WebRTC's UDP port/range and embedded TURN.
+	_ = ctx.RTMPPort
 	if ctx.WebRTC == nil {
 		return
 	}

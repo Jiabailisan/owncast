@@ -181,7 +181,7 @@ func ClassifyArgv(argv []string, environment []string) ArgvSections {
 			strings.HasPrefix(arg, "-maxrate") || strings.HasPrefix(arg, "-bufsize") ||
 			strings.HasPrefix(arg, "-g:") || strings.HasPrefix(arg, "-keyint_min") ||
 			strings.HasPrefix(arg, "-r:") || arg == "-g" || arg == "-keyint_min" ||
-			arg == "-preset" || arg == ffmpegFlagTune || arg == "-profile:v" || arg == "-bf" ||
+			arg == ffmpegFlagPreset || arg == ffmpegFlagTune || arg == "-profile:v" || arg == "-bf" ||
 			arg == "-pix_fmt" || arg == "-x264-params" || arg == "-sc_threshold" ||
 			arg == "-flags" || arg == ffmpegFlagMap && hasValue && strings.HasPrefix(value, "0:v"):
 			sections.Video = append(sections.Video, arg)

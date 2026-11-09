@@ -39,6 +39,15 @@ func TestSRTDefaultsAreValid(t *testing.T) {
 	requireValid(t, ValidateSRT(models.DefaultSRTConfig(), srtContext()))
 }
 
+// TestSRTPortMayMatchRTMPPort pins the intentional cross-protocol coexistence:
+// SRT listens on UDP, RTMP on TCP, so sharing the numeric port (e.g. 1935) is
+// valid. UDP conflicts (WebRTC port/range) stay rejected.
+func TestSRTPortMayMatchRTMPPort(t *testing.T) {
+	config := models.DefaultSRTConfig()
+	config.Port = srtContext().RTMPPort
+	requireValid(t, ValidateSRT(config, srtContext()))
+}
+
 func TestWebRTCDefaultsAreValid(t *testing.T) {
 	requireValid(t, ValidateWebRTC(models.DefaultWebRTCConfig(), webrtcContext()))
 }
@@ -60,7 +69,7 @@ func TestValidateSRTRules(t *testing.T) {
 		{"invalid bind address", func(c *models.SRTConfig) { c.BindAddress = "localhost" }, nil, "bindAddress"},
 		{"port below range", func(c *models.SRTConfig) { c.Port = 80 }, nil, "port"},
 		{"port collides with web", func(c *models.SRTConfig) { c.Port = 8080 }, nil, "port"},
-		{"port collides with rtmp", func(c *models.SRTConfig) { c.Port = 1935 }, nil, "port"},
+
 		{"port collides with webrtc udp", func(c *models.SRTConfig) { c.Port = 8189 }, nil, "port"},
 		{"port inside webrtc range", func(c *models.SRTConfig) { c.Port = 50050 }, nil, "port"},
 		{"no streamid formats", func(c *models.SRTConfig) { c.StreamIDFormats = []string{} }, nil, "streamIdFormats"},

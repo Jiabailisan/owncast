@@ -55,6 +55,9 @@ const (
 	h264ProfileMain     = "main"
 	h264ProfileHigh     = "high"
 	ffmpegFlagTune      = "-tune"
+	ffmpegFlagPreset    = "-preset"
+	// ffmpegTuneZeroLatency is the libx264 low-latency tuning name.
+	ffmpegTuneZeroLatency = "zerolatency"
 )
 
 // rtpOutputFlags renders argv for one WebRTC RTP output. It is a separate
@@ -68,15 +71,21 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 	if output.CopyVideo {
 		args = append(args, "-c:v", "copy")
 	} else {
-		codecName := output.VideoCodec
-		if codecName == "" {
-			codecName = t.codec.Name()
+		legCodec := t.codec
+		if output.VideoCodec != "" && output.VideoCodec != t.codec.Name() {
+			legCodec = getCodec(output.VideoCodec)
+		}
+		args = append(args, "-c:v", legCodec.Name())
+		// Preset/tune names are encoder specific: h264_nvenc rejects the
+		// libx264-only "zerolatency" tune (and VA-API/V4L2/VideoToolbox have no
+		// tune at all). A wrong tune makes FFmpeg exit at startup, which used to
+		// take the whole shared process (HLS + publisher) down with it.
+		args = append(args, rtpEncoderTuning(legCodec, output.CPUUsageLevel)...)
+		if filters := legCodec.ExtraFilters(); filters != "" {
+			args = append(args, "-filter:v", filters)
 		}
 		args = append(
 			args,
-			"-c:v", codecName,
-			"-preset", t.codec.GetPresetForLevel(output.CPUUsageLevel),
-			"-tune", "zerolatency",
 			"-profile:v", normalizeH264Profile(output.H264Profile),
 			"-bf", "0",
 			"-g", strconv.Itoa(output.GOPFrames),
@@ -85,7 +94,7 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 			"-b:v", strconv.Itoa(output.VideoBitrateKbps)+"k",
 			"-maxrate", strconv.Itoa(output.VideoBitrateKbps)+"k",
 			"-bufsize", strconv.Itoa(output.VideoBitrateKbps)+"k",
-			"-pix_fmt", t.codec.PixelFormat(),
+			"-pix_fmt", legCodec.PixelFormat(),
 		)
 	}
 	// In-band SPS/PPS on every IDR is mandatory for browser copy legs and for
@@ -130,6 +139,28 @@ func (t *Transcoder) rtpOutputFlags(output RTPOutput) []string {
 	)
 	args = append(args, audioArgs...)
 	return args
+}
+
+// nvencTuneLowLatency is the low-latency tuning name accepted by h264_nvenc
+// ("zerolatency" is a libx264 tuning and is rejected by NVENC).
+const nvencTuneLowLatency = "ll"
+
+// rtpEncoderTuning returns the encoder-specific preset/tune arguments for a
+// WebRTC transcode leg. Only flags the encoder actually supports are emitted.
+func rtpEncoderTuning(codec Codec, cpuUsageLevel int) []string {
+	preset := codec.GetPresetForLevel(cpuUsageLevel)
+	switch codec.(type) {
+	case *Libx264Codec:
+		return []string{ffmpegFlagPreset, preset, ffmpegFlagTune, ffmpegTuneZeroLatency}
+	case *NvencCodec:
+		return []string{ffmpegFlagPreset, preset, ffmpegFlagTune, nvencTuneLowLatency}
+	case *QuicksyncCodec:
+		return []string{ffmpegFlagPreset, preset}
+	default:
+		// VA-API, V4L2, VideoToolbox and OMX expose no preset/tune option that
+		// maps to the HLS variant settings; omit them rather than fail startup.
+		return nil
+	}
 }
 
 // normalizeH264Profile maps the configuration profile names to the profile

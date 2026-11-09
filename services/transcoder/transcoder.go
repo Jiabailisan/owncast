@@ -492,7 +492,7 @@ func (v *HLSVariant) getVariantString(t *Transcoder) []string {
 	preset := t.codec.GetPresetForLevel(v.cpuUsageLevel)
 	if preset != "" {
 		variantEncoderCommands = append(variantEncoderCommands, []string{
-			"-preset", preset,
+			ffmpegFlagPreset, preset,
 		}...)
 	}
 

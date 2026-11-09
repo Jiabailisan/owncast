@@ -22,7 +22,7 @@ func srtPersistedMetadata() []Field {
 		stringField("bindAddress", groupSRTListener, "0.0.0.0", "address",
 			"IP address the SRT listener binds to. Must be an IP literal, not a hostname.", ApplyRestartService),
 		intField("port", groupSRTListener, 8890, 1024, 65535, "port",
-			"UDP port the SRT listener binds. Must not collide with the web, RTMP or WebRTC ports.", ApplyRestartService),
+			"UDP port the SRT listener binds. Must not collide with the web port or WebRTC UDP ports; it may share a port number with the TCP RTMP listener.", ApplyRestartService),
 
 		{
 			Key:         "streamIdFormats",
