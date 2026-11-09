@@ -51,8 +51,6 @@ export type PlayerControlsProps = {
   fullscreen?: boolean;
   // Quality rows only exist for the HLS transport in the reference player.
   showQuality?: boolean;
-  // WebRTC-only settings note, e.g. "WebRTC (auto)".
-  note?: string;
   // Storybook/tests only: open one of the menus on first render.
   initialMenu?: 'settings' | 'transport' | 'volume' | null;
   callbacks: PlayerControlsCallbacks;
@@ -80,7 +78,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   statsOpen,
   fullscreen = false,
   showQuality = true,
-  note,
   initialMenu = null,
   callbacks,
 }) => {
@@ -412,11 +409,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
             {!latencySupported && (
               <div className={styles.menuNote}>
                 Minimize latency is not supported for this transport.
-              </div>
-            )}
-            {note && (
-              <div className={styles.menuNote} data-testid="transport-note">
-                {note}
               </div>
             )}
           </div>

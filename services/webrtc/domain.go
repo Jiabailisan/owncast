@@ -52,10 +52,11 @@ func advertisedIPs(ctx context.Context, cfg models.WebRTCConfig) ([]netip.Addr, 
 	return resolveDomainIPs(ctx, cfg.Domain)
 }
 
-// addressRewriteRules builds Pion ICE address rewrite rules that replace the
-// locally gathered host candidate addresses with the public/domain IPs. This is
-// the "domain binding" of spec C5: candidates carry the domain's IPs rather
-// than private interface addresses.
+// addressRewriteRules builds Pion ICE address rewrite rules that append the
+// public/domain IPs as additional host candidates. The locally gathered LAN
+// candidates are kept, so a viewer on the same network races the LAN UDP path
+// against the public one instead of requiring NAT hairpin. Public clients still
+// receive the public-IP candidate required by the domain binding.
 func addressRewriteRules(ips []netip.Addr) []webrtc.ICEAddressRewriteRule {
 	v4, v6 := addrsByFamily(ips)
 	rules := make([]webrtc.ICEAddressRewriteRule, 0, 2)
@@ -64,7 +65,7 @@ func addressRewriteRules(ips []netip.Addr) []webrtc.ICEAddressRewriteRule {
 		rules = append(rules, webrtc.ICEAddressRewriteRule{
 			External:        v4,
 			AsCandidateType: webrtc.ICECandidateTypeHost,
-			Mode:            webrtc.ICEAddressRewriteReplace,
+			Mode:            webrtc.ICEAddressRewriteAppend,
 			Networks:        []webrtc.NetworkType{webrtc.NetworkTypeUDP4, webrtc.NetworkTypeTCP4},
 		})
 	}
@@ -72,7 +73,7 @@ func addressRewriteRules(ips []netip.Addr) []webrtc.ICEAddressRewriteRule {
 		rules = append(rules, webrtc.ICEAddressRewriteRule{
 			External:        v6,
 			AsCandidateType: webrtc.ICECandidateTypeHost,
-			Mode:            webrtc.ICEAddressRewriteReplace,
+			Mode:            webrtc.ICEAddressRewriteAppend,
 			Networks:        []webrtc.NetworkType{webrtc.NetworkTypeUDP6, webrtc.NetworkTypeTCP6},
 		})
 	}

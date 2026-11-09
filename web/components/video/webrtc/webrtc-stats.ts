@@ -7,6 +7,7 @@
 // surface as a console.error: transient telemetry failures are expected.
 
 import { WEBRTC_METRICS } from '../../../utils/apis';
+import { WebRTCVariantInfo } from '../../../interfaces/client-config.model';
 
 export interface WebRTCStatsSummary {
   sessionId: string;
@@ -389,4 +390,64 @@ export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRT
     },
     sampleOnce,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Auto WebRTC quality policy.
+//
+// WebRTC has no ABR ladder: each WHEP session pins one encoded variant. Auto
+// therefore starts on the server default (the passthrough/source copy when it
+// exists) and only falls back to an encoded variant when the passthrough path
+// is losing enough packets that the picture would freeze.
+// ---------------------------------------------------------------------------
+
+export interface VideoInboundTotals {
+  packetsLost: number;
+  packetsReceived: number;
+}
+
+export const AUTO_QUALITY_SWITCH_LOSS_PCT = 10;
+export const AUTO_QUALITY_SWITCH_SAMPLES = 2;
+export const AUTO_QUALITY_SAMPLE_INTERVAL_MS = 3000;
+
+// collectVideoInboundTotals aggregates the inbound video counters used by the
+// auto quality policy.
+export async function collectVideoInboundTotals(
+  pc: RTCPeerConnection,
+  getStatsImpl?: () => Promise<RTCStatsReport>,
+): Promise<VideoInboundTotals> {
+  const report = await (getStatsImpl ? getStatsImpl() : pc.getStats());
+  let packetsLost = 0;
+  let packetsReceived = 0;
+  report.forEach(entry => {
+    if (entry.type === 'inbound-rtp' && entry.kind === 'video') {
+      packetsLost += Number(entry.packetsLost) || 0;
+      packetsReceived += Number(entry.packetsReceived) || 0;
+    }
+  });
+  return { packetsLost, packetsReceived };
+}
+
+// packetLossPctFor computes the loss percentage between two cumulative video
+// inbound samples. It returns null when the window has no packets or a reset
+// makes the delta unusable.
+export function packetLossPctFor(
+  previous: VideoInboundTotals,
+  next: VideoInboundTotals,
+): number | null {
+  const lost = next.packetsLost - previous.packetsLost;
+  const received = next.packetsReceived - previous.packetsReceived;
+  if (lost < 0 || received < 0 || lost + received === 0) return null;
+  return (lost / (lost + received)) * 100;
+}
+
+// chooseEncodedWebRTCVariant returns the first variant that is not a
+// passthrough/source copy, preferring an explicit encoded quality. It returns
+// null when every advertised variant is passthrough (nothing to fall back to).
+export function chooseEncodedWebRTCVariant(
+  variants: WebRTCVariantInfo[] | undefined | null,
+): WebRTCVariantInfo | null {
+  if (!variants || variants.length === 0) return null;
+  const encoded = variants.find(variant => !/pass|copy|source/i.test(variant.name || ''));
+  return encoded || null;
 }

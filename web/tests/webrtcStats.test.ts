@@ -2,9 +2,12 @@
 // (round-7: ICE transport, validated FPS, consistent packet-loss payload).
 
 import {
+  chooseEncodedWebRTCVariant,
+  collectVideoInboundTotals,
   collectWebRTCStatsPanel,
   formatWebRTCResolution,
   packetLossPercent,
+  packetLossPctFor,
   plausibleFrameRate,
   selectedIceTransport,
   startWebRTCStatsBeacon,
@@ -267,5 +270,41 @@ describe('WebRTC beacon bitrate', () => {
     );
     expect(bodies[0].videoBitrateKbps).toBeUndefined();
     expect(bodies[1].videoBitrateKbps).toBeCloseTo(40000, 0);
+  });
+});
+
+describe('auto WebRTC quality fallback', () => {
+  test('packetLossPctFor computes the loss of one sample window', () => {
+    expect(
+      packetLossPctFor(
+        { packetsLost: 0, packetsReceived: 100 },
+        { packetsLost: 10, packetsReceived: 190 },
+      ),
+    ).toBe(10);
+    expect(
+      packetLossPctFor(
+        { packetsLost: 5, packetsReceived: 100 },
+        { packetsLost: 5, packetsReceived: 100 },
+      ),
+    ).toBeNull();
+  });
+
+  test('chooseEncodedWebRTCVariant skips passthrough/source rows', () => {
+    expect(
+      chooseEncodedWebRTCVariant([
+        { index: 0, name: 'Passthrough' },
+        { index: 1, name: '6Mbps@60fps' },
+      ])?.index,
+    ).toBe(1);
+    expect(chooseEncodedWebRTCVariant([{ index: 0, name: 'Source copy' }])).toBeNull();
+  });
+
+  test('collectVideoInboundTotals aggregates inbound video counters', async () => {
+    const inbound = report([
+      { id: 'video', type: 'inbound-rtp', kind: 'video', packetsLost: 4, packetsReceived: 20 },
+      { id: 'audio', type: 'inbound-rtp', kind: 'audio', packetsLost: 99, packetsReceived: 99 },
+    ]);
+    const totals = await collectVideoInboundTotals({} as RTCPeerConnection, async () => inbound);
+    expect(totals).toEqual({ packetsLost: 4, packetsReceived: 20 });
   });
 });

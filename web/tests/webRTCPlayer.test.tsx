@@ -139,7 +139,7 @@ describe('WebRTCPlayer', () => {
     expect(session.close).toHaveBeenCalledTimes(1);
   });
 
-  test('settings menu shows the WebRTC quality list and auto note', async () => {
+  test('settings menu shows the WebRTC quality list', async () => {
     const sessionFactory = jest.fn(async () => makeSession());
     render(
       <WebRTCPlayer
@@ -159,7 +159,6 @@ describe('WebRTCPlayer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByText('Stats for nerds')).toBeInTheDocument();
     expect(screen.getByText('Minimize latency')).toBeInTheDocument();
-    expect(screen.getByTestId('transport-note')).toHaveTextContent('WebRTC (auto)');
     expect(screen.getAllByText('Auto').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('720p')).toBeInTheDocument();
     expect(screen.getByText('360p')).toBeInTheDocument();
@@ -188,7 +187,6 @@ describe('WebRTCPlayer', () => {
     fireEvent.click(screen.getByText('360p'));
     await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(2));
     expect(calls[1][0].variantIndex).toBe(1);
-    expect(screen.getByTestId('transport-note')).toHaveTextContent('WebRTC (360p)');
   });
 
   test('stats panel shows the ICE transport and resolution with fps', async () => {

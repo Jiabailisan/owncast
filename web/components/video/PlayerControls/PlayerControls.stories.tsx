@@ -126,7 +126,6 @@ export const WebRTCActive: Story = {
     transport: 'webrtc',
     activeTransport: 'webrtc',
     showQuality: false,
-    note: 'WebRTC (auto)',
     stats: { ...stats, isWebRTC: true, codecs: 'H.264 / OPUS (WebRTC)', liveMode: 'WebRTC (auto)' },
   },
 };

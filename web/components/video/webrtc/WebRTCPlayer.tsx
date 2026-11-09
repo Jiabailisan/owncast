@@ -17,6 +17,13 @@ import {
   startWebRTCStatsBeacon,
   WebRTCStatsBeacon,
   collectWebRTCStatsPanel,
+  collectVideoInboundTotals,
+  chooseEncodedWebRTCVariant,
+  packetLossPctFor,
+  VideoInboundTotals,
+  AUTO_QUALITY_SWITCH_LOSS_PCT,
+  AUTO_QUALITY_SWITCH_SAMPLES,
+  AUTO_QUALITY_SAMPLE_INTERVAL_MS,
   formatWebRTCResolution,
   plausibleFrameRate,
   webRTCLiveMode,
@@ -123,10 +130,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     name: variant.name,
   }));
   const selectedQuality = selectedVariant === null ? 'auto' : String(selectedVariant);
-  const selectedVariantName =
-    selectedVariant === null
-      ? 'auto'
-      : (variants || []).find(variant => variant.index === selectedVariant)?.name || 'auto';
+  const selectedVariantRef = useRef(selectedVariant);
+  useEffect(() => {
+    selectedVariantRef.current = selectedVariant;
+  }, [selectedVariant]);
 
   useEffect(() => {
     onFallbackRef.current = onFallback;
@@ -237,6 +244,55 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       setSelectedVariant(null);
     }
   }, [variants, selectedVariant]);
+
+  // Auto keeps the passthrough variant while it is healthy. If its packet loss
+  // stays above the threshold the viewer would otherwise see a frozen picture
+  // (commonly the high-bitrate source copy on a lossy link), so reconnect to an
+  // encoded variant instead. An explicit user quality choice is never overridden.
+  useEffect(() => {
+    if (!online || phase !== 'ready' || selectedVariant !== null) {
+      return undefined;
+    }
+    const encodedVariant = chooseEncodedWebRTCVariant(variants);
+    if (!encodedVariant) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let previous: VideoInboundTotals | null = null;
+    let consecutiveBadSamples = 0;
+    const timer = window.setInterval(async () => {
+      const session = sessionRef.current;
+      if (!session) return;
+      try {
+        const totals = await collectVideoInboundTotals(session.pc);
+        if (cancelled || selectedVariantRef.current !== null) return;
+        if (previous) {
+          const lossPct = packetLossPctFor(previous, totals);
+          const receivedDelta = totals.packetsReceived - previous.packetsReceived;
+          if (lossPct !== null && receivedDelta >= 30) {
+            if (lossPct > AUTO_QUALITY_SWITCH_LOSS_PCT) {
+              consecutiveBadSamples += 1;
+            } else {
+              consecutiveBadSamples = 0;
+            }
+            if (consecutiveBadSamples >= AUTO_QUALITY_SWITCH_SAMPLES) {
+              setSelectedVariant(encodedVariant.index);
+              return;
+            }
+          }
+        }
+        previous = totals;
+      } catch {
+        // Stats are best-effort; leave the session untouched.
+      }
+    }, AUTO_QUALITY_SAMPLE_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [online, phase, selectedVariant, variants]);
 
   // Attach/detach the peer connection session. Runs on URL/variant/online
   // changes and tears the previous session down before reconnecting.
@@ -632,7 +688,6 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           qualities={qualityOptions}
           selectedQuality={selectedQuality}
           showQuality={qualityOptions.length > 0}
-          note={`WebRTC (${selectedVariantName})`}
           latencyEnabled={latencyEnabled}
           latencySupported
           liveEdge

@@ -127,6 +127,8 @@ func TestAddressRewriteRules(t *testing.T) {
 	assert.Equal(t, []string{"203.0.113.5"}, rules[0].External)
 	assert.Equal(t, []string{"2001:db8::5"}, rules[1].External)
 	assert.Equal(t, webrtc.ICECandidateTypeHost, rules[0].AsCandidateType)
+	assert.Equal(t, webrtc.ICEAddressRewriteAppend, rules[0].Mode)
+	assert.Equal(t, webrtc.ICEAddressRewriteAppend, rules[1].Mode)
 }
 
 func TestPublicIPsOverrideDomain(t *testing.T) {
