@@ -1,6 +1,9 @@
 package configrepository
 
 import (
+	"bytes"
+	"encoding/gob"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -496,14 +499,19 @@ func (r *SqlConfigRepository) SetStreamLatencyLevel(level float64) error {
 }
 
 // GetStreamOutputVariants will return all of the stream output variants.
+//
+// Stored values are JSON bytes wrapped in the datastore's gob container. The
+// legacy format (a directly gob-encoded []models.StreamOutputVariant) is still
+// accepted so existing deployments upgrade transparently on the next save.
 func (r *SqlConfigRepository) GetStreamOutputVariants() []models.StreamOutputVariant {
 	configEntry, err := r.datastore.Get(videoStreamOutputVariantsKey)
 	if err != nil {
 		return config.GetDefaults().StreamVariants
 	}
 
-	var streamOutputVariants []models.StreamOutputVariant
-	if err := configEntry.GetObject(&streamOutputVariants); err != nil {
+	streamOutputVariants, err := decodeStreamOutputVariants(configEntry)
+	if err != nil {
+		log.Warnln("unable to decode stored stream output variants:", err)
 		return config.GetDefaults().StreamVariants
 	}
 
@@ -515,9 +523,60 @@ func (r *SqlConfigRepository) GetStreamOutputVariants() []models.StreamOutputVar
 }
 
 // SetStreamOutputVariants will set the stream output variants.
+//
+// The variants are JSON-encoded rather than gob-encoded: gob flattens
+// pointers, so a variant whose outputs.hls.enabled is explicitly false was
+// previously stored identically to one with a nil pointer, silently
+// re-enabling HLS after a restart. JSON keeps pointer-to-false distinct from
+// nil. datastore.Save still provides the KV storage/caching semantics by
+// gob-wrapping the []byte value.
 func (r *SqlConfigRepository) SetStreamOutputVariants(variants []models.StreamOutputVariant) error {
-	configEntry := models.ConfigEntry{Key: videoStreamOutputVariantsKey, Value: variants}
-	return r.datastore.Save(configEntry)
+	encoded, err := json.Marshal(variants)
+	if err != nil {
+		return err
+	}
+	return r.datastore.Save(models.ConfigEntry{Key: videoStreamOutputVariantsKey, Value: encoded})
+}
+
+// decodeStreamOutputVariants decodes a stored value in either the current or
+// legacy format.
+//
+// It deliberately bypasses models.ConfigEntry.GetObject: datastore values are
+// gob-wrapped, and the current format then needs a second JSON decode, so the
+// two layers are handled explicitly here.
+func decodeStreamOutputVariants(configEntry models.ConfigEntry) ([]models.StreamOutputVariant, error) {
+	raw, ok := configEntry.Value.([]byte)
+	if !ok || len(raw) == 0 {
+		return nil, errors.New("stream output variants value is not a byte slice")
+	}
+
+	// Tolerate a raw JSON payload (useful for fixtures/tests that write the
+	// datastore value directly).
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 && trimmed[0] == '[' {
+		var variants []models.StreamOutputVariant
+		if err := json.Unmarshal(trimmed, &variants); err != nil {
+			return nil, err
+		}
+		return variants, nil
+	}
+
+	// Legacy format: the value is a gob-encoded slice.
+	var legacyVariants []models.StreamOutputVariant
+	if err := gob.NewDecoder(bytes.NewReader(raw)).Decode(&legacyVariants); err == nil {
+		log.Traceln("stream output variants are stored in the legacy gob format; the next save migrates them to JSON")
+		return legacyVariants, nil
+	}
+
+	// Current format: the datastore gob wrapper contains JSON bytes.
+	var payload []byte
+	if err := gob.NewDecoder(bytes.NewReader(raw)).Decode(&payload); err != nil {
+		return nil, err
+	}
+	var variants []models.StreamOutputVariant
+	if err := json.Unmarshal(payload, &variants); err != nil {
+		return nil, err
+	}
+	return variants, nil
 }
 
 // SetChatDisabled will disable chat if set to true.
