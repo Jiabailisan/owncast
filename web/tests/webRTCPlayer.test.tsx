@@ -60,7 +60,7 @@ describe('WebRTCPlayer', () => {
   test('connects, reports the session and renders controls', async () => {
     const onReady = jest.fn();
     const session = makeSession();
-    render(
+    const { container } = render(
       <WebRTCPlayer
         whepUrl="/webrtc/whep"
         online
@@ -68,12 +68,17 @@ describe('WebRTCPlayer', () => {
         onReady={onReady}
         enableStats={false}
         sessionFactory={async () => session}
+        className="topSectionElement"
       />,
     );
 
     await waitFor(() => expect(onReady).toHaveBeenCalledWith(session));
     expect(screen.getAllByLabelText('Play').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Fullscreen')).toBeInTheDocument();
+    // The theme contract: #player is the root, with the region class and the
+    // transport marker, for both HLS and WebRTC.
+    expect(container.querySelector('#player')).toHaveAttribute('data-protocol', 'webrtc');
+    expect(container.querySelector('#player')).toHaveClass('topSectionElement');
   });
 
   test('reports the bare WHEP resource id with the client stats beacon', async () => {

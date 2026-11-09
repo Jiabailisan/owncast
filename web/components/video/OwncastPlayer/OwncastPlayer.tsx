@@ -26,7 +26,17 @@ import {
   PlayerQuality,
   makeEmptyStats,
 } from '../PlayerControls/types';
-import { formatViewportFrames, formatVolume, pushSparkline } from '../PlayerControls/stats';
+import {
+  formatViewportFrames,
+  formatVolume,
+  hlsConnectionSpeedKbps,
+  hlsLiveMode,
+  hlsMeasuredFps,
+  hlsPlaylistFps,
+  hlsResolution,
+  hlsVideoBitrateKbps,
+  pushSparkline,
+} from '../PlayerControls/stats';
 import { LATENCY_COMPENSATION_ENABLED } from '../settings-menu';
 import styles from './OwncastPlayer.module.scss';
 
@@ -82,6 +92,23 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const [statsOpen, setStatsOpen] = useState(false);
   const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(false));
   const [sparklines, setSparklines] = useState<SparklineState>({ video: [], audio: [] });
+  // Rolling HLS metering state for the stats effect: decoded-frame deltas,
+  // WebKit decoded-byte deltas and the /api/status ingest values.
+  const hlsMeterRef = React.useRef<{
+    frames: number | null;
+    sampledAt: number;
+    decodedBytes: number | null;
+    decodedAt: number;
+    audioBitrateKbps: number | null;
+    videoPipeline: string | null;
+  }>({
+    frames: null,
+    sampledAt: 0,
+    decodedBytes: null,
+    decodedAt: 0,
+    audioBitrateKbps: null,
+    videoPipeline: null,
+  });
   const clockSkew = useAtomValue(clockSkewAtom);
   const { t } = useTranslation();
 
@@ -301,24 +328,112 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   }, []);
 
   // Sample HLS playback stats at 1 Hz while the Stats for nerds panel is open.
+  // Measured the same way as the provided player: VHS segment bytes / loaded
+  // seconds for the video bitrate, bytes / transfer duration for the
+  // connection speed, decoded frame deltas (+ playlist FRAME-RATE fallback)
+  // for fps, and the public /api/status ingest audio bitrate (polled while the
+  // panel is open). HLS never reports RTT/loss from navigator.connection.
   useEffect(() => {
     if (!statsOpen) return undefined;
+    const meter = hlsMeterRef.current;
+    meter.frames = null;
+    meter.sampledAt = 0;
+    meter.decodedBytes = null;
+    meter.decodedAt = 0;
+    let disposed = false;
+    let statusAbort: AbortController | null = null;
+
+    const readStatus = () => {
+      statusAbort?.abort();
+      statusAbort = new AbortController();
+      fetch('/api/status', { cache: 'no-store', signal: statusAbort.signal })
+        .then(response => (response.ok ? response.json() : null))
+        .then(data => {
+          if (disposed || !data) return;
+          const audio = Number(data.audioBitrate);
+          meter.audioBitrateKbps = Number.isFinite(audio) && audio > 0 ? audio : null;
+          meter.videoPipeline = typeof data.videoPipeline === 'string' ? data.videoPipeline : null;
+        })
+        .catch(() => {});
+    };
+    readStatus();
+    const statusTimer = setInterval(readStatus, 2000);
+
     const build = () => {
       const player = playerRef.current;
-      if (!player) return;
+      if (!player || disposed) return;
       const el = player.el?.() as HTMLElement | undefined;
       const video = el?.querySelector('video') as HTMLVideoElement | null;
       const tech = player.tech?.({ IWillNotUseThisInPlugins: true });
-      const bandwidth = Number(tech?.vhs?.playlists?.media?.()?.attributes?.BANDWIDTH) || 0;
+      const vhs = tech?.vhs;
       const quality = video?.getVideoPlaybackQuality?.();
-      const connection = (navigator as Navigator & { connection?: Record<string, number> })
-        .connection;
-      const currentResolution =
-        video && video.videoWidth > 0 ? video.videoWidth + 'x' + video.videoHeight : 'N/A';
-      const activeQualityName =
-        selectedQuality === 'auto'
-          ? 'Auto'
-          : qualities.find(item => String(item.index) === selectedQuality)?.name || 'Auto';
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+      const totalFrames =
+        typeof quality?.totalVideoFrames === 'number' ? quality.totalVideoFrames : null;
+      let measuredFps: number | null = null;
+      if (totalFrames !== null && meter.frames !== null && meter.sampledAt > 0) {
+        measuredFps = hlsMeasuredFps(totalFrames - meter.frames, (now - meter.sampledAt) / 1000);
+      }
+      if (totalFrames !== null) {
+        meter.frames = totalFrames;
+        meter.sampledAt = now;
+      }
+
+      // WebKit exposes a decoded-byte counter, the most direct bitrate source.
+      const decodedVideo = video as
+        (HTMLVideoElement & { webkitVideoDecodedByteCount?: number }) | null;
+      const decodedBytes = Number(decodedVideo?.webkitVideoDecodedByteCount);
+      let decodedBitsPerSecond: number | null = null;
+      if (
+        Number.isFinite(decodedBytes) &&
+        decodedBytes > 0 &&
+        meter.decodedBytes !== null &&
+        meter.decodedAt > 0 &&
+        now > meter.decodedAt
+      ) {
+        decodedBitsPerSecond =
+          ((decodedBytes - meter.decodedBytes) * 8) / ((now - meter.decodedAt) / 1000);
+      }
+      meter.decodedBytes = Number.isFinite(decodedBytes) ? decodedBytes : null;
+      meter.decodedAt = now;
+
+      const representations =
+        typeof vhs?.representations === 'function' ? vhs.representations() : [];
+      const activeRepresentation = Array.isArray(representations)
+        ? representations.find(representation => representation?.enabled?.())
+        : null;
+      const playlistFps = hlsPlaylistFps(
+        activeRepresentation?.attributes ?? null,
+        activeRepresentation?.name ??
+          qualities.find(item => String(item.index) === selectedQuality)?.name ??
+          null,
+      );
+      const fps = measuredFps ?? playlistFps;
+
+      const meterInput = {
+        mediaBytesTransferred: Number.isFinite(Number(vhs?.mediaBytesTransferred))
+          ? Number(vhs?.mediaBytesTransferred)
+          : null,
+        mediaSecondsLoaded: Number.isFinite(Number(vhs?.mediaSecondsLoaded))
+          ? Number(vhs?.mediaSecondsLoaded)
+          : null,
+        mediaTransferDurationMs: Number.isFinite(Number(vhs?.mediaTransferDuration))
+          ? Number(vhs?.mediaTransferDuration)
+          : null,
+        systemBandwidthBps: Number.isFinite(Number(vhs?.systemBandwidth))
+          ? Number(vhs?.systemBandwidth)
+          : null,
+        representationBandwidthBps: Number.isFinite(Number(activeRepresentation?.bandwidth))
+          ? Number(activeRepresentation?.bandwidth)
+          : null,
+        decodedBitsPerSecond,
+        audioBitrateKbps: meter.audioBitrateKbps,
+      };
+      const videoBitrateKbps = hlsVideoBitrateKbps(meterInput);
+      const connectionSpeedKbps = hlsConnectionSpeedKbps(meterInput, videoBitrateKbps);
+      const resolution = hlsResolution(video?.videoWidth, video?.videoHeight, fps);
+      const audioBitrateKbps = meter.audioBitrateKbps;
       const volumeInfo = formatVolume(video?.volume ?? 1, Boolean(video?.muted));
       const bufferedEnd =
         video && video.buffered && video.buffered.length > 0
@@ -331,12 +446,12 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       let latency: number | null = null;
       try {
         const liveCurrent = Number(player.liveTracker?.liveCurrentTime?.()) || 0;
-        if (liveCurrent > 0)
-          latency = Math.max(0, liveCurrent - (Number(player.currentTime()) || 0));
+        const current = Number(video?.currentTime ?? player.currentTime?.()) || 0;
+        if (liveCurrent > 0) latency = Math.max(0, liveCurrent - current);
       } catch {
         latency = null;
       }
-      const videoBitrate = bandwidth > 0 ? bandwidth / 1000 : null;
+
       setStats({
         collecting: false,
         isWebRTC: false,
@@ -353,31 +468,37 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
           quality ? quality.droppedVideoFrames : null,
           quality ? quality.totalVideoFrames : null,
         ),
-        resolution: currentResolution,
-        optimalResolution: currentResolution,
+        resolution,
+        optimalResolution: resolution,
         volume: volumeInfo.volume,
         normalizedVolume: volumeInfo.normalizedVolume,
         codecs: 'H.264 / AAC (HLS)',
-        videoBitrateKbps: videoBitrate,
-        audioBitrateKbps: null,
-        connectionSpeedKbps: connection?.downlink ? connection.downlink * 1000 : null,
-        rttMs: connection?.rtt ?? null,
+        videoBitrateKbps,
+        audioBitrateKbps,
+        connectionSpeedKbps,
+        rttMs: null,
         jitterMs: null,
         packetsLost: null,
         packetsReceived: null,
         bufferSeconds: bufferHealth,
         liveLatencySeconds: latency,
-        liveMode: 'HLS (' + activeQualityName + ')',
+        liveMode: hlsLiveMode(meter.videoPipeline),
         date: new Date().toLocaleString(),
       });
       setSparklines(current => ({
-        video: pushSparkline(current.video, videoBitrate),
-        audio: pushSparkline(current.audio, null),
+        video: pushSparkline(current.video, videoBitrateKbps),
+        audio: pushSparkline(current.audio, audioBitrateKbps),
       }));
     };
+
     build();
     const timer = setInterval(build, 1000);
-    return () => clearInterval(timer);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+      clearInterval(statusTimer);
+      statusAbort?.abort();
+    };
   }, [statsOpen, selectedQuality, qualities, source]);
 
   // Register keyboard shortcut for the space bar to toggle playback
@@ -537,7 +658,12 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         />
       )}
     >
-      <div ref={containerRef} className={classNames(styles.container, className)} id="player">
+      <div
+        ref={containerRef}
+        className={classNames(styles.container, className)}
+        id="player"
+        data-protocol="hls"
+      >
         {online && (
           <div className={styles.player}>
             <VideoJS options={videoJsOptions} onReady={handlePlayerReady} aria-label={title} />

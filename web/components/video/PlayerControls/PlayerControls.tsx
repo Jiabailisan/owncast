@@ -9,7 +9,6 @@ import PictureOutlined from '@ant-design/icons/PictureOutlined';
 import FullscreenOutlined from '@ant-design/icons/FullscreenOutlined';
 import FullscreenExitOutlined from '@ant-design/icons/FullscreenExitOutlined';
 import CheckOutlined from '@ant-design/icons/CheckOutlined';
-import DownOutlined from '@ant-design/icons/DownOutlined';
 
 import { StatsPanel } from './StatsPanel';
 import { StatsSnapshot, SparklineState, TransportPreference, PlayerQuality } from './types';
@@ -244,7 +243,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
                 />
               </div>
             )}
-            <DownOutlined className={styles.volumeCaret} aria-hidden="true" />
           </div>
 
           <button

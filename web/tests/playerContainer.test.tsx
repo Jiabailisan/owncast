@@ -11,7 +11,11 @@ jest.mock('next-export-i18n', () => ({
 
 jest.mock('../components/video/OwncastPlayer/OwncastPlayer', () => ({
   OwncastPlayer: (props: any) => (
-    <div data-testid="hls-player" data-transport-error={props.transportError} />
+    <div
+      data-testid="hls-player"
+      data-transport-error={props.transportError}
+      className={props.className}
+    />
   ),
 }));
 
@@ -31,7 +35,7 @@ jest.mock('../components/video/custom/CustomPlayerHost', () => ({
 
 jest.mock('../components/video/webrtc/WebRTCPlayer', () => ({
   WebRTCPlayer: (props: any) => (
-    <div data-testid="webrtc-player" data-whep-url={props.whepUrl}>
+    <div data-testid="webrtc-player" data-whep-url={props.whepUrl} className={props.className}>
       <button
         type="button"
         data-testid="force-fallback"
@@ -60,12 +64,17 @@ const customPlayerConfig = (): Partial<ClientConfig> => ({
   },
 });
 
-const renderWithConfig = (config: Partial<ClientConfig>, online = true) => {
+const renderWithConfig = (config: Partial<ClientConfig>, online = true, className?: string) => {
   const store = createStore();
   store.set(clientConfigStateAtom, { ...makeEmptyClientConfig(), ...config });
   return render(
     <Provider store={store}>
-      <PlayerContainer source="/hls/stream.m3u8" online={online} title="Test stream" />
+      <PlayerContainer
+        source="/hls/stream.m3u8"
+        online={online}
+        title="Test stream"
+        className={className}
+      />
     </Provider>,
   );
 };
@@ -84,6 +93,20 @@ describe('PlayerContainer protocol selection', () => {
     renderWithConfig({});
     expect(screen.getByTestId('hls-player')).toBeInTheDocument();
     expect(screen.queryByTestId('webrtc-player')).not.toBeInTheDocument();
+  });
+
+  test('renders the HLS player root as the direct child of the content region', () => {
+    const { container } = renderWithConfig({}, true, 'topSectionElement');
+    const root = screen.getByTestId('hls-player');
+    expect(container.firstChild).toBe(root);
+    expect(root).toHaveClass('topSectionElement');
+  });
+
+  test('renders the WebRTC player root as the direct child of the content region', () => {
+    const { container } = renderWithConfig(enabledConfig(), true, 'topSectionElement');
+    const root = screen.getByTestId('webrtc-player');
+    expect(container.firstChild).toBe(root);
+    expect(root).toHaveClass('topSectionElement');
   });
 
   test('renders WebRTC when the server enables it', () => {

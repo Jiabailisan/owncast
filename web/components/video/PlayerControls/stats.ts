@@ -38,6 +38,9 @@ function formatPacketLoss(lost: number | null, received: number | null): string 
 }
 
 function formatRttJitter(rttMs: number | null, jitterMs: number | null): string {
+  // HLS cannot measure either value: the reference shows a single em dash,
+  // not "— / —". WebRTC always supplies at least the RTT.
+  if (rttMs === null && jitterMs === null) return NOT_AVAILABLE;
   const rtt = rttMs === null ? NOT_AVAILABLE : Math.round(rttMs) + ' ms';
   const jitter = jitterMs === null ? NOT_AVAILABLE : jitterMs.toFixed(1) + ' ms';
   return rtt + ' / ' + jitter;
@@ -48,7 +51,11 @@ export function buildStatsRows(stats: StatsSnapshot): StatsRow[] {
   return [
     { label: 'Stream / Video ID', value: stats.streamId || NOT_AVAILABLE },
     { label: 'Viewport / Frames', value: stats.frames || NOT_AVAILABLE },
-    { label: 'Current / Optimal Res', value: stats.resolution },
+    {
+      label: 'Current / Optimal Res',
+      value:
+        (stats.resolution || NOT_AVAILABLE) + ' / ' + (stats.optimalResolution || NOT_AVAILABLE),
+    },
     { label: 'Volume / Normalized', value: stats.volume },
     { label: 'Codecs', value: stats.codecs },
     { label: 'Video Bitrate', value: formatStatsBitrate(stats.videoBitrateKbps) },
@@ -122,4 +129,115 @@ export function formatVolume(
     volume: pct + ' / ' + (muted ? 'Muted' : '100%'),
     normalizedVolume: muted ? 'Muted' : '100%',
   };
+}
+
+// --- HLS transport metering (provided-player algorithm) ---------------------
+// The provided player measures HLS from the VHS segment loader instead of the
+// playlist BANDWIDTH: video bitrate from transferred media bytes / loaded media
+// seconds (or decoded-byte deltas when the browser exposes them), connection
+// speed from transferred bytes / transfer duration (or the ABR system
+// bandwidth), fps from decoded frame deltas with a playlist FRAME-RATE
+// fallback, and resolution from the rendered video size plus fps.
+
+export interface HlsMeterInput {
+  // Cumulative bytes of media segments downloaded by VHS.
+  mediaBytesTransferred?: number | null;
+  // Cumulative media seconds covered by those segments.
+  mediaSecondsLoaded?: number | null;
+  // Cumulative time spent downloading media segments, in milliseconds.
+  mediaTransferDurationMs?: number | null;
+  // VHS ABR system-bandwidth estimate, in bits per second.
+  systemBandwidthBps?: number | null;
+  // Bandwidth advertised by the currently enabled playlist representation.
+  representationBandwidthBps?: number | null;
+  // Decoded media bits per second, when the browser exposes a decoded-byte
+  // counter (WebKit). Preferred over the segment-average bitrate.
+  decodedBitsPerSecond?: number | null;
+  // Ingest audio bitrate in kbps from /api/status (null when unavailable).
+  audioBitrateKbps?: number | null;
+}
+
+function positiveNumber(value: unknown): number | null {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+// Video bitrate in kbps: decoded-byte rate > segment bytes / loaded seconds >
+// enabled playlist BANDWIDTH. Returns null when nothing measurable is known.
+export function hlsVideoBitrateKbps(input: HlsMeterInput): number | null {
+  const decoded = positiveNumber(input.decodedBitsPerSecond);
+  if (decoded !== null) return decoded / 1000;
+
+  const bytes = positiveNumber(input.mediaBytesTransferred);
+  const seconds = positiveNumber(input.mediaSecondsLoaded);
+  if (bytes !== null && seconds !== null) return (8 * bytes) / seconds / 1000;
+
+  const advertised = positiveNumber(input.representationBandwidthBps);
+  return advertised !== null ? advertised / 1000 : null;
+}
+
+// Connection speed in kbps: measured segment-download throughput, falling back
+// to the ABR system bandwidth, and never below the playing stream's own
+// video+audio bitrate (provided-player behavior).
+export function hlsConnectionSpeedKbps(
+  input: HlsMeterInput,
+  videoBitrateKbps: number | null,
+): number | null {
+  const bytes = positiveNumber(input.mediaBytesTransferred);
+  const durationMs = positiveNumber(input.mediaTransferDurationMs);
+  const measured = bytes !== null && durationMs !== null ? (8e3 * bytes) / durationMs / 1000 : null;
+  const system = positiveNumber(input.systemBandwidthBps);
+  const systemKbps = system !== null ? system / 1000 : null;
+  const throughput = measured ?? systemKbps;
+  const streamKbps = (videoBitrateKbps ?? 0) + (positiveNumber(input.audioBitrateKbps) ?? 0);
+  const candidates = [throughput, systemKbps, streamKbps].filter(
+    (value): value is number => value !== null && value > 0,
+  );
+  return candidates.length > 0 ? Math.max(...candidates) : null;
+}
+
+// Decoded frames per second from a playbackQuality.totalVideoFrames delta.
+export function hlsMeasuredFps(
+  framesDelta: number | null | undefined,
+  seconds: number | null | undefined,
+): number | null {
+  const frames = positiveNumber(framesDelta);
+  const elapsed = positiveNumber(seconds);
+  if (frames === null || elapsed === null) return null;
+  const fps = Math.round(frames / elapsed);
+  return fps >= 1 && fps <= 240 ? fps : null;
+}
+
+// Playlist FRAME-RATE attribute (or a quality name such as "1.2Mbps@24fps").
+export function hlsPlaylistFps(
+  attributes?: Record<string, unknown> | null,
+  qualityName?: string | null,
+): number | null {
+  const raw =
+    attributes?.['FRAME-RATE'] ?? attributes?.['FRAME_RATE'] ?? attributes?.['frame-rate'];
+  const fromAttributes = positiveNumber(raw);
+  if (fromAttributes !== null) return Math.round(fromAttributes);
+  const match = typeof qualityName === 'string' ? qualityName.match(/@(\d+(?:\.\d+)?)fps/i) : null;
+  const fromName = match ? positiveNumber(match[1]) : null;
+  return fromName !== null ? Math.round(fromName) : null;
+}
+
+// "1280x720@24fps" when width/height are known; em dash otherwise.
+export function hlsResolution(
+  width: number | null | undefined,
+  height: number | null | undefined,
+  fps: number | null,
+): string {
+  const w = positiveNumber(width);
+  const h = positiveNumber(height);
+  if (w === null || h === null) return NOT_AVAILABLE;
+  const suffix = fps !== null && fps > 0 ? '@' + Math.round(fps) + 'fps' : '';
+  return Math.round(w) + 'x' + Math.round(h) + suffix;
+}
+
+// Reference "Live Mode" label for the HLS engine ("HLS (hls)").
+export function hlsLiveMode(videoPipeline?: string | null): string {
+  const pipeline =
+    typeof videoPipeline === 'string' && videoPipeline.trim() ? videoPipeline.trim() : 'hls';
+  return 'HLS (' + pipeline + ')';
 }

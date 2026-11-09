@@ -7,6 +7,12 @@ import {
   pushSparkline,
   sparklinePoints,
   formatStatsBitrate,
+  hlsConnectionSpeedKbps,
+  hlsLiveMode,
+  hlsMeasuredFps,
+  hlsPlaylistFps,
+  hlsResolution,
+  hlsVideoBitrateKbps,
 } from '../components/video/PlayerControls/stats';
 
 jest.mock('next-export-i18n', () => ({
@@ -100,8 +106,13 @@ describe('PlayerControls overlay', () => {
     expect(screen.getByRole('button', { name: 'Live' })).toHaveTextContent('LIVE');
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
     // The volume slider appears when the volume group is hovered/focused.
-    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Mute' }).parentElement as Element);
+    const volumeGroup = screen.getByRole('button', { name: 'Mute' }).parentElement as Element;
+    fireEvent.mouseEnter(volumeGroup);
     expect(screen.getByLabelText('Volume')).toBeInTheDocument();
+    // The volume pill is one continuous control: no caret arrow and the slider
+    // lives inside the same pill.
+    expect(volumeGroup.querySelector('.anticon-down')).toBeNull();
+    expect(volumeGroup.contains(screen.getByLabelText('Volume'))).toBe(true);
   });
 
   test('routes play/pause, mute and live-edge actions to the callbacks', () => {
@@ -170,5 +181,70 @@ describe('PlayerControls overlay', () => {
   test('shows Collecting… before the first stats sample', () => {
     render(<PlayerControls {...makeProps({ statsOpen: true })} />);
     expect(screen.getByText('Collecting...')).toBeInTheDocument();
+  });
+});
+
+describe('HLS transport metering helpers', () => {
+  test('video bitrate prefers decoded bytes, then segment bytes/seconds, then playlist bandwidth', () => {
+    expect(
+      hlsVideoBitrateKbps({ mediaBytesTransferred: 8_000_000, mediaSecondsLoaded: 60 }),
+    ).toBeCloseTo(1066.67, 1);
+    expect(
+      hlsVideoBitrateKbps({
+        mediaBytesTransferred: 8_000_000,
+        mediaSecondsLoaded: 60,
+        decodedBitsPerSecond: 1_090_000,
+      }),
+    ).toBeCloseTo(1090, 3);
+    expect(hlsVideoBitrateKbps({ representationBandwidthBps: 1_200_000 })).toBeCloseTo(1200, 3);
+    expect(hlsVideoBitrateKbps({})).toBeNull();
+  });
+
+  test('connection speed uses segment transfer duration and never drops below the stream bitrate', () => {
+    expect(
+      hlsConnectionSpeedKbps(
+        { mediaBytesTransferred: 8_000_000, mediaTransferDurationMs: 7_400, audioBitrateKbps: 131 },
+        1090,
+      ),
+    ).toBeCloseTo(8648.65, 0);
+    expect(hlsConnectionSpeedKbps({ systemBandwidthBps: 12_000_000 }, 1090)).toBeCloseTo(12000, 0);
+    expect(hlsConnectionSpeedKbps({}, 1090)).toBeCloseTo(1090, 0);
+    expect(hlsConnectionSpeedKbps({}, null)).toBeNull();
+  });
+
+  test('fps comes from decoded frame deltas with a playlist FRAME-RATE fallback', () => {
+    expect(hlsMeasuredFps(24, 1)).toBe(24);
+    expect(hlsMeasuredFps(47, 2)).toBe(24);
+    expect(hlsMeasuredFps(0, 1)).toBeNull();
+    expect(hlsMeasuredFps(null, 1)).toBeNull();
+    expect(hlsPlaylistFps({ 'FRAME-RATE': '24.000' })).toBe(24);
+    expect(hlsPlaylistFps(null, '1.2Mbps@24fps')).toBe(24);
+    expect(hlsPlaylistFps({}, 'Auto')).toBeNull();
+  });
+
+  test('resolution/optimal row and live mode use the reference formatting', () => {
+    expect(hlsResolution(1280, 720, 24)).toBe('1280x720@24fps');
+    expect(hlsResolution(1280, 720, null)).toBe('1280x720');
+    expect(hlsResolution(0, 0, 24)).toBe('—');
+    expect(hlsLiveMode('hls')).toBe('HLS (hls)');
+    expect(hlsLiveMode(null)).toBe('HLS (hls)');
+    expect(hlsLiveMode('transcode')).toBe('HLS (transcode)');
+    const rows = buildStatsRows({
+      ...makeEmptyStats(false),
+      resolution: '1280x720@24fps',
+      optimalResolution: '1280x720@24fps',
+      audioBitrateKbps: 131,
+      videoBitrateKbps: 1090,
+      connectionSpeedKbps: 8710,
+      liveMode: 'HLS (hls)',
+    });
+    const values = Object.fromEntries(rows.map(row => [row.label, row.value]));
+    expect(values['Current / Optimal Res']).toBe('1280x720@24fps / 1280x720@24fps');
+    expect(values['Audio Bitrate']).toBe('131 kbps (ingest)');
+    expect(values['Video Bitrate']).toBe('1.09 Mbps');
+    expect(values['Connection Speed']).toBe('8.71 Mbps');
+    expect(values['Live Mode']).toBe('HLS (hls)');
+    expect(values['RTT / Jitter']).toBe('—');
+    expect(values['Packet Loss (video)']).toBe('—');
   });
 });

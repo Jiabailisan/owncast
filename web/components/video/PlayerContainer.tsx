@@ -163,40 +163,41 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
     );
   }
 
+  // The player root must be the element Content's Row renders as its direct
+  // child (className topSectionElement, id="player") so custom themes that
+  // target "#player" and ".ant-row:has(> #player)" apply to both transports.
   if (protocol === 'webrtc') {
     return (
-      <div className={classNames(styles.container, className)} data-protocol="webrtc">
-        <WebRTCPlayer
-          whepUrl={webrtcConfig?.whepUrl || ''}
-          variants={webrtcConfig?.variants}
-          iceServers={webrtcConfig?.iceServers}
-          online={online}
-          autoplay={autoplay}
-          initiallyMuted={initiallyMuted}
-          title={title}
-          sessionFactory={webRTCSessionFactory}
-          onFallback={handleWebRTCFallback}
-          transport={transportPreference}
-          webrtcAvailable={webRTCAvailable}
-          onTransportChange={handleTransportChange}
-        />
-      </div>
+      <WebRTCPlayer
+        whepUrl={webrtcConfig?.whepUrl || ''}
+        variants={webrtcConfig?.variants}
+        iceServers={webrtcConfig?.iceServers}
+        online={online}
+        autoplay={autoplay}
+        initiallyMuted={initiallyMuted}
+        title={title}
+        sessionFactory={webRTCSessionFactory}
+        onFallback={handleWebRTCFallback}
+        transport={transportPreference}
+        webrtcAvailable={webRTCAvailable}
+        onTransportChange={handleTransportChange}
+        className={className}
+      />
     );
   }
 
   return (
-    <div className={classNames(styles.container, className)} data-protocol="hls">
-      <OwncastPlayer
-        source={source}
-        online={online}
-        initiallyMuted={initiallyMuted}
-        autoplay={autoplay}
-        title={title}
-        transport={transportPreference}
-        webrtcAvailable={webRTCAvailable}
-        onTransportChange={handleTransportChange}
-        transportError={protocol === 'hls' ? fallbackReason?.message : undefined}
-      />
-    </div>
+    <OwncastPlayer
+      source={source}
+      online={online}
+      initiallyMuted={initiallyMuted}
+      autoplay={autoplay}
+      title={title}
+      transport={transportPreference}
+      webrtcAvailable={webRTCAvailable}
+      onTransportChange={handleTransportChange}
+      transportError={protocol === 'hls' ? fallbackReason?.message : undefined}
+      className={className}
+    />
   );
 };
