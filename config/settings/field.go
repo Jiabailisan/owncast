@@ -170,6 +170,7 @@ var labelOverrides = map[string]string{
 	"minBitratePerViewerKbps":   "Min bitrate per viewer",
 	"customPlayerPath":          "Custom player module path",
 	"customFrontendDir":         "Custom frontend directory",
+	"publicIPs":                 "Public IPs",
 }
 
 // fieldLabel humanizes a field key for a short form label.

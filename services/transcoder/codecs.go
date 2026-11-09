@@ -8,6 +8,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// hwAccelFlag is shared by the hardware codec definitions and the thumbnail
+// preview decoder.
+const hwAccelFlag = "-hwaccel"
+
 // ffmpeg x264-style encoding preset names, ordered from fastest to slowest.
 const (
 	presetUltrafast = "ultrafast"
@@ -200,7 +204,7 @@ func (c *VaapiCodec) DisplayName() string {
 // GlobalFlags are the global flags used with this codec in the transcoder.
 func (c *VaapiCodec) GlobalFlags() []string {
 	flags := []string{
-		"-hwaccel", codecNameVAAPI,
+		hwAccelFlag, codecNameVAAPI,
 		"-hwaccel_output_format", codecNameVAAPI,
 		"-vaapi_device", "/dev/dri/renderD128",
 	}
@@ -269,7 +273,7 @@ func (c *NvencCodec) DisplayName() string {
 // GlobalFlags are the global flags used with this codec in the transcoder.
 func (c *NvencCodec) GlobalFlags() []string {
 	flags := []string{
-		"-hwaccel", "cuda",
+		hwAccelFlag, "cuda",
 	}
 
 	return flags
