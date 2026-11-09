@@ -87,8 +87,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hoveredRef = useRef(false);
-  const focusRef = useRef(false);
   const [visible, setVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
   const [transportOpen, setTransportOpen] = useState(initialMenu === 'transport');
@@ -99,9 +97,18 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   const scheduleHide = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
-      // Keep the bar visible while paused, hovering the player or focused
-      // inside it (reference behavior).
-      if (!playing || hoveredRef.current || focusRef.current) return;
+      // Keep the bar visible while paused, while the pointer is over any
+      // player control, or while focus is inside the player (reference
+      // behavior). The refs used previously were only cleared by events on
+      // the overlay root, whose pointer-events are disabled, so one bar
+      // interaction could pin the controls visible forever.
+      const root = rootRef.current;
+      const focusedInside = Boolean(root && root.contains(document.activeElement));
+      const pointerInside = Boolean(root && root.querySelector(':hover'));
+      if (!playing || focusedInside || pointerInside) {
+        scheduleHide();
+        return;
+      }
       setVisible(false);
     }, IDLE_HIDE_MS);
   }, [playing]);
@@ -179,21 +186,11 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         onPointerMove={() => {
           if (!anyMenuOpen) reveal();
         }}
-        onPointerEnter={() => {
-          hoveredRef.current = true;
-          reveal();
-        }}
+        onPointerEnter={reveal}
         onPointerLeave={() => {
-          hoveredRef.current = false;
           if (playing && !anyMenuOpen) scheduleHide();
         }}
-        onFocusCapture={() => {
-          focusRef.current = true;
-          reveal();
-        }}
-        onBlurCapture={() => {
-          focusRef.current = false;
-        }}
+        onFocusCapture={reveal}
       >
         {loading && !playing && <div className={styles.loadingSpinner} aria-label="Loading" />}
         {!playing && !loading && (
@@ -316,114 +313,114 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           >
             {fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
           </button>
-
-          {transportOpen && (
-            <div className={styles.transportMenu} data-player-control="true">
-              {[
-                { value: 'auto' as TransportPreference, label: 'Auto' },
-                { value: 'webrtc' as TransportPreference, label: 'WebRTC' },
-                { value: 'hls' as TransportPreference, label: 'HLS' },
-              ].map(item => {
-                const disabled = item.value === 'webrtc' && !webrtcAvailable;
-                return (
-                  <button
-                    key={item.value}
-                    type="button"
-                    className={classNames(styles.menuRow, {
-                      [styles.selected]: transport === item.value,
-                      [styles.menuRowDisabled]: disabled,
-                    })}
-                    disabled={disabled}
-                    data-player-control="true"
-                    onClick={() => selectTransport(item.value)}
-                  >
-                    <span>{item.label}</span>
-                    {transport === item.value && <CheckOutlined />}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {settingsOpen && (
-            <div className={styles.settingsMenu} data-player-control="true">
-              {showQuality && qualities.length > 0 && (
-                <>
-                  <div className={styles.menuHeading}>QUALITY</div>
-                  <button
-                    type="button"
-                    className={classNames(styles.menuRow, {
-                      [styles.selected]: selectedQuality === 'auto',
-                    })}
-                    data-player-control="true"
-                    onClick={() => selectQuality('auto')}
-                  >
-                    <span>Auto</span>
-                    {selectedQuality === 'auto' && <CheckOutlined />}
-                  </button>
-                  {qualities.map(quality => (
-                    <button
-                      key={quality.id}
-                      type="button"
-                      className={classNames(styles.menuRow, {
-                        [styles.selected]: selectedQuality === quality.id,
-                      })}
-                      data-player-control="true"
-                      onClick={() => selectQuality(quality.id)}
-                    >
-                      <span>{quality.name}</span>
-                      {selectedQuality === quality.id && <CheckOutlined />}
-                    </button>
-                  ))}
-                  <div className={styles.menuDivider} />
-                </>
-              )}
-
-              <button
-                type="button"
-                className={styles.menuRow}
-                aria-pressed={statsOpen}
-                data-player-control="true"
-                onClick={callbacks.onToggleStats}
-              >
-                <span>Stats for nerds</span>
-                <span
-                  className={classNames(styles.togglePill, { [styles.toggleOn]: statsOpen })}
-                  data-testid="stats-toggle-pill"
-                >
-                  {statsOpen ? 'ON' : 'OFF'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className={styles.menuRow}
-                aria-pressed={latencyEnabled}
-                data-player-control="true"
-                onClick={callbacks.onToggleLatency}
-              >
-                <span>Minimize latency</span>
-                <span
-                  className={classNames(styles.togglePill, { [styles.toggleOn]: latencyEnabled })}
-                  data-testid="latency-toggle-pill"
-                >
-                  {latencyEnabled ? 'ON' : 'OFF'}
-                </span>
-              </button>
-
-              {!latencySupported && (
-                <div className={styles.menuNote}>
-                  Minimize latency is not supported for this transport.
-                </div>
-              )}
-              {note && (
-                <div className={styles.menuNote} data-testid="transport-note">
-                  {note}
-                </div>
-              )}
-            </div>
-          )}
         </div>
+
+        {transportOpen && (
+          <div className={styles.transportMenu} data-player-control="true">
+            {[
+              { value: 'auto' as TransportPreference, label: 'Auto' },
+              { value: 'webrtc' as TransportPreference, label: 'WebRTC' },
+              { value: 'hls' as TransportPreference, label: 'HLS' },
+            ].map(item => {
+              const disabled = item.value === 'webrtc' && !webrtcAvailable;
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  className={classNames(styles.menuRow, {
+                    [styles.selected]: transport === item.value,
+                    [styles.menuRowDisabled]: disabled,
+                  })}
+                  disabled={disabled}
+                  data-player-control="true"
+                  onClick={() => selectTransport(item.value)}
+                >
+                  <span>{item.label}</span>
+                  {transport === item.value && <CheckOutlined />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {settingsOpen && (
+          <div className={styles.settingsMenu} data-player-control="true">
+            {showQuality && qualities.length > 0 && (
+              <>
+                <div className={styles.menuHeading}>QUALITY</div>
+                <button
+                  type="button"
+                  className={classNames(styles.menuRow, {
+                    [styles.selected]: selectedQuality === 'auto',
+                  })}
+                  data-player-control="true"
+                  onClick={() => selectQuality('auto')}
+                >
+                  <span>Auto</span>
+                  {selectedQuality === 'auto' && <CheckOutlined />}
+                </button>
+                {qualities.map(quality => (
+                  <button
+                    key={quality.id}
+                    type="button"
+                    className={classNames(styles.menuRow, {
+                      [styles.selected]: selectedQuality === quality.id,
+                    })}
+                    data-player-control="true"
+                    onClick={() => selectQuality(quality.id)}
+                  >
+                    <span>{quality.name}</span>
+                    {selectedQuality === quality.id && <CheckOutlined />}
+                  </button>
+                ))}
+                <div className={styles.menuDivider} />
+              </>
+            )}
+
+            <button
+              type="button"
+              className={styles.menuRow}
+              aria-pressed={statsOpen}
+              data-player-control="true"
+              onClick={callbacks.onToggleStats}
+            >
+              <span>Stats for nerds</span>
+              <span
+                className={classNames(styles.togglePill, { [styles.toggleOn]: statsOpen })}
+                data-testid="stats-toggle-pill"
+              >
+                {statsOpen ? 'ON' : 'OFF'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className={styles.menuRow}
+              aria-pressed={latencyEnabled}
+              data-player-control="true"
+              onClick={callbacks.onToggleLatency}
+            >
+              <span>Minimize latency</span>
+              <span
+                className={classNames(styles.togglePill, { [styles.toggleOn]: latencyEnabled })}
+                data-testid="latency-toggle-pill"
+              >
+                {latencyEnabled ? 'ON' : 'OFF'}
+              </span>
+            </button>
+
+            {!latencySupported && (
+              <div className={styles.menuNote}>
+                Minimize latency is not supported for this transport.
+              </div>
+            )}
+            {note && (
+              <div className={styles.menuNote} data-testid="transport-note">
+                {note}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   );
