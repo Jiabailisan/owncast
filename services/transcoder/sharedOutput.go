@@ -22,6 +22,9 @@ func (t *Transcoder) sharedOutputEnabled() bool {
 	if t.rtpOnly || len(t.rtpOutputs) == 0 || len(t.variants) == 0 {
 		return false
 	}
+	if !t.codec.SupportsSharedTranscode() {
+		return false
+	}
 	if t.configRepository != nil && t.configRepository.GetS3Config().Enabled {
 		return false
 	}
@@ -97,6 +100,8 @@ func (t *Transcoder) sharedAudioEncoderFlags() []string {
 // Opus audio stream.
 func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string {
 	flags := make([]string, 0, len(t.variants)*24+64)
+	t.sharedMode = true
+	defer func() { t.sharedMode = false }()
 	for _, variant := range t.variants {
 		flags = append(flags, variant.getVariantString(t)...)
 	}

@@ -92,6 +92,11 @@ type Transcoder struct {
 	// stays byte-identical while WebRTC gets its own decoder and input flags.
 	rtpOnly bool
 
+	// sharedMode is set while rendering the shared HLS+WebRTC tee output so
+	// variant encoders apply WebRTC-compatible constraints (no B-frames and a
+	// browser-supported profile) while keeping the HLS rate control.
+	sharedMode bool
+
 	// state is the inspectable live-process state for the admin FFmpeg panel.
 	state processState
 }
@@ -599,7 +604,11 @@ func (v *HLSVariant) getVideoQualityString(t *Transcoder) []string {
 		fmt.Sprintf("-keyint_min:v:%d", v.index), fmt.Sprintf("%d", gop), // minimum i-keyframe interval
 		fmt.Sprintf("-r:v:%d", v.index), fmt.Sprintf("%d", v.framerate),
 	)
-	cmd = append(cmd, t.codec.VariantFlags(v)...)
+	if t.sharedMode {
+		cmd = append(cmd, t.codec.SharedVariantFlags(v)...)
+	} else {
+		cmd = append(cmd, t.codec.VariantFlags(v)...)
+	}
 
 	return cmd
 }

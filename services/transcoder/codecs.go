@@ -40,6 +40,15 @@ type Codec interface {
 	// flags live here so switching codecs can never leak one encoder's options
 	// into another encoder's argv.
 	DecodeFlags() []string
+	// SupportsSharedTranscode reports whether one HLS encode from this codec can
+	// also be delivered to WebRTC. WebRTC H.264 requires no B-frames and a
+	// browser-supported profile, so only codecs that can configure that are
+	// eligible for the shared tee output.
+	SupportsSharedTranscode() bool
+	// SharedVariantFlags replaces VariantFlags in the shared tee output: it
+	// keeps the HLS rate control but constrains profile/B-frames so the encoded
+	// stream stays WebRTC-decodable.
+	SharedVariantFlags(v *HLSVariant) []string
 }
 
 var supportedCodecs = map[string]string{
@@ -588,3 +597,45 @@ func (c *QuicksyncCodec) DecodeFlags() []string { return nil }
 func (c *Video4Linux) DecodeFlags() []string { return nil }
 
 func (c *VideoToolboxCodec) DecodeFlags() []string { return nil }
+
+// Shared transcode capability and flags.
+
+func (c *Libx264Codec) SupportsSharedTranscode() bool { return true }
+
+func (c *Libx264Codec) SharedVariantFlags(v *HLSVariant) []string {
+	return []string{
+		fmt.Sprintf("-x264-params:v:%d", v.index), "scenecut=0:open_gop=0:bframes=0",
+		fmt.Sprintf("-bufsize:v:%d", v.index), fmt.Sprintf("%dk", v.getBufferSize()),
+		fmt.Sprintf("-profile:v:%d", v.index), h264ProfileMain,
+	}
+}
+
+func (c *NvencCodec) SupportsSharedTranscode() bool { return true }
+
+func (c *NvencCodec) SharedVariantFlags(v *HLSVariant) []string {
+	return []string{
+		fmt.Sprintf("-tune:v:%d", v.index), "ll",
+		fmt.Sprintf("-profile:v:%d", v.index), h264ProfileMain,
+		fmt.Sprintf("-bf:v:%d", v.index), "0",
+	}
+}
+
+func (c *OmxCodec) SupportsSharedTranscode() bool { return false }
+
+func (c *OmxCodec) SharedVariantFlags(v *HLSVariant) []string { return nil }
+
+func (c *VaapiCodec) SupportsSharedTranscode() bool { return false }
+
+func (c *VaapiCodec) SharedVariantFlags(v *HLSVariant) []string { return nil }
+
+func (c *QuicksyncCodec) SupportsSharedTranscode() bool { return false }
+
+func (c *QuicksyncCodec) SharedVariantFlags(v *HLSVariant) []string { return nil }
+
+func (c *Video4Linux) SupportsSharedTranscode() bool { return false }
+
+func (c *Video4Linux) SharedVariantFlags(v *HLSVariant) []string { return nil }
+
+func (c *VideoToolboxCodec) SupportsSharedTranscode() bool { return false }
+
+func (c *VideoToolboxCodec) SharedVariantFlags(v *HLSVariant) []string { return nil }
