@@ -125,6 +125,7 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 	// stream, in that order.
 	for index := range t.variants {
 		options := []string{
+			teeOptionString("use_fifo", "1"),
 			teeOptionString("f", "hls"),
 			teeOptionString("select", teeSelect(fmt.Sprintf("v:%d,a:%d", index, index))),
 			teeOptionString("hls_time", strconv.Itoa(t.currentLatencyLevel.SecondsPerSegment)),
@@ -146,15 +147,21 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 	// its HLS variant's video ordinal.
 	opusAudioOrdinal := len(t.variants)
 	for _, output := range t.rtpOutputs {
-		videoSlaveOptions := []string{
-			"bsfs/v=dump_extra=freq=keyframe",
-			teeOptionString("select", teeSelect("v:"+strconv.Itoa(output.VariantIndex))),
-			teeOptionString("f", "rtp"),
-			teeOptionString("payload_type", strconv.Itoa(output.VideoPayloadType)),
+		// Copy legs keep a dedicated RTP output (the legacy, known-good path);
+		// only encoded legs share the tee video stream. The source packets are
+		// still copied, not re-encoded.
+		if !output.CopyVideo {
+			videoSlaveOptions := []string{
+				teeOptionString("use_fifo", "1"),
+				teeOptionString("select", teeSelect("v:"+strconv.Itoa(output.VariantIndex))),
+				teeOptionString("f", "rtp"),
+				teeOptionString("payload_type", strconv.Itoa(output.VideoPayloadType)),
+			}
+			slaves = append(slaves, "["+strings.Join(videoSlaveOptions, ":")+"]"+withRTPPacketSize(output.VideoURL))
 		}
-		slaves = append(slaves, "["+strings.Join(videoSlaveOptions, ":")+"]"+withRTPPacketSize(output.VideoURL))
 
 		audioSlaveOptions := []string{
+			teeOptionString("use_fifo", "1"),
 			teeOptionString("select", teeSelect("a:"+strconv.Itoa(opusAudioOrdinal))),
 			teeOptionString("f", "rtp"),
 			teeOptionString("payload_type", strconv.Itoa(output.AudioPayloadType)),
@@ -163,6 +170,23 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 	}
 
 	flags = append(flags, "-f", "tee", strings.Join(slaves, "|"))
+
+	// Dedicated copy video legs: keep the legacy RTP output shape for sources
+	// whose copied bitstream browsers are known to accept.
+	for _, output := range t.rtpOutputs {
+		if !output.CopyVideo {
+			continue
+		}
+		flags = append(
+			flags,
+			ffmpegFlagMap, "0:v:0",
+			"-c:v", "copy",
+			"-bsf:v", "dump_extra=freq=keyframe",
+			"-f", "rtp",
+			"-payload_type", strconv.Itoa(output.VideoPayloadType),
+			withRTPPacketSize(output.VideoURL),
+		)
+	}
 
 	return flags
 }
