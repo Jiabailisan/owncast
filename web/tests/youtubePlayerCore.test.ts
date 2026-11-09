@@ -1,9 +1,10 @@
-// Unit tests for the YouTube Live-style custom player (task-24).
+// Unit tests for the YouTube Live-style custom player (task-24/32).
 //
 // The example player is served as a single ES module, so its pure helpers are
 // exported from the real file and tested here without a browser. This keeps the
 // logic that decides transports/persistence/stats formatting covered while the
-// Playwright suite (tools/browser/youtube-player-e2e.mjs) covers the UI.
+// Playwright suite (tools/browser/youtube-player-e2e.mjs) covers the UI,
+// video scaling and live-edge behavior.
 
 import {
   AUTO_QUALITY,
@@ -38,7 +39,7 @@ type MemoryStorage = {
 function memoryStorage(initial: Record<string, string> = {}): MemoryStorage {
   const data: Record<string, string> = { ...initial };
   return {
-    getItem: key => (key in data ? data[key] : null),
+    getItem: (key) => (key in data ? data[key] : null),
     setItem: (key, value) => {
       data[key] = String(value);
     },
@@ -51,6 +52,10 @@ function fakeTimeRanges(ranges: Array<[number, number]>) {
     start: (index: number) => ranges[index][0],
     end: (index: number) => ranges[index][1],
   } as unknown as TimeRanges;
+}
+
+function rowsToMap(rows: Array<{ label: string; value: string; bar?: number }>) {
+  return Object.fromEntries(rows.map((row) => [row.label, row]));
 }
 
 describe('transport selection', () => {
@@ -175,61 +180,94 @@ describe('WHEP URL and stats math', () => {
   it('computes bitrate from monotonic byte samples', () => {
     const kbps = bitrateKbpsFromSamples({ bytes: 1000, time: 0 }, { bytes: 251000, time: 1000 });
     expect(kbps).toBeCloseTo(2000);
-    expect(
-      bitrateKbpsFromSamples({ bytes: 2000, time: 1000 }, { bytes: 1000, time: 2000 }),
-    ).toBeNull();
+    expect(bitrateKbpsFromSamples({ bytes: 2000, time: 1000 }, { bytes: 1000, time: 2000 })).toBeNull();
     expect(bitrateKbpsFromSamples(null, { bytes: 1, time: 1 })).toBeNull();
   });
 
   it('parses the public server status defensively', () => {
-    expect(parseServerStatus({ online: true, viewerCount: 4 })).toEqual({
-      online: true,
-      viewerCount: 4,
-    });
-    expect(parseServerStatus(null)).toEqual({ online: null, viewerCount: null });
-    expect(parseServerStatus({ online: 'yes' })).toEqual({ online: null, viewerCount: null });
+    expect(parseServerStatus({ online: true, viewerCount: 4, inputProtocol: 'srt' }))
+      .toEqual({ online: true, viewerCount: 4, inputProtocol: 'srt' });
+    expect(parseServerStatus(null)).toEqual({ online: null, viewerCount: null, inputProtocol: null });
+    expect(parseServerStatus({ online: 'yes' })).toEqual({ online: null, viewerCount: null, inputProtocol: null });
   });
 });
 
-describe('stats for nerds rows', () => {
-  it('renders values for WebRTC stats', () => {
-    const rows = getStatsRows(
-      {
-        protocol: 'WebRTC',
-        transportDetail: 'WHEP',
-        connectionState: 'connected',
-        width: 1280,
-        height: 720,
-        fps: 30,
-        videoCodec: 'video/H264',
-        audioCodec: 'audio/opus',
-        bitrateKbps: 2400,
-        bufferAheadSeconds: 0.4,
-        droppedFrames: 2,
-        jitterMs: 3.2,
-        rttMs: 11.4,
-        packetsLost: 0,
-        details: 'WHEP session abc',
-      },
-      { online: true, viewerCount: 3 },
-    );
-    const table = Object.fromEntries(rows);
-    expect(table['Protocol']).toBe('WebRTC');
-    expect(table['Resolution']).toBe('1280x720');
-    expect(table['Frame rate']).toBe('30 fps');
-    expect(table['Bitrate']).toBe('2400 kbps');
-    expect(table['Round-trip time']).toBe('11.4 ms');
-    expect(table['Server viewers']).toBe('3');
-    expect(table['Server ingest bitrate']).toBe('N/A (admin only)');
+describe('stats for nerds rows (YouTube layout)', () => {
+  const webrtcStats = {
+    protocol: 'WebRTC',
+    width: 1280,
+    height: 720,
+    fps: 30,
+    videoCodec: 'video/H264',
+    audioCodec: 'audio/opus',
+    bitrateKbps: 2400,
+    bufferAheadSeconds: 0.4,
+    droppedFrames: 2,
+    totalFrames: 640,
+    bytesReceived: 1024 * 1024,
+    optimalWidth: 1280,
+    optimalHeight: 720,
+    liveLatencySeconds: null,
+    liveMode: 'WebRTC (WHEP), ICE connected',
+    streamId: 'abc123',
+  };
+  const ui = { viewportWidth: 1112, viewportHeight: 626, volumePct: 100, normalizedPct: 100, date: 'Mon Nov 09 2026' };
+
+  it('renders the exact YouTube labels in order', () => {
+    const labels = getStatsRows(webrtcStats, { online: true, viewerCount: 3, inputProtocol: 'rtmp' }, ui)
+      .map((row) => row.label);
+    expect(labels).toEqual([
+      'Video ID / sCPN',
+      'Viewport / Frames',
+      'Current / Optimal Res',
+      'Volume / Normalized',
+      'Codecs',
+      'Connection Speed',
+      'Network Activity',
+      'Buffer Health',
+      'Live Latency',
+      'Live Mode',
+      'Server / Ingest',
+      'Mystery Text',
+      'Date',
+    ]);
+  });
+
+  it('formats WebRTC values and includes the bar rows', () => {
+    const rows = rowsToMap(getStatsRows(webrtcStats, { online: true, viewerCount: 3, inputProtocol: 'rtmp' }, ui));
+    expect(rows['Video ID / sCPN'].value).toBe('abc123');
+    expect(rows['Viewport / Frames'].value).toBe('1112x626 / 2 dropped of 640');
+    expect(rows['Current / Optimal Res'].value).toBe('1280x720@30 / 1280x720');
+    expect(rows['Volume / Normalized'].value).toBe('100%/100%');
+    expect(rows['Codecs'].value).toBe('video/H264 / audio/opus');
+    expect(rows['Connection Speed'].value).toBe('2400 Kbps');
+    expect(rows['Network Activity'].value).toBe('1024.00 KB');
+    expect(rows['Live Mode'].value).toContain('WebRTC');
+    expect(rows['Server / Ingest'].value).toContain('RTMP');
+    expect(rows['Date'].value).toBe('Mon Nov 09 2026');
+    expect(rows['Connection Speed'].bar).toBeGreaterThan(0);
+    expect(rows['Network Activity'].bar).toBeGreaterThan(0);
+  });
+
+  it('formats HLS values with buffer/latency bars', () => {
+    const rows = rowsToMap(getStatsRows(
+      { width: 1280, height: 720, fps: 30, bitrateKbps: 2500, bufferAheadSeconds: 6.5, liveLatencySeconds: 2.5, liveMode: 'HLS (VHS)' },
+      { online: true, viewerCount: 1, inputProtocol: 'srt' },
+      ui,
+    ));
+    expect(rows['Buffer Health'].value).toBe('6.50 s');
+    expect(rows['Live Latency'].value).toBe('2.50s');
+    expect(rows['Buffer Health'].bar).toBeGreaterThan(0);
+    expect(rows['Server / Ingest'].value).toContain('SRT');
   });
 
   it('uses N/A placeholders for missing values', () => {
-    const table = Object.fromEntries(getStatsRows({}, { online: null, viewerCount: null }));
-    expect(table['Protocol']).toBe('N/A');
-    expect(table['Resolution']).toBe('N/A');
-    expect(table['Bitrate']).toBe('N/A');
-    expect(table['Jitter']).toBe('N/A');
-    expect(table['Server online']).toBe('N/A');
-    expect(table['Server viewers']).toBe('N/A');
+    const rows = rowsToMap(getStatsRows({}, { online: null, viewerCount: null }, {}));
+    expect(rows['Video ID / sCPN'].value).toBe('N/A');
+    expect(rows['Viewport / Frames'].value).toBe('N/A / N/A');
+    expect(rows['Codecs'].value).toBe('N/A');
+    expect(rows['Connection Speed'].value).toBe('N/A');
+    expect(rows['Live Latency'].value).toBe('N/A');
+    expect(rows['Date'].value).not.toBe('N/A');
   });
 });
