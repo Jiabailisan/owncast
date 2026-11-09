@@ -13,16 +13,15 @@ import (
 )
 
 // GetServerConfig gets the config details of the server.
-func (a *Admin) GetServerConfig(w http.ResponseWriter, r *http.Request) {
-	configRepository := a.configRepository
-	ffmpeg := utils.ValidatedFfmpegPath(configRepository.GetFfMpegPath())
-	usernameBlocklist := configRepository.GetForbiddenUsernameList()
-	usernameSuggestions := configRepository.GetSuggestedUsernamesList()
-
-	streamOutputVariants := configRepository.GetStreamOutputVariants()
-	videoQualityVariants := make([]models.StreamOutputVariant, 0, len(streamOutputVariants))
-	for _, variant := range streamOutputVariants {
-		videoQualityVariants = append(videoQualityVariants, models.StreamOutputVariant{
+// streamOutputVariantsForAdmin converts stored variants into the admin response
+// shape. The per-protocol Outputs mapping must be carried through: the Video
+// page reads the mapping from this payload and posts the whole list back on
+// save, so dropping it here silently erased WebRTC/HLS output settings after
+// any page reload or restart.
+func streamOutputVariantsForAdmin(variants []models.StreamOutputVariant) []models.StreamOutputVariant {
+	converted := make([]models.StreamOutputVariant, 0, len(variants))
+	for _, variant := range variants {
+		converted = append(converted, models.StreamOutputVariant{
 			Name:               variant.GetName(),
 			IsAudioPassthrough: variant.GetIsAudioPassthrough(),
 			IsVideoPassthrough: variant.IsVideoPassthrough,
@@ -32,8 +31,20 @@ func (a *Admin) GetServerConfig(w http.ResponseWriter, r *http.Request) {
 			CPUUsageLevel:      variant.CPUUsageLevel,
 			ScaledWidth:        variant.ScaledWidth,
 			ScaledHeight:       variant.ScaledHeight,
+			Outputs:            variant.Outputs,
 		})
 	}
+	return converted
+}
+
+func (a *Admin) GetServerConfig(w http.ResponseWriter, r *http.Request) {
+	configRepository := a.configRepository
+	ffmpeg := utils.ValidatedFfmpegPath(configRepository.GetFfMpegPath())
+	usernameBlocklist := configRepository.GetForbiddenUsernameList()
+	usernameSuggestions := configRepository.GetSuggestedUsernamesList()
+
+	streamOutputVariants := configRepository.GetStreamOutputVariants()
+	videoQualityVariants := streamOutputVariantsForAdmin(streamOutputVariants)
 	response := serverConfigAdminResponse{
 		InstanceDetails: webConfigResponse{
 			Name:                configRepository.GetServerName(),
