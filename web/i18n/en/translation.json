@@ -666,7 +666,8 @@
 		"Player": {
 			"fallbackToHlsNotice": "Low-latency playback is unavailable right now. Switched to the standard stream.",
 			"qualityAuto": "Auto",
-			"webrtcConnecting": "Connecting to the low-latency stream..."
+			"webrtcConnecting": "Connecting to the low-latency stream...",
+			"webrtcUnavailableNotice": "WebRTC is unavailable; using HLS."
 		},
 		"StreamsTab": {
 			"errorLoadingStreams": "Error loading streams",

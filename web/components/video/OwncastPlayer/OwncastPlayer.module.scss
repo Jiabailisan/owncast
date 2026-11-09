@@ -25,8 +25,22 @@
 
   .player,
   .poster {
+    position: relative;
     width: 100%;
     grid-column: 1;
     grid-row: 1;
+  }
+
+  .transportError {
+    position: absolute;
+    top: 48px;
+    right: 12px;
+    z-index: 6;
+    max-width: 320px;
+    padding: 4px 8px;
+    color: #fff;
+    font-size: 12px;
+    background: rgb(120 20 20 / 82%);
+    border-radius: 4px;
   }
 }

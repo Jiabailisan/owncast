@@ -84,6 +84,116 @@ export function summarizeWebRTCStats(
   return { summary, videoSample };
 }
 
+// One Stats-for-nerds sample derived from RTCPeerConnection.getStats(). The
+// previous sample is needed for bitrate deltas. Missing values stay null so the
+// panel renders N/A.
+export interface WebRTCStatsPanelSample {
+  videoBitrateKbps: number | null;
+  audioBitrateKbps: number | null;
+  connectionSpeedKbps: number | null;
+  rttMs: number | null;
+  jitterMs: number | null;
+  packetsLost: number | null;
+  packetsReceived: number | null;
+  frameWidth: number | null;
+  frameHeight: number | null;
+  framesPerSecond: number | null;
+  framesDropped: number | null;
+  framesDecoded: number | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
+  timestamp: number;
+  videoBytes: number;
+  audioBytes: number;
+}
+
+interface WebRTCBytesSample {
+  timestamp: number;
+  videoBytes: number;
+  audioBytes: number;
+}
+
+export function collectWebRTCStatsPanel(
+  report: RTCStatsReport,
+  previous?: WebRTCBytesSample | null,
+): { sample: WebRTCStatsPanelSample; bytes: WebRTCBytesSample } {
+  const codecs: Record<string, string> = {};
+  const inbound: { video?: Record<string, unknown>; audio?: Record<string, unknown> } = {};
+  let candidateRtt: number | null = null;
+
+  report.forEach((stat: Record<string, unknown>) => {
+    if (stat.type === 'codec') {
+      const mimeType = typeof stat.mimeType === 'string' ? stat.mimeType : '';
+      codecs[String(stat.id)] = mimeType;
+    }
+    if (stat.type === 'inbound-rtp') {
+      if (stat.kind === 'video') inbound.video = stat;
+      if (stat.kind === 'audio') inbound.audio = stat;
+    }
+    if (
+      stat.type === 'candidate-pair' &&
+      (stat.nominated === true || stat.state === 'succeeded') &&
+      typeof stat.currentRoundTripTime === 'number'
+    ) {
+      candidateRtt = stat.currentRoundTripTime * 1000;
+    }
+  });
+
+  const video = inbound.video || {};
+  const audio = inbound.audio || {};
+  const timestamp = Date.now();
+  const videoBytes = Number(video.bytesReceived) || 0;
+  const audioBytes = Number(audio.bytesReceived) || 0;
+
+  const kbps = (bytes: number, seconds: number): number | null => {
+    if (!Number.isFinite(bytes) || seconds <= 0 || bytes < 0) return null;
+    return (bytes * 8) / seconds / 1000;
+  };
+
+  let videoBitrateKbps: number | null = null;
+  let audioBitrateKbps: number | null = null;
+  let connectionSpeedKbps: number | null = null;
+  if (previous && timestamp > previous.timestamp) {
+    const seconds = (timestamp - previous.timestamp) / 1000;
+    videoBitrateKbps = kbps(videoBytes - previous.videoBytes, seconds);
+    audioBitrateKbps = kbps(audioBytes - previous.audioBytes, seconds);
+    if (videoBitrateKbps !== null || audioBitrateKbps !== null) {
+      connectionSpeedKbps = (videoBitrateKbps || 0) + (audioBitrateKbps || 0);
+    }
+  }
+
+  const videoCodecId = video.codecId ? String(video.codecId) : '';
+  const audioCodecId = audio.codecId ? String(audio.codecId) : '';
+  const simplifyCodec = (mime: string | undefined): string | null => {
+    if (!mime) return null;
+    const matched = mime.match(/\/([^;]+)/i);
+    return matched ? matched[1].toUpperCase() : mime;
+  };
+
+  return {
+    sample: {
+      videoBitrateKbps,
+      audioBitrateKbps,
+      connectionSpeedKbps,
+      rttMs: candidateRtt,
+      jitterMs: typeof video.jitter === 'number' ? video.jitter * 1000 : null,
+      packetsLost: typeof video.packetsLost === 'number' ? video.packetsLost : null,
+      packetsReceived: typeof video.packetsReceived === 'number' ? video.packetsReceived : null,
+      frameWidth: typeof video.frameWidth === 'number' ? video.frameWidth : null,
+      frameHeight: typeof video.frameHeight === 'number' ? video.frameHeight : null,
+      framesPerSecond: typeof video.framesPerSecond === 'number' ? video.framesPerSecond : null,
+      framesDropped: typeof video.framesDropped === 'number' ? video.framesDropped : null,
+      framesDecoded: typeof video.framesDecoded === 'number' ? video.framesDecoded : null,
+      videoCodec: simplifyCodec(codecs[videoCodecId]),
+      audioCodec: simplifyCodec(codecs[audioCodecId]),
+      timestamp,
+      videoBytes,
+      audioBytes,
+    },
+    bytes: { timestamp, videoBytes, audioBytes },
+  };
+}
+
 export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRTCStatsBeacon {
   const {
     pc,

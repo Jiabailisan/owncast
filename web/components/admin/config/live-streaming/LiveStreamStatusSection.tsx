@@ -17,6 +17,7 @@ const { Title } = Typography;
 const POLL_INTERVAL_STORAGE_KEY = 'owncast_live_status_poll_ms';
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const POLL_OPTIONS = [
+  { value: 1000, label: '1s' },
   { value: 2000, label: '2s' },
   { value: 5000, label: '5s' },
   { value: 10000, label: '10s' },
@@ -61,9 +62,11 @@ export const LiveStreamStatusSection: FC = () => {
         />
         <Select
           aria-label="Refresh interval"
+          className={styles.pollingSelect}
           size="small"
           value={pollIntervalMs}
           options={POLL_OPTIONS}
+          popupMatchSelectWidth={false}
           onChange={updateInterval}
         />
       </Space>

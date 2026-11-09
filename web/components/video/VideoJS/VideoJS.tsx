@@ -43,58 +43,80 @@ export const VideoJS: FC<VideoJSProps> = ({ options, onReady }) => {
   const source = options?.sources?.[0]?.src || '';
 
   React.useEffect(() => {
-    const videoElement = videoRef.current;
-    if (!videoElement) {
-      return undefined;
-    }
+    let cancelled = false;
+    let playerInstance: VideoJsPlayer | null = null;
+    let xhrHooksHandler: (() => void) | null = null;
+    let frame: number | null = null;
 
-    addShortcutsToLanguage(videojs, 'en');
-    const finalOptions = {
-      ...options,
-      noUITitleAttributes: true, // Prevents videojs from adding a title attribute to UI elements, thus preventing "double tooltips".
-    };
-    const player: VideoJsPlayer = (playerRef.current = videojs(videoElement, finalOptions, () => {
-      console.debug('player is ready');
-      return onReady && onReady(player, videojs);
-    }));
+    const initialize = (attempt = 0) => {
+      const videoElement = videoRef.current;
+      if (cancelled || !videoElement) {
+        return;
+      }
+      // React 18 can run effects before the element is attached (hydration /
+      // fast refresh); video.js warns and tears the player down when it receives
+      // a detached element, so wait for it to be connected.
+      if (!videoElement.isConnected && attempt < 20) {
+        frame = requestAnimationFrame(() => initialize(attempt + 1));
+        return;
+      }
 
-    player.autoplay(options.autoplay);
-    player.src(options.sources);
-
-    const onXhrHooksReady = () => {
-      const cachebusterRequestHook = o => {
-        const { uri } = o;
-        let updatedURI = uri;
-        if (o.uri.match('m3u8')) {
-          const u = uri.startsWith('http')
-            ? new URL(uri)
-            : new URL(uri, window.location.protocol + window.location.host);
-          const cachebuster = Math.random().toString(16).slice(2, 8);
-          u.searchParams.append('cachebust', cachebuster);
-          updatedURI = u.toString();
-        }
-        return {
-          ...o,
-          uri: updatedURI,
-        };
+      addShortcutsToLanguage(videojs, 'en');
+      const finalOptions = {
+        ...options,
+        noUITitleAttributes: true, // Prevents videojs from adding a title attribute to UI elements, thus preventing "double tooltips".
       };
-      (player.tech({ IWillNotUseThisInPlugins: true }) as any)?.vhs?.xhr?.onRequest(
-        cachebusterRequestHook,
-      );
+      const player: VideoJsPlayer = (playerRef.current = videojs(videoElement, finalOptions, () => {
+        console.debug('player is ready');
+        return onReady && onReady(player, videojs);
+      }));
+      playerInstance = player;
+
+      player.autoplay(options.autoplay);
+      player.src(options.sources);
+
+      const onXhrHooksReady = () => {
+        const cachebusterRequestHook = o => {
+          const { uri } = o;
+          let updatedURI = uri;
+          if (o.uri.match('m3u8')) {
+            const u = uri.startsWith('http')
+              ? new URL(uri)
+              : new URL(uri, window.location.protocol + window.location.host);
+            const cachebuster = Math.random().toString(16).slice(2, 8);
+            u.searchParams.append('cachebust', cachebuster);
+            updatedURI = u.toString();
+          }
+          return {
+            ...o,
+            uri: updatedURI,
+          };
+        };
+        (player.tech({ IWillNotUseThisInPlugins: true }) as any)?.vhs?.xhr?.onRequest(
+          cachebusterRequestHook,
+        );
+      };
+      player.on('xhr-hooks-ready', onXhrHooksReady);
+      xhrHooksHandler = onXhrHooksReady;
     };
-    player.on('xhr-hooks-ready', onXhrHooksReady);
+
+    initialize();
 
     return () => {
+      cancelled = true;
+      if (frame !== null) cancelAnimationFrame(frame);
       try {
-        player.off('xhr-hooks-ready', onXhrHooksReady);
+        if (playerInstance && xhrHooksHandler) {
+          playerInstance.off('xhr-hooks-ready', xhrHooksHandler);
+        }
       } catch (e) {
         console.warn('Unable to remove video.js listener during cleanup', e);
       }
-      if (playerRef.current === player) {
+      if (playerRef.current === playerInstance) {
         playerRef.current = null;
       }
       try {
-        player.dispose();
+        playerInstance?.dispose();
       } catch (e) {
         console.warn('Unable to dispose video.js player', e);
       }

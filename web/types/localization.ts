@@ -160,6 +160,7 @@ export const Localization = {
       webrtcConnecting: 'Frontend.Player.webrtcConnecting',
       webrtcFailed: 'Frontend.Player.webrtcFailed',
       fallbackToHlsNotice: 'Frontend.Player.fallbackToHlsNotice',
+      webrtcUnavailableNotice: 'Frontend.Player.webrtcUnavailableNotice',
       fallbackDismiss: 'Frontend.Player.fallbackDismiss',
     },
   },

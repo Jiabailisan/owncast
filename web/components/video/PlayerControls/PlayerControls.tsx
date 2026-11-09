@@ -1,0 +1,432 @@
+import { FC, useCallback, useEffect, useRef, useState } from 'react';
+import classNames from 'classnames';
+import CaretRightOutlined from '@ant-design/icons/CaretRightOutlined';
+import PauseOutlined from '@ant-design/icons/PauseOutlined';
+import SoundFilled from '@ant-design/icons/SoundFilled';
+import MutedFilled from '@ant-design/icons/MutedFilled';
+import SettingOutlined from '@ant-design/icons/SettingOutlined';
+import PictureOutlined from '@ant-design/icons/PictureOutlined';
+import FullscreenOutlined from '@ant-design/icons/FullscreenOutlined';
+import FullscreenExitOutlined from '@ant-design/icons/FullscreenExitOutlined';
+import CheckOutlined from '@ant-design/icons/CheckOutlined';
+import DownOutlined from '@ant-design/icons/DownOutlined';
+
+import { StatsPanel } from './StatsPanel';
+import { StatsSnapshot, SparklineState, TransportPreference, PlayerQuality } from './types';
+import styles from './PlayerControls.module.scss';
+
+// The provided player autohides after 2s of inactivity.
+const IDLE_HIDE_MS = 2000;
+
+export interface PlayerControlsCallbacks {
+  onTogglePlay: () => void;
+  onToggleMute: () => void;
+  onVolumeChange: (volume: number) => void;
+  onGoLive: () => void;
+  onTransportChange: (transport: TransportPreference) => void;
+  onQualityChange: (quality: string) => void;
+  onToggleLatency: () => void;
+  onToggleStats: () => void;
+  onTogglePip: () => void;
+  onToggleFullscreen: () => void;
+}
+
+export type PlayerControlsProps = {
+  playing: boolean;
+  muted: boolean;
+  volume: number;
+  // Viewer preference (Auto/WebRTC/HLS) and the transport currently playing.
+  transport: TransportPreference;
+  activeTransport: 'webrtc' | 'hls';
+  webrtcAvailable: boolean;
+  qualities: PlayerQuality[];
+  selectedQuality: string;
+  latencyEnabled: boolean;
+  latencySupported?: boolean;
+  liveEdge: boolean;
+  behindLiveSeconds?: number | null;
+  loading?: boolean;
+  stats: StatsSnapshot;
+  sparklines: SparklineState;
+  statsOpen: boolean;
+  fullscreen?: boolean;
+  // Quality rows only exist for the HLS transport in the reference player.
+  showQuality?: boolean;
+  // WebRTC-only settings note, e.g. "WebRTC (auto)".
+  note?: string;
+  // Storybook/tests only: open one of the menus on first render.
+  initialMenu?: 'settings' | 'transport' | 'volume' | null;
+  callbacks: PlayerControlsCallbacks;
+};
+
+// Overlay control bar ported from the provided Owncast binary. It is purely
+// presentational: every action is routed to the active playback engine through
+// callbacks so HLS (Video.js) and WebRTC (WHEP) share the exact same UI.
+export const PlayerControls: FC<PlayerControlsProps> = ({
+  playing,
+  muted,
+  volume,
+  transport,
+  activeTransport,
+  webrtcAvailable,
+  qualities,
+  selectedQuality,
+  latencyEnabled,
+  latencySupported = true,
+  liveEdge,
+  behindLiveSeconds = null,
+  loading = false,
+  stats,
+  sparklines,
+  statsOpen,
+  fullscreen = false,
+  showQuality = true,
+  note,
+  initialMenu = null,
+  callbacks,
+}) => {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoveredRef = useRef(false);
+  const focusRef = useRef(false);
+  const [visible, setVisible] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
+  const [transportOpen, setTransportOpen] = useState(initialMenu === 'transport');
+  const [volumeVisible, setVolumeVisible] = useState(initialMenu === 'volume');
+
+  const anyMenuOpen = settingsOpen || transportOpen || volumeVisible || statsOpen;
+
+  const scheduleHide = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      // Keep the bar visible while paused, hovering the player or focused
+      // inside it (reference behavior).
+      if (!playing || hoveredRef.current || focusRef.current) return;
+      setVisible(false);
+    }, IDLE_HIDE_MS);
+  }, [playing]);
+
+  const reveal = useCallback(() => {
+    setVisible(true);
+    if (playing) scheduleHide();
+  }, [playing, scheduleHide]);
+
+  useEffect(() => {
+    if (!playing || anyMenuOpen) {
+      setVisible(true);
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      return undefined;
+    }
+    scheduleHide();
+    return () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, [playing, anyMenuOpen, scheduleHide]);
+
+  useEffect(() => {
+    const onActivity = () => {
+      if (!statsOpen) reveal();
+    };
+    const events: Array<[string, EventListener]> = [
+      ['pointermove', onActivity],
+      ['pointerdown', onActivity],
+      ['keydown', onActivity],
+    ];
+    events.forEach(([name, handler]) => window.addEventListener(name, handler, { passive: true }));
+    return () => {
+      events.forEach(([name, handler]) => window.removeEventListener(name, handler));
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, [reveal, statsOpen]);
+
+  // Close menus on outside pointerdown.
+  useEffect(() => {
+    if (!settingsOpen && !transportOpen) return undefined;
+    const handler = (event: Event) => {
+      const target = event.target as Node;
+      if (rootRef.current && !rootRef.current.contains(target)) {
+        setSettingsOpen(false);
+        setTransportOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handler, true);
+    return () => document.removeEventListener('pointerdown', handler, true);
+  }, [settingsOpen, transportOpen]);
+
+  const transportLabel = transport === 'auto' ? 'Auto' : transport === 'webrtc' ? 'WebRTC' : 'HLS';
+  const liveTitle = liveEdge
+    ? activeTransport === 'webrtc'
+      ? 'Live via WebRTC'
+      : 'Playing live'
+    : 'Seek to live';
+  const selectTransport = (next: TransportPreference) => {
+    setTransportOpen(false);
+    callbacks.onTransportChange(next);
+  };
+  const selectQuality = (quality: string) => {
+    callbacks.onQualityChange(quality);
+  };
+
+  return (
+    <>
+      {statsOpen && (
+        <StatsPanel stats={stats} sparklines={sparklines} onClose={callbacks.onToggleStats} />
+      )}
+      <div
+        ref={rootRef}
+        className={classNames(styles.overlay, { [styles.hidden]: !visible && !anyMenuOpen })}
+        data-player-control="true"
+        onPointerMove={() => {
+          if (!anyMenuOpen) reveal();
+        }}
+        onPointerEnter={() => {
+          hoveredRef.current = true;
+          reveal();
+        }}
+        onPointerLeave={() => {
+          hoveredRef.current = false;
+          if (playing && !anyMenuOpen) scheduleHide();
+        }}
+        onFocusCapture={() => {
+          focusRef.current = true;
+          reveal();
+        }}
+        onBlurCapture={() => {
+          focusRef.current = false;
+        }}
+      >
+        {loading && !playing && <div className={styles.loadingSpinner} aria-label="Loading" />}
+        {!playing && !loading && (
+          <button
+            type="button"
+            className={styles.centerPlay}
+            aria-label="Play"
+            data-player-control="true"
+            onClick={callbacks.onTogglePlay}
+          >
+            <CaretRightOutlined />
+          </button>
+        )}
+
+        <div className={styles.controlBar} data-player-control="true">
+          <button
+            type="button"
+            className={styles.iconButton}
+            aria-label={playing ? 'Pause' : 'Play'}
+            data-player-control="true"
+            onClick={callbacks.onTogglePlay}
+          >
+            {playing ? <PauseOutlined /> : <CaretRightOutlined />}
+          </button>
+
+          <div
+            className={classNames(styles.volumeGroup, { [styles.volumeVisible]: volumeVisible })}
+            onMouseEnter={() => setVolumeVisible(true)}
+            onMouseLeave={() => setVolumeVisible(false)}
+          >
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label={muted ? 'Unmute' : 'Mute'}
+              data-player-control="true"
+              onClick={callbacks.onToggleMute}
+            >
+              {muted || volume === 0 ? <MutedFilled /> : <SoundFilled />}
+            </button>
+            {volumeVisible && (
+              <div className={classNames(styles.volumePopover, styles.volumeVisible)}>
+                <input
+                  className={styles.volumeSlider}
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  aria-label="Volume"
+                  value={muted ? 0 : volume}
+                  onChange={event => callbacks.onVolumeChange(Number(event.target.value))}
+                />
+              </div>
+            )}
+            <DownOutlined className={styles.volumeCaret} aria-hidden="true" />
+          </div>
+
+          <button
+            type="button"
+            className={classNames(styles.liveButton, { [styles.liveEdge]: liveEdge })}
+            aria-label={liveEdge ? 'Live' : 'Seek to live'}
+            title={liveTitle}
+            data-behind-live={behindLiveSeconds !== null ? 'true' : undefined}
+            data-player-control="true"
+            onClick={() => {
+              if (!liveEdge) callbacks.onGoLive();
+            }}
+          >
+            <span className={styles.liveDot} />
+            <span>LIVE</span>
+          </button>
+
+          <div className={styles.spacer} />
+
+          <button
+            type="button"
+            className={styles.transportButton}
+            aria-label="Playback transport"
+            aria-expanded={transportOpen}
+            data-player-control="true"
+            onClick={() => {
+              setTransportOpen(open => !open);
+              setSettingsOpen(false);
+            }}
+          >
+            {transportLabel}
+          </button>
+
+          <button
+            type="button"
+            className={classNames(styles.iconButton, { [styles.active]: settingsOpen })}
+            aria-label="Settings"
+            aria-expanded={settingsOpen}
+            data-player-control="true"
+            onClick={() => {
+              setSettingsOpen(open => !open);
+              setTransportOpen(false);
+            }}
+          >
+            <SettingOutlined />
+          </button>
+
+          {typeof document !== 'undefined' && document.pictureInPictureEnabled && (
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Picture in picture"
+              data-player-control="true"
+              onClick={callbacks.onTogglePip}
+            >
+              <PictureOutlined />
+            </button>
+          )}
+
+          <button
+            type="button"
+            className={styles.iconButton}
+            aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            data-player-control="true"
+            onClick={callbacks.onToggleFullscreen}
+          >
+            {fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+          </button>
+
+          {transportOpen && (
+            <div className={styles.transportMenu} data-player-control="true">
+              {[
+                { value: 'auto' as TransportPreference, label: 'Auto' },
+                { value: 'webrtc' as TransportPreference, label: 'WebRTC' },
+                { value: 'hls' as TransportPreference, label: 'HLS' },
+              ].map(item => {
+                const disabled = item.value === 'webrtc' && !webrtcAvailable;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={classNames(styles.menuRow, {
+                      [styles.selected]: transport === item.value,
+                      [styles.menuRowDisabled]: disabled,
+                    })}
+                    disabled={disabled}
+                    data-player-control="true"
+                    onClick={() => selectTransport(item.value)}
+                  >
+                    <span>{item.label}</span>
+                    {transport === item.value && <CheckOutlined />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {settingsOpen && (
+            <div className={styles.settingsMenu} data-player-control="true">
+              {showQuality && qualities.length > 0 && (
+                <>
+                  <div className={styles.menuHeading}>QUALITY</div>
+                  <button
+                    type="button"
+                    className={classNames(styles.menuRow, {
+                      [styles.selected]: selectedQuality === 'auto',
+                    })}
+                    data-player-control="true"
+                    onClick={() => selectQuality('auto')}
+                  >
+                    <span>Auto</span>
+                    {selectedQuality === 'auto' && <CheckOutlined />}
+                  </button>
+                  {qualities.map(quality => (
+                    <button
+                      key={quality.id}
+                      type="button"
+                      className={classNames(styles.menuRow, {
+                        [styles.selected]: selectedQuality === quality.id,
+                      })}
+                      data-player-control="true"
+                      onClick={() => selectQuality(quality.id)}
+                    >
+                      <span>{quality.name}</span>
+                      {selectedQuality === quality.id && <CheckOutlined />}
+                    </button>
+                  ))}
+                  <div className={styles.menuDivider} />
+                </>
+              )}
+
+              <button
+                type="button"
+                className={styles.menuRow}
+                aria-pressed={statsOpen}
+                data-player-control="true"
+                onClick={callbacks.onToggleStats}
+              >
+                <span>Stats for nerds</span>
+                <span
+                  className={classNames(styles.togglePill, { [styles.toggleOn]: statsOpen })}
+                  data-testid="stats-toggle-pill"
+                >
+                  {statsOpen ? 'ON' : 'OFF'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.menuRow}
+                aria-pressed={latencyEnabled}
+                data-player-control="true"
+                onClick={callbacks.onToggleLatency}
+              >
+                <span>Minimize latency</span>
+                <span
+                  className={classNames(styles.togglePill, { [styles.toggleOn]: latencyEnabled })}
+                  data-testid="latency-toggle-pill"
+                >
+                  {latencyEnabled ? 'ON' : 'OFF'}
+                </span>
+              </button>
+
+              {!latencySupported && (
+                <div className={styles.menuNote}>
+                  Minimize latency is not supported for this transport.
+                </div>
+              )}
+              {note && (
+                <div className={styles.menuNote} data-testid="transport-note">
+                  {note}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default PlayerControls;

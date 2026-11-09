@@ -109,7 +109,7 @@ describe('WebRTCPlayer', () => {
     expect(session.close).toHaveBeenCalledTimes(1);
   });
 
-  test('re-negotiates with the selected variant', async () => {
+  test('settings menu shows the WebRTC note and hides the HLS-only quality list', async () => {
     const sessionFactory = jest.fn(async () => makeSession());
     render(
       <WebRTCPlayer
@@ -126,12 +126,12 @@ describe('WebRTCPlayer', () => {
     );
 
     await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(1));
-    const select = screen.getByLabelText('Quality');
-    fireEvent.change(select, { target: { value: '1' } });
-
-    await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(2));
-    const secondRequest = (sessionFactory.mock.calls[1] as unknown as [Record<string, unknown>])[0];
-    expect(secondRequest).toMatchObject({ variantIndex: 1 });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByText('Stats for nerds')).toBeInTheDocument();
+    expect(screen.getByText('Minimize latency')).toBeInTheDocument();
+    expect(screen.getByTestId('transport-note')).toHaveTextContent('WebRTC (auto)');
+    // The provided player only lists quality levels for HLS.
+    expect(screen.queryByText('720p')).not.toBeInTheDocument();
   });
 
   test('shows the big unmute overlay only when autoplay muted playback itself', async () => {

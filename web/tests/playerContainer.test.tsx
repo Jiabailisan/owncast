@@ -10,7 +10,9 @@ jest.mock('next-export-i18n', () => ({
 }));
 
 jest.mock('../components/video/OwncastPlayer/OwncastPlayer', () => ({
-  OwncastPlayer: () => <div data-testid="hls-player" />,
+  OwncastPlayer: (props: any) => (
+    <div data-testid="hls-player" data-transport-error={props.transportError} />
+  ),
 }));
 
 jest.mock('../components/video/custom/CustomPlayerHost', () => ({
@@ -90,13 +92,15 @@ describe('PlayerContainer protocol selection', () => {
     expect(screen.queryByTestId('hls-player')).not.toBeInTheDocument();
   });
 
-  test('falls back to HLS with a notice after a WebRTC failure', () => {
+  test('falls back to HLS and hands the failure to the error banner after a WebRTC failure', () => {
     renderWithConfig(enabledConfig());
     fireEvent.click(screen.getByTestId('force-fallback'));
 
     expect(screen.getByTestId('hls-player')).toBeInTheDocument();
     expect(screen.queryByTestId('webrtc-player')).not.toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(/Low-latency playback is unavailable/i);
+    // The ported player renders the reference-style top-right error banner
+    // from this prop (5s), replacing the old bottom notice.
+    expect(screen.getByTestId('hls-player')).toHaveAttribute('data-transport-error', 'full');
     expect(sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY)).toBe('true');
   });
 

@@ -2,11 +2,7 @@ import { FC, useCallback, useEffect, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useTranslation } from 'next-export-i18n';
-import PlayCircleFilled from '@ant-design/icons/PlayCircleFilled';
-import PauseCircleFilled from '@ant-design/icons/PauseCircleFilled';
-import SoundFilled from '@ant-design/icons/SoundFilled';
 import MutedFilled from '@ant-design/icons/MutedFilled';
-import FullscreenOutlined from '@ant-design/icons/FullscreenOutlined';
 
 import { autoplayModeForSetting, shouldShowBigUnmuteOverlay } from '../../../utils/autoplay';
 import { getLocalStorage, setLocalStorage } from '../../../utils/localStorage';
@@ -17,7 +13,16 @@ import { WHEPIceServer } from '../../../interfaces/whep.model';
 import { WebRTCVariantInfo } from '../../../interfaces/client-config.model';
 import { WHEPError } from '../../../services/whep-client';
 import { ConnectWHEPRequest, WHEPSessionHandle, connectWHEP } from '../../../services/whep-client';
-import { startWebRTCStatsBeacon, WebRTCStatsBeacon } from './webrtc-stats';
+import { startWebRTCStatsBeacon, WebRTCStatsBeacon, collectWebRTCStatsPanel } from './webrtc-stats';
+import { PlayerControls } from '../PlayerControls/PlayerControls';
+import {
+  TransportPreference,
+  StatsSnapshot,
+  SparklineState,
+  makeEmptyStats,
+} from '../PlayerControls/types';
+import { formatViewportFrames, formatVolume, pushSparkline } from '../PlayerControls/stats';
+import { LATENCY_STORAGE_KEY } from '../PlayerControls/preferences';
 import styles from './WebRTCPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
@@ -39,6 +44,10 @@ export type WebRTCPlayerProps = {
   statsEndpoint?: string;
   statsIntervalMs?: number;
   enableStats?: boolean;
+  // Overlay player controls (ported from the provided binary).
+  transport?: TransportPreference;
+  webrtcAvailable?: boolean;
+  onTransportChange?: (transport: TransportPreference) => void;
 };
 
 type Phase = 'idle' | 'connecting' | 'ready' | 'error';
@@ -53,7 +62,6 @@ function useLabel(key: string, fallback: string): string {
 
 export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   whepUrl,
-  variants = [],
   online,
   autoplay = 'off',
   initiallyMuted = false,
@@ -66,7 +74,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   statsEndpoint,
   statsIntervalMs,
   enableStats = true,
+  transport = 'auto',
+  webrtcAvailable = true,
+  onTransportChange = () => {},
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<WHEPSessionHandle | null>(null);
   const statsRef = useRef<WebRTCStatsBeacon | null>(null);
@@ -79,17 +91,19 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
   const [bigUnmuteVisible, setBigUnmuteVisible] = useState(false);
-  const [selectedVariant, setSelectedVariant] = useState<number | null>(null);
+  const [selectedVariant] = useState<number | null>(null);
   const [retryToken, setRetryToken] = useState(0);
 
-  const playLabel = useLabel(Localization.Frontend.Player.play, 'Play');
-  const pauseLabel = useLabel(Localization.Frontend.Player.pause, 'Pause');
-  const muteLabel = useLabel(Localization.Frontend.unmute, 'Unmute');
-  const muteToggleLabel = useLabel(Localization.Frontend.Player.mute, 'Mute');
-  const muteButtonLabel = isMuted ? muteLabel : muteToggleLabel;
-  const fullscreenLabel = useLabel(Localization.Frontend.Player.fullscreen, 'Fullscreen');
-  const qualityLabel = useLabel(Localization.Frontend.Player.quality, 'Quality');
+  const [fullscreen, setFullscreen] = useState(false);
+  const [latencyEnabled, setLatencyEnabled] = useState(
+    () => getLocalStorage(LATENCY_STORAGE_KEY) === 'true',
+  );
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(true));
+  const [sparklines, setSparklines] = useState<SparklineState>({ video: [], audio: [] });
+
   const unmuteLabel = useLabel(Localization.Frontend.unmute, 'Unmute');
   const retryLabel = useLabel(Localization.Frontend.Player.retry, 'Retry');
 
@@ -103,6 +117,12 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   useEffect(() => {
     const savedVolume = getLocalStorage(PLAYER_VOLUME);
     startedMutedByViewerRef.current = savedVolume !== null && Number(savedVolume) === 0;
+  }, []);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
 
   const updateBigUnmute = useCallback(() => {
@@ -125,6 +145,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
     setIsMuted(video.muted || video.volume === 0);
+    setVolume(video.volume);
     setLocalStorage(PLAYER_VOLUME, video.muted ? 0 : video.volume);
     if (!video.muted && video.volume > 0) {
       mutedByAutoplayRef.current = false;
@@ -157,8 +178,6 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     }
 
     if (mode === 'play') {
-      // Never start silently: if playback would begin inaudible there is no
-      // meaningful "sound only" autoplay attempt.
       if (video.muted || video.volume === 0) return;
       try {
         await video.play();
@@ -168,13 +187,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       return;
     }
 
-    // 'any': try with sound first, then fall back to muted playback. Only the
-    // muted fallback counts as "the player muted itself" for the overlay.
     try {
       await video.play();
     } catch {
       if (video.muted) {
-        // Already requested to start muted; this is not the fallback path.
         try {
           await video.play();
         } catch {
@@ -224,6 +240,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     setPhase('connecting');
     setErrorMessage('');
     setIsPlaying(false);
+    setStats(prev => ({ ...prev, collecting: true }));
 
     sessionFactoryImpl({
       whepUrl,
@@ -304,6 +321,82 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [whepUrl, online, selectedVariant, retryToken, sessionFactory]);
 
+  // Sample WebRTC stats at 1 Hz while the Stats for nerds panel is open.
+  useEffect(() => {
+    if (!statsOpen || phase !== 'ready') {
+      return undefined;
+    }
+    let cancelled = false;
+    let previousBytes: ReturnType<typeof collectWebRTCStatsPanel>['bytes'] | null = null;
+    const sample = async () => {
+      const session = sessionRef.current;
+      if (!session) return;
+      try {
+        const report = await session.pc.getStats();
+        if (cancelled) return;
+        const { sample: panelSample, bytes } = collectWebRTCStatsPanel(report, previousBytes);
+        previousBytes = bytes;
+        const video = videoRef.current;
+        const volumeInfo = formatVolume(video?.volume ?? 1, Boolean(video?.muted));
+        setStats({
+          collecting: false,
+          isWebRTC: true,
+          streamId: 'WHEP / MediaStream',
+          viewport: formatViewportFrames(
+            typeof window === 'undefined' ? 0 : window.innerWidth,
+            typeof window === 'undefined' ? 0 : window.innerHeight,
+            panelSample.framesDropped,
+            panelSample.framesDecoded,
+          ),
+          frames: formatViewportFrames(
+            typeof window === 'undefined' ? 0 : window.innerWidth,
+            typeof window === 'undefined' ? 0 : window.innerHeight,
+            panelSample.framesDropped,
+            panelSample.framesDecoded,
+          ),
+          resolution:
+            panelSample.frameWidth && panelSample.frameHeight
+              ? panelSample.frameWidth + 'x' + panelSample.frameHeight
+              : 'N/A',
+          optimalResolution:
+            panelSample.frameWidth && panelSample.frameHeight
+              ? panelSample.frameWidth + 'x' + panelSample.frameHeight
+              : 'N/A',
+          volume: volumeInfo.volume,
+          normalizedVolume: volumeInfo.normalizedVolume,
+          codecs:
+            (panelSample.videoCodec || 'H.264') +
+            ' / ' +
+            (panelSample.audioCodec || 'OPUS') +
+            ' (WebRTC)',
+          videoBitrateKbps: panelSample.videoBitrateKbps,
+          audioBitrateKbps: panelSample.audioBitrateKbps,
+          connectionSpeedKbps: panelSample.connectionSpeedKbps,
+          rttMs: panelSample.rttMs,
+          jitterMs: panelSample.jitterMs,
+          packetsLost: panelSample.packetsLost,
+          packetsReceived: panelSample.packetsReceived,
+          bufferSeconds: null,
+          liveLatencySeconds: null,
+          liveMode: 'WebRTC (auto)',
+          date: new Date().toLocaleString(),
+        });
+        setSparklines(current => ({
+          video: pushSparkline(current.video, panelSample.videoBitrateKbps),
+          audio: pushSparkline(current.audio, panelSample.audioBitrateKbps),
+        }));
+      } catch {
+        // getStats can fail while the peer connection is closing.
+      }
+    };
+    void sample();
+    const timer = setInterval(() => void sample(), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [statsOpen, phase]);
+
   const togglePlayback = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -330,14 +423,48 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     handleVolumeChange();
   }, [handleVolumeChange]);
 
+  const setPlayerVolume = useCallback(
+    (next: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+      video.muted = false;
+      video.volume = Math.max(0, Math.min(1, next));
+      handleVolumeChange();
+    },
+    [handleVolumeChange],
+  );
+
   const toggleFullScreen = useCallback(() => {
+    const container = containerRef.current;
     const video = videoRef.current;
-    if (!video) return;
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
-    } else {
-      video.requestFullscreen?.().catch(() => {});
+      return;
     }
+    const target = container || video;
+    target?.requestFullscreen?.().catch(() => {});
+  }, []);
+
+  const togglePip = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !document.pictureInPictureEnabled) return;
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    } else {
+      video.requestPictureInPicture?.().catch(() => {});
+    }
+  }, []);
+
+  const goLive = useCallback(() => {
+    // A MediaStream is always delivered live; nothing to seek back.
+  }, []);
+
+  const toggleLatency = useCallback(() => {
+    setLatencyEnabled(current => {
+      const next = !current;
+      setLocalStorage(LATENCY_STORAGE_KEY, next);
+      return next;
+    });
   }, []);
 
   useHotkeys('space', e => {
@@ -346,6 +473,22 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   });
   useHotkeys('f', toggleFullScreen, { enableOnContentEditable: false });
   useHotkeys('m', toggleMute, { enableOnContentEditable: false });
+  useHotkeys(
+    '0',
+    () => {
+      const video = videoRef.current;
+      if (video) setPlayerVolume(video.volume + 0.1);
+    },
+    { enableOnContentEditable: false },
+  );
+  useHotkeys(
+    '9',
+    () => {
+      const video = videoRef.current;
+      if (video) setPlayerVolume(video.volume - 0.1);
+    },
+    { enableOnContentEditable: false },
+  );
 
   const handleBigUnmute = () => {
     const video = videoRef.current;
@@ -359,7 +502,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const showPoster = !isPlaying;
 
   return (
-    <div className={classNames(styles.container, className)} id="webrtc-player">
+    <div ref={containerRef} className={classNames(styles.container, className)} id="webrtc-player">
       <div className={styles.player}>
         <video
           ref={videoRef}
@@ -396,17 +539,6 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           </div>
         )}
 
-        {phase === 'ready' && !isPlaying && (
-          <button
-            type="button"
-            className={styles.bigPlayButton}
-            aria-label={playLabel}
-            onClick={togglePlayback}
-          >
-            <PlayCircleFilled />
-          </button>
-        )}
-
         {bigUnmuteVisible && (
           <button
             type="button"
@@ -418,57 +550,38 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           </button>
         )}
 
-        <div className={styles.controls}>
-          <button
-            type="button"
-            className={styles.controlButton}
-            aria-label={isPlaying ? pauseLabel : playLabel}
-            onClick={togglePlayback}
-          >
-            {isPlaying ? <PauseCircleFilled /> : <PlayCircleFilled />}
-          </button>
-          <button
-            type="button"
-            className={styles.controlButton}
-            aria-label={muteButtonLabel}
-            onClick={toggleMute}
-          >
-            {isMuted ? <MutedFilled /> : <SoundFilled />}
-          </button>
-          {variants.length > 1 && (
-            <label className={styles.variantSelector}>
-              <span className={styles.visuallyHidden}>{qualityLabel}</span>
-              <select
-                aria-label={qualityLabel}
-                value={selectedVariant === null ? '' : String(selectedVariant)}
-                onChange={event => {
-                  const { value } = event.target;
-                  setSelectedVariant(value === '' ? null : Number(value));
-                }}
-              >
-                <option value="">
-                  <Translation
-                    translationKey={Localization.Frontend.Player.qualityAuto}
-                    defaultText="Auto"
-                  />
-                </option>
-                {variants.map(variant => (
-                  <option key={variant.index} value={String(variant.index)}>
-                    {variant.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <button
-            type="button"
-            className={styles.controlButton}
-            aria-label={fullscreenLabel}
-            onClick={toggleFullScreen}
-          >
-            <FullscreenOutlined />
-          </button>
-        </div>
+        <PlayerControls
+          playing={isPlaying}
+          muted={isMuted}
+          volume={volume}
+          transport={transport}
+          activeTransport="webrtc"
+          webrtcAvailable={webrtcAvailable}
+          qualities={[]}
+          selectedQuality="auto"
+          showQuality={false}
+          note="WebRTC (auto)"
+          latencyEnabled={latencyEnabled}
+          latencySupported
+          liveEdge
+          loading={phase === 'connecting'}
+          stats={stats}
+          sparklines={sparklines}
+          statsOpen={statsOpen}
+          fullscreen={fullscreen}
+          callbacks={{
+            onTogglePlay: togglePlayback,
+            onToggleMute: toggleMute,
+            onVolumeChange: setPlayerVolume,
+            onGoLive: goLive,
+            onTransportChange,
+            onQualityChange: () => {},
+            onToggleLatency: toggleLatency,
+            onToggleStats: () => setStatsOpen(open => !open),
+            onTogglePip: togglePip,
+            onToggleFullscreen: toggleFullScreen,
+          }}
+        />
       </div>
     </div>
   );

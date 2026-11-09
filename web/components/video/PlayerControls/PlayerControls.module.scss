@@ -1,0 +1,599 @@
+// Overlay player controls ported from the provided Owncast binary. Sizes,
+// colors and menu geometry mirror the reference extraction; class names are
+// readable versions of the extracted CSS-module hashes.
+
+$overlay-bg: var(--owncast-overlay-bg, rgb(20 20 20 / 78%));
+$blur: var(--owncast-overlay-blur, 12px);
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  color: #fff;
+  pointer-events: none;
+  transition: opacity 0.2s;
+
+  &::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 38%;
+    pointer-events: none;
+    content: '';
+    background: linear-gradient(to top, rgb(0 0 0 / 55%), transparent);
+  }
+
+  &.hidden {
+    opacity: 0;
+
+    .controlBar,
+    .centerPlay,
+    .settingsMenu {
+      pointer-events: none;
+    }
+  }
+}
+
+.centerPlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  padding: 0;
+  color: #fff;
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgb(0 0 0 / 55%);
+  border: 0;
+  border-radius: 50%;
+  backdrop-filter: blur(6px);
+  transform: translate(-50%, -50%);
+
+  svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  &:hover {
+    background: rgb(0 0 0 / 72%);
+  }
+}
+
+.controlBar {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  z-index: 4;
+  display: flex;
+  gap: 1px;
+  align-items: center;
+  height: 44px;
+  padding: 0 6px;
+  pointer-events: auto;
+  background: rgb(0 0 0 / 48%);
+  border-radius: 10px;
+  box-shadow: 0 6px 22px rgb(0 0 0 / 28%);
+  backdrop-filter: blur(4px);
+}
+
+.iconButton {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #fff;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  outline: none;
+  opacity: 0.92;
+  -webkit-tap-highlight-color: transparent;
+
+  svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px rgb(255 255 255 / 40%);
+  }
+
+  &:hover,
+  &.active {
+    background: rgb(255 255 255 / 12%);
+    opacity: 1;
+  }
+}
+
+.volumeGroup {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  width: 36px;
+  height: 34px;
+  overflow: hidden;
+  background: none;
+  border-radius: 999px;
+  outline: none;
+  transition:
+    width 0.18s,
+    background-color 0.16s;
+
+  &:hover,
+  &.volumeVisible {
+    width: 120px;
+    background: rgb(255 255 255 / 12%);
+
+    .volumePopover {
+      width: 78px;
+      margin-right: 6px;
+      pointer-events: auto;
+      opacity: 1;
+    }
+  }
+}
+
+.volumeCaret {
+  position: absolute;
+  right: 2px;
+  bottom: 7px;
+  width: 8px !important;
+  height: 8px !important;
+  opacity: 0.7;
+}
+
+.volumePopover {
+  display: flex;
+  align-items: center;
+  width: 0;
+  padding: 0;
+  margin-right: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  opacity: 0;
+  transition:
+    width 0.18s,
+    margin 0.18s,
+    opacity 0.14s;
+}
+
+.volumeSlider {
+  width: 78px;
+  height: 24px;
+  padding: 0;
+  cursor: pointer;
+  accent-color: #fff;
+}
+
+.transportError {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  z-index: 4;
+  max-width: 320px;
+  padding: 4px 8px;
+  color: #fff;
+  font-size: 12px;
+  background: rgb(120 20 20 / 82%);
+  border-radius: 4px;
+}
+
+.liveButton {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+  height: 34px;
+  padding: 0 7px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  opacity: 0.72;
+
+  &:hover {
+    background: rgb(255 255 255 / 10%);
+    opacity: 1;
+  }
+
+  &.liveEdge {
+    opacity: 1;
+
+    .liveDot {
+      background: #f33;
+      box-shadow: 0 0 6px rgb(255 51 51 / 70%);
+    }
+  }
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  background: #8a8a8a;
+  border-radius: 50%;
+}
+
+.behindLive {
+  color: rgb(255 255 255 / 60%);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.spacer {
+  flex: auto;
+}
+
+.transportButton {
+  flex: none;
+  height: 30px;
+  padding: 0 9px;
+  margin: 0 2px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  opacity: 0.9;
+
+  &:hover {
+    background: rgb(255 255 255 / 14%);
+    opacity: 1;
+  }
+}
+
+.transportMenu,
+.settingsMenu {
+  position: absolute;
+  bottom: 62px;
+  z-index: 6;
+  padding: 6px;
+  color: #fff;
+  pointer-events: auto;
+  background: rgb(24 24 24 / 96%);
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 8px;
+  box-shadow: 0 10px 32px rgb(0 0 0 / 55%);
+  backdrop-filter: blur(10px);
+}
+
+.transportMenu {
+  right: 64px;
+  width: 156px;
+}
+
+.settingsMenu {
+  right: 12px;
+  width: 240px;
+  max-height: min(60vh, 420px);
+  overflow: auto;
+  bottom: 64px;
+}
+
+.menuHeading {
+  padding: 7px 9px 3px;
+  color: rgb(255 255 255 / 55%);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.menuRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 9px;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  outline: none;
+  transition: background-color 0.12s;
+
+  svg {
+    width: 17px;
+    height: 17px;
+    color: #fff;
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: rgb(255 255 255 / 7%);
+  }
+
+  &.selected {
+    font-weight: 600;
+  }
+
+  &.menuRowDisabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+
+    &:hover {
+      background: none;
+    }
+  }
+}
+
+.menuDivider {
+  height: 1px;
+  margin: 5px 8px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.menuNote {
+  padding: 8px 9px 5px;
+  color: rgb(255 255 255 / 48%);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.togglePill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 20px;
+  padding: 2px 8px;
+  color: #aaa;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-align: center;
+  background: none;
+  border: 1px solid #777;
+  border-radius: 999px;
+
+  &.toggleOn {
+    color: #fff;
+    background: #12b76a;
+    border-color: #12b76a;
+  }
+}
+
+.loadingSpinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+  border: 4px solid rgb(255 255 255 / 24%);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: owncast-spin 1s linear infinite;
+  transform: translate(-50%, -50%);
+}
+
+@keyframes owncast-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.statsPanel {
+  position: absolute;
+  top: 84px;
+  left: 14px;
+  z-index: 9;
+  width: min(560px, calc(100% - 28px));
+  max-height: min(391px, calc(100% - 100px));
+  padding: 10px 14px 12px;
+  overflow: auto;
+  color: #fff;
+  font:
+    11px/1.62 ui-monospace,
+    sfmono-regular,
+    menlo,
+    consolas,
+    monospace;
+  pointer-events: auto;
+  background: rgb(0 0 0 / 58%);
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 4px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 36%);
+  backdrop-filter: blur(12px);
+}
+
+.statsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.statsClose {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #fff;
+  font-size: 18px;
+  line-height: 20px;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+
+  &:hover {
+    background: rgb(255 255 255 / 12%);
+  }
+}
+
+.statsCharts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 0 7px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+}
+
+.statsChartRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.statsChartLabel {
+  flex: 0 0 88px;
+  color: rgb(255 255 255 / 62%);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bitrateSparkline {
+  flex: auto;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+}
+
+.statsChartValue {
+  flex: 0 0 76px;
+  color: #fff;
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.statsRows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.statsRow {
+  display: flex;
+  gap: 12px;
+}
+
+.statsLabel {
+  flex: 0 0 42%;
+  color: rgb(255 255 255 / 62%);
+  text-align: right;
+}
+
+.statsValue {
+  flex: auto;
+  min-width: 0;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.statsEmpty {
+  padding: 8px 0;
+  color: rgb(255 255 255 / 60%);
+  text-align: center;
+}
+
+@media (width <= 768px) {
+  .controlBar {
+    right: max(20px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    left: max(20px, env(safe-area-inset-left));
+    height: 42px;
+    padding: 0 5px;
+  }
+
+  .iconButton {
+    width: 32px;
+    height: 32px;
+
+    svg {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
+  .transportButton {
+    height: 28px;
+    padding: 0 7px;
+    font-size: 10px;
+  }
+
+  .settingsMenu {
+    right: max(20px, env(safe-area-inset-right));
+    bottom: 58px;
+  }
+
+  .transportMenu {
+    right: 58px;
+    bottom: 58px;
+  }
+
+  .statsPanel {
+    top: 8px;
+    left: 8px;
+    width: min(374px, calc(100% - 16px));
+    max-height: 234px;
+    font-size: 10px;
+  }
+
+  .statsLabel {
+    flex-basis: 40%;
+  }
+
+  .statsChartLabel {
+    flex-basis: 34px;
+  }
+
+  .statsChartValue {
+    flex-basis: 64px;
+    font-size: 9px;
+  }
+
+  .bitrateSparkline {
+    height: 26px;
+  }
+
+  .volumeGroup {
+    overflow: visible;
+
+    &:hover,
+    &.volumeVisible {
+      width: 36px;
+      background: none;
+    }
+  }
+
+  .volumePopover {
+    display: none;
+  }
+
+  .volumeCaret {
+    display: none;
+  }
+}

@@ -4,14 +4,18 @@ import { useAtomValue } from 'jotai';
 
 import { clientConfigStateAtom } from '../stores/ClientConfigStore';
 import { AutoplaySetting } from '../../utils/autoplay';
-import { Localization } from '../../types/localization';
 import { WHEPError } from '../../services/whep-client';
 import { ConnectWHEPRequest, WHEPSessionHandle } from '../../services/whep-client';
-import { Translation } from '../ui/Translation/Translation';
 import { CustomPlayerLoader } from '../../services/custom-player-service';
 import { CustomPlayerHost } from './custom/CustomPlayerHost';
 import { OwncastPlayer } from './OwncastPlayer/OwncastPlayer';
 import { WebRTCPlayer } from './webrtc/WebRTCPlayer';
+import { TransportPreference } from './PlayerControls/types';
+import {
+  readTransportPreference,
+  resolveTransport,
+  writeTransportPreference,
+} from './PlayerControls/preferences';
 import styles from './PlayerContainer.module.scss';
 
 // Remember a failed WebRTC attempt for this tab so a re-render or a
@@ -70,9 +74,11 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
 }) => {
   const clientConfig = useAtomValue(clientConfigStateAtom);
   const webrtcConfig = clientConfig.webrtc;
+  const [transportPreference, setTransportPreference] = useState<TransportPreference>(() =>
+    readTransportPreference(),
+  );
   const [sessionFallback, setSessionFallback] = useState<boolean>(() => readSessionFallback());
   const [fallbackReason, setFallbackReason] = useState<WHEPError | null>(null);
-  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const [customPlayerFailed, setCustomPlayerFailed] = useState(false);
   const previousOnlineRef = useRef(online);
 
@@ -83,7 +89,6 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
       writeSessionFallback(false);
       setSessionFallback(false);
       setFallbackReason(null);
-      setNoticeDismissed(false);
       setCustomPlayerFailed(false);
     }
     previousOnlineRef.current = online;
@@ -99,19 +104,35 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
     customPlayerUrl && forceProtocol === undefined && !customPlayerFailed,
   );
 
+  const webRTCAvailable = Boolean(webRTCConfigured && webRTCSupported);
   let protocol: Protocol = 'hls';
   if (forceProtocol === 'webrtc') {
     protocol = 'webrtc';
-  } else if (forceProtocol !== 'hls' && webRTCConfigured && webRTCSupported && !sessionFallback) {
-    protocol = 'webrtc';
+  } else if (forceProtocol !== 'hls') {
+    protocol = resolveTransport(transportPreference, {
+      webrtcAvailable: webRTCAvailable,
+      sessionFallback,
+    });
   }
+
+  // Persisted transport choice (Auto/WebRTC/HLS) from the overlay's transport
+  // menu. Selecting WebRTC/Auto clears a previous tab-scoped fallback so the
+  // viewer can retry the low-latency path deliberately.
+  const handleTransportChange = useCallback((next: TransportPreference) => {
+    setTransportPreference(next);
+    writeTransportPreference(next);
+    if (next !== 'hls') {
+      writeSessionFallback(false);
+      setSessionFallback(false);
+      setFallbackReason(null);
+    }
+  }, []);
 
   const handleWebRTCFallback = useCallback(
     (error: WHEPError) => {
       writeSessionFallback(true);
       setSessionFallback(true);
       setFallbackReason(error);
-      setNoticeDismissed(false);
       onProtocolChange?.('hls');
     },
     [onProtocolChange],
@@ -122,24 +143,6 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
     // Only report actual protocol changes, not every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [protocol]);
-
-  const fallbackNotice =
-    protocol === 'hls' && fallbackReason && !noticeDismissed ? (
-      <div className={styles.notice} role="status">
-        <Translation
-          translationKey={Localization.Frontend.Player.fallbackToHlsNotice}
-          defaultText="Low-latency playback is unavailable right now. Switched to the standard stream."
-        />
-        <button
-          type="button"
-          className={styles.noticeDismiss}
-          aria-label="Dismiss"
-          onClick={() => setNoticeDismissed(true)}
-        >
-          &times;
-        </button>
-      </div>
-    ) : null;
 
   if (useCustomPlayer && customPlayerUrl) {
     return (
@@ -173,6 +176,9 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
           title={title}
           sessionFactory={webRTCSessionFactory}
           onFallback={handleWebRTCFallback}
+          transport={transportPreference}
+          webrtcAvailable={webRTCAvailable}
+          onTransportChange={handleTransportChange}
         />
       </div>
     );
@@ -186,8 +192,11 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
         initiallyMuted={initiallyMuted}
         autoplay={autoplay}
         title={title}
+        transport={transportPreference}
+        webrtcAvailable={webRTCAvailable}
+        onTransportChange={handleTransportChange}
+        transportError={protocol === 'hls' ? fallbackReason?.message : undefined}
       />
-      {fallbackNotice}
     </div>
   );
 };

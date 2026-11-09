@@ -1,5 +1,5 @@
 /* eslint-disable max-classes-per-file */
-import React, { FC, useContext, useEffect } from 'react';
+import React, { FC, useContext, useEffect, useState } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useTranslation } from 'next-export-i18n';
@@ -13,11 +13,22 @@ import { AutoplaySetting, autoplayModeForSetting } from '../../../utils/autoplay
 import { Localization } from '../../../types/localization';
 import { isVideoPlayingAtom, clockSkewAtom } from '../../stores/ClientConfigStore';
 import PlaybackMetrics from '../metrics/playback';
-import { createVideoSettingsMenuButton, LATENCY_COMPENSATION_ENABLED } from '../settings-menu';
 import LatencyCompensator from '../latencyCompensator';
-import styles from './OwncastPlayer.module.scss';
 import { VideoSettingsServiceContext } from '../../../services/video-settings-service';
+import type { VideoQuality } from '../../../services/video-settings-service';
 import { ComponentError } from '../../ui/ComponentError/ComponentError';
+import { Translation } from '../../ui/Translation/Translation';
+import { PlayerControls } from '../PlayerControls/PlayerControls';
+import {
+  TransportPreference,
+  StatsSnapshot,
+  SparklineState,
+  PlayerQuality,
+  makeEmptyStats,
+} from '../PlayerControls/types';
+import { formatViewportFrames, formatVolume, pushSparkline } from '../PlayerControls/stats';
+import { LATENCY_COMPENSATION_ENABLED } from '../settings-menu';
+import styles from './OwncastPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
 
@@ -33,6 +44,12 @@ export type OwncastPlayerProps = {
   autoplay?: AutoplaySetting;
   title: string;
   className?: string;
+  // Overlay controls (ported from the provided binary).
+  transport?: TransportPreference;
+  webrtcAvailable?: boolean;
+  onTransportChange?: (transport: TransportPreference) => void;
+  // WHEP failure message shown briefly in the reference-style error banner.
+  transportError?: string;
 };
 
 export const OwncastPlayer: FC<OwncastPlayerProps> = ({
@@ -42,17 +59,35 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   autoplay = AutoplaySetting.Off,
   title,
   className,
+  transport = 'auto',
+  webrtcAvailable = false,
+  onTransportChange = () => {},
+  transportError,
 }) => {
   const VideoSettingsService = useContext(VideoSettingsServiceContext);
   const playerRef = React.useRef(null);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [videoPlaying, setVideoPlaying] = useAtom(isVideoPlayingAtom);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [muted, setMuted] = useState(initiallyMuted);
+  const [volume, setVolume] = useState(1);
+  const [liveEdge, setLiveEdge] = useState(true);
+  const [behindLiveSeconds, setBehindLiveSeconds] = useState<number | null>(null);
+  const [qualities, setQualities] = useState<VideoQuality[]>([]);
+  // HLS quality is intentionally NOT persisted (reference behavior).
+  const [selectedQuality, setSelectedQuality] = useState('auto');
+  const [transportErrorVisible, setTransportErrorVisible] = useState(false);
+  const [latencyEnabled, setLatencyEnabled] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(false));
+  const [sparklines, setSparklines] = useState<SparklineState>({ video: [], audio: [] });
   const clockSkew = useAtomValue(clockSkewAtom);
   const { t } = useTranslation();
 
   // A persisted volume of 0 is a mute the viewer chose on a previous visit
   // (handleVolume stores muted as 0). Restoring it is a manual mute, not an
-  // autoplay one, so the big unmute overlay stays away. Read once at render;
-  // guarded because this runs during render (no window during SSR).
+  // autoplay one, so the big unmute overlay stays away.
   const savedVolume = typeof window !== 'undefined' ? getLocalStorage(PLAYER_VOLUME) : null;
   const startedMutedByViewer = savedVolume !== null && Number(savedVolume) === 0;
 
@@ -64,8 +99,16 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
   };
 
+  const syncVolumeState = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    setMuted(Boolean(player.muted()) || player.volume() === 0);
+    setVolume(Number(player.volume()) || 0);
+  };
+
   const handleVolume = () => {
     setLocalStorage(PLAYER_VOLUME, playerRef.current.muted() ? 0 : playerRef.current.volume());
+    syncVolumeState();
   };
 
   const togglePlayback = () => {
@@ -79,9 +122,17 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const toggleMute = () => {
     if (playerRef.current.muted() || playerRef.current.volume() === 0) {
       playerRef.current.volume(0.7);
+      playerRef.current.muted(false);
     } else {
       playerRef.current.volume(0);
     }
+    handleVolume();
+  };
+
+  const setPlayerVolume = (next: number) => {
+    playerRef.current.muted(false);
+    playerRef.current.volume(Math.max(0, Math.min(1, next)));
+    handleVolume();
   };
 
   const toggleFullScreen = () => {
@@ -92,14 +143,52 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
   };
 
+  const togglePip = () => {
+    const video =
+      (playerRef.current?.el?.() as HTMLElement | undefined)?.querySelector('video') || null;
+    if (!video || !document.pictureInPictureEnabled) return;
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    } else {
+      (video as HTMLVideoElement).requestPictureInPicture?.().catch(() => {});
+    }
+  };
+
+  const goLive = () => {
+    try {
+      playerRef.current?.liveTracker?.seekToLiveEdge?.();
+    } catch {
+      // Live tracker is unavailable on non-live sources.
+    }
+  };
+
+  const applyQuality = (qualityId: string) => {
+    try {
+      const tech = playerRef.current?.tech?.({ IWillNotUseThisInPlugins: true });
+      const representations = tech?.vhs?.representations?.();
+      if (!Array.isArray(representations) || representations.length === 0) return false;
+      if (qualityId === 'auto') {
+        representations.forEach(rep => rep.enabled(true));
+      } else {
+        const index = Number(qualityId);
+        representations.forEach((rep, repIndex) => rep.enabled(repIndex === index));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const selectQuality = (qualityId: string) => {
+    setSelectedQuality(qualityId);
+    applyQuality(qualityId);
+  };
+
   const startLatencyCompensator = () => {
     if (latencyCompensator) {
-      // Fully tear down the old instance so its check timer doesn't leak.
       latencyCompensator.disable();
     }
-
     latencyCompensatorEnabled = true;
-
     latencyCompensator = new LatencyCompensator(playerRef.current);
     latencyCompensator.setClockSkew(clockSkew);
     latencyCompensator.enable();
@@ -115,74 +204,28 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     setLocalStorage(LATENCY_COMPENSATION_ENABLED, false);
   };
 
-  // Toggle minimized latency mode. Return the new state.
-  const toggleLatencyCompensator = () => {
+  const toggleLatency = () => {
     if (latencyCompensatorEnabled) {
       stopLatencyCompensator();
     } else {
       startLatencyCompensator();
     }
+    setLatencyEnabled(latencyCompensatorEnabled);
     return latencyCompensatorEnabled;
   };
 
   const setupLatencyCompensator = player => {
     const tech = player.tech({ IWillNotUseThisInPlugins: true });
-
-    // VHS is required.
     if (!tech || !tech.vhs) {
       return;
     }
-
-    const latencyCompensatorEnabledSaved = getLocalStorage(LATENCY_COMPENSATION_ENABLED);
-
-    if (latencyCompensatorEnabledSaved === 'true' && tech && tech.vhs) {
+    const savedEnabled = getLocalStorage(LATENCY_COMPENSATION_ENABLED) === 'true';
+    if (savedEnabled) {
       startLatencyCompensator();
+      setLatencyEnabled(true);
     } else {
       stopLatencyCompensator();
-    }
-  };
-
-  const createSettings = async (player, videojs) => {
-    const videoQualities = await VideoSettingsService.getVideoQualities();
-    const menuButton = createVideoSettingsMenuButton(
-      player,
-      videojs,
-      videoQualities,
-      toggleLatencyCompensator,
-    );
-    player.controlBar.addChild(
-      menuButton,
-      {},
-      // eslint-disable-next-line no-underscore-dangle
-      player.controlBar.children_.length - 2,
-    );
-    setupLatencyCompensator(player);
-  };
-
-  const setupAirplay = (player, videojs) => {
-    // eslint-disable-next-line no-prototype-builtins
-    if (window.hasOwnProperty('WebKitPlaybackTargetAvailabilityEvent')) {
-      const VJSButtonClass = videojs.getComponent('Button');
-
-      class ConcreteButtonClass extends VJSButtonClass {
-        constructor() {
-          super(player);
-        }
-
-        // eslint-disable-next-line class-methods-use-this
-        handleClick() {
-          try {
-            const videoElement = document.getElementsByTagName('video')[0];
-            (videoElement as any).webkitShowPlaybackTargetPicker();
-          } catch (e) {
-            console.error(e);
-          }
-        }
-      }
-
-      const ccbc = new ConcreteButtonClass();
-      const concreteButtonInstance = player.controlBar.addChild(ccbc);
-      concreteButtonInstance.addClass('vjs-airplay');
+      setLatencyEnabled(false);
     }
   };
 
@@ -206,16 +249,8 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     const unmuteButton = new UnmuteButton();
     unmuteButton.addClass('vjs-big-unmute-button');
-    // Localize the control text (exposed to assistive tech and tooltips),
-    // falling back to English when the key has no translation, mirroring the
-    // Translation component's missing-key behavior.
     const unmuteLabel = t(Localization.Frontend.unmute);
     unmuteButton.controlText(unmuteLabel === Localization.Frontend.unmute ? 'Unmute' : unmuteLabel);
-    // The overlay glyph is antd's MutedFilled speaker (the icon family used by
-    // the rest of the UI) instead of the video.js icon font. Inlined as SVG
-    // because this button renders into video.js DOM, outside React. Path from
-    // @ant-design/icons-svg MutedFilled. fill=currentColor picks up the theme
-    // action color set in VideoJS.scss.
     const iconPlaceholder = unmuteButton.el().querySelector('.vjs-icon-placeholder');
     if (iconPlaceholder) {
       iconPlaceholder.innerHTML =
@@ -223,18 +258,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
     player.addChild(unmuteButton);
 
-    // Show the big unmute affordance only while playback is inaudible *because
-    // the player muted it* (video.js's 'any' autoplay fallback, or an embed
-    // that asked to start muted). A viewer who muted deliberately, whether via
-    // the control bar, the "m" key, or a persisted mute restored from a
-    // previous visit (startedMutedByViewer), keeps a clean player: no giant
-    // overlay. The flag is cleared the moment the player becomes audible, so
-    // any later mute is by definition manual and never re-shows the button.
     const inaudible = () => player.muted() || player.volume() === 0;
-    // Autoplay can win the race against this ready handler (the source is set
-    // at player construction), so seed the flag from current state: already
-    // playing inaudibly at ready means the player did it, since no user
-    // gesture can have happened yet.
     let mutedByAutoplay = !startedMutedByViewer && !player.paused() && inaudible();
 
     const updateUnmuteButton = () => {
@@ -257,22 +281,120 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     updateUnmuteButton();
   };
 
+  // Live edge / behind-live tracking (HLS only; WebRTC is always live).
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const player = playerRef.current;
+      if (!player?.liveTracker) return;
+      try {
+        const current = Number(player.currentTime()) || 0;
+        const liveCurrent = Number(player.liveTracker.liveCurrentTime?.()) || 0;
+        const behind = Math.max(0, liveCurrent - current);
+        setBehindLiveSeconds(behind);
+        const atEdge = behind < 8;
+        setLiveEdge(atEdge);
+      } catch {
+        // Live tracker may not be ready.
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Sample HLS playback stats at 1 Hz while the Stats for nerds panel is open.
+  useEffect(() => {
+    if (!statsOpen) return undefined;
+    const build = () => {
+      const player = playerRef.current;
+      if (!player) return;
+      const el = player.el?.() as HTMLElement | undefined;
+      const video = el?.querySelector('video') as HTMLVideoElement | null;
+      const tech = player.tech?.({ IWillNotUseThisInPlugins: true });
+      const bandwidth = Number(tech?.vhs?.playlists?.media?.()?.attributes?.BANDWIDTH) || 0;
+      const quality = video?.getVideoPlaybackQuality?.();
+      const connection = (navigator as Navigator & { connection?: Record<string, number> })
+        .connection;
+      const currentResolution =
+        video && video.videoWidth > 0 ? video.videoWidth + 'x' + video.videoHeight : 'N/A';
+      const activeQualityName =
+        selectedQuality === 'auto'
+          ? 'Auto'
+          : qualities.find(item => String(item.index) === selectedQuality)?.name || 'Auto';
+      const volumeInfo = formatVolume(video?.volume ?? 1, Boolean(video?.muted));
+      const bufferedEnd =
+        video && video.buffered && video.buffered.length > 0
+          ? video.buffered.end(video.buffered.length - 1)
+          : null;
+      const bufferHealth =
+        bufferedEnd !== null && video
+          ? Math.max(0, bufferedEnd - (Number(video.currentTime) || 0))
+          : null;
+      let latency: number | null = null;
+      try {
+        const liveCurrent = Number(player.liveTracker?.liveCurrentTime?.()) || 0;
+        if (liveCurrent > 0)
+          latency = Math.max(0, liveCurrent - (Number(player.currentTime()) || 0));
+      } catch {
+        latency = null;
+      }
+      const videoBitrate = bandwidth > 0 ? bandwidth / 1000 : null;
+      setStats({
+        collecting: false,
+        isWebRTC: false,
+        streamId: source ? source.split('/').filter(Boolean).slice(-2).join('/') : 'HLS',
+        viewport: formatViewportFrames(
+          typeof window === 'undefined' ? 0 : window.innerWidth,
+          typeof window === 'undefined' ? 0 : window.innerHeight,
+          quality ? quality.droppedVideoFrames : null,
+          quality ? quality.totalVideoFrames : null,
+        ),
+        frames: formatViewportFrames(
+          typeof window === 'undefined' ? 0 : window.innerWidth,
+          typeof window === 'undefined' ? 0 : window.innerHeight,
+          quality ? quality.droppedVideoFrames : null,
+          quality ? quality.totalVideoFrames : null,
+        ),
+        resolution: currentResolution,
+        optimalResolution: currentResolution,
+        volume: volumeInfo.volume,
+        normalizedVolume: volumeInfo.normalizedVolume,
+        codecs: 'H.264 / AAC (HLS)',
+        videoBitrateKbps: videoBitrate,
+        audioBitrateKbps: null,
+        connectionSpeedKbps: connection?.downlink ? connection.downlink * 1000 : null,
+        rttMs: connection?.rtt ?? null,
+        jitterMs: null,
+        packetsLost: null,
+        packetsReceived: null,
+        bufferSeconds: bufferHealth,
+        liveLatencySeconds: latency,
+        liveMode: 'HLS (' + activeQualityName + ')',
+        date: new Date().toLocaleString(),
+      });
+      setSparklines(current => ({
+        video: pushSparkline(current.video, videoBitrate),
+        audio: pushSparkline(current.audio, null),
+      }));
+    };
+    build();
+    const timer = setInterval(build, 1000);
+    return () => clearInterval(timer);
+  }, [statsOpen, selectedQuality, qualities, source]);
+
   // Register keyboard shortcut for the space bar to toggle playback
   useHotkeys('space', e => {
     e.preventDefault();
     togglePlayback();
   });
 
-  // Register keyboard shortcut for f to toggle full screen
-  useHotkeys('f', toggleFullScreen, {
-    enableOnContentEditable: false,
-  });
-
-  // Register keyboard shortcut for the "m" key to toggle mute
-  useHotkeys('m', toggleMute, {
-    enableOnContentEditable: false,
-  });
-
+  useHotkeys('f', toggleFullScreen, { enableOnContentEditable: false });
+  useHotkeys('m', toggleMute, { enableOnContentEditable: false });
+  useHotkeys(
+    'i',
+    () => {
+      togglePip();
+    },
+    { enableOnContentEditable: false },
+  );
   useHotkeys('0', () => playerRef.current.volume(playerRef.current.volume() + 0.1), {
     enableOnContentEditable: false,
   });
@@ -280,9 +402,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     enableOnContentEditable: false,
   });
 
-  // Resolve the video.js autoplay value from the instance setting, honoring the
-  // viewer's data-saver and reduced-motion preferences. Guarded because this
-  // runs during render (no window during SSR).
   const prefersReducedMotion =
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
@@ -291,10 +410,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     typeof navigator !== 'undefined'
       ? (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
       : undefined;
-  // The player restores the persisted volume on ready, and a mute is persisted
-  // as volume 0. Starting muted (embed request) or at volume 0 makes a
-  // sound-only autoplay attempt succeed silently in Firefox, which allows
-  // inaudible autoplay, so the mapping needs to know about it.
   const startsInaudible = initiallyMuted || startedMutedByViewer;
   const autoplayMode = autoplayModeForSetting(autoplay, {
     prefersReducedMotion,
@@ -304,22 +419,17 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
   const videoJsOptions = {
     autoplay: autoplayMode,
-    controls: true,
+    controls: false,
+    bigPlayButton: false,
     responsive: true,
     fluid: false,
     fill: true,
     playsinline: true,
-    liveui: true,
+    liveui: false,
     preload: 'auto',
     muted: initiallyMuted,
-    controlBar: {
-      progressControl: {
-        seekBar: false,
-      },
-    },
     html5: {
       vhs: {
-        // used to select the lowest bitrate playlist initially. This helps to decrease playback start time. This setting is false by default.
         enableLowInitialPlaylist: true,
         experimentalBufferBasedABR: true,
         useNetworkInformationApi: true,
@@ -338,49 +448,64 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     ],
   };
 
-  const handlePlayerReady = (player, videojs) => {
+  const handlePlayerReady = async (player, videojs) => {
     playerRef.current = player;
     setSavedVolume();
-    setupAirplay(player, videojs);
     setupUnmuteButton(player, videojs);
 
-    // You can handle player events here, for example:
-    player.on('waiting', () => {
-      console.debug('player is waiting');
-    });
-
     player.on('dispose', () => {
-      console.debug('player will dispose');
       ping.stop();
     });
 
     player.on('playing', () => {
-      console.debug('player is playing');
       ping.start();
       setVideoPlaying(true);
+      setIsPlaying(true);
+      setStats(prev => ({ ...prev, collecting: true }));
     });
 
     player.on('pause', () => {
-      console.debug('player is paused');
       ping.stop();
       setVideoPlaying(false);
+      setIsPlaying(false);
     });
 
     player.on('ended', () => {
-      console.debug('player is ended');
       ping.stop();
       setVideoPlaying(false);
+      setIsPlaying(false);
     });
 
-    videojs.hookOnce();
-
     player.on('volumechange', handleVolume);
+    player.on('fullscreenchange', () => setFullscreen(Boolean(player.isFullscreen())));
+    syncVolumeState();
+
+    videojs.hookOnce();
 
     playbackMetrics = new PlaybackMetrics(player, videojs);
     playbackMetrics.setClockSkew(clockSkew);
 
-    createSettings(player, videojs);
+    try {
+      const fetchedQualities = await VideoSettingsService.getVideoQualities();
+      setQualities(fetchedQualities);
+    } catch (err) {
+      console.warn('Unable to load HLS qualities', err);
+    }
+
+    setupLatencyCompensator(player);
   };
+
+  // Reference-style transport error banner: shown for 5s after a WHEP failure
+  // while the player has fallen back to HLS.
+  useEffect(() => {
+    if (!transportError) {
+      setTransportErrorVisible(false);
+      return undefined;
+    }
+    setTransportErrorVisible(true);
+    const timer = setTimeout(() => setTransportErrorVisible(false), 5000);
+    return () => clearTimeout(timer);
+  }, [transportError]);
 
   useEffect(() => {
     if (playbackMetrics) {
@@ -396,6 +521,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     [],
   );
 
+  const qualityOptions: PlayerQuality[] = qualities.map(quality => ({
+    id: String(quality.index),
+    name: quality.name,
+  }));
+
   return (
     <ErrorBoundary
       // eslint-disable-next-line react/no-unstable-nested-components
@@ -407,10 +537,54 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         />
       )}
     >
-      <div className={classNames(styles.container, className)} id="player">
+      <div ref={containerRef} className={classNames(styles.container, className)} id="player">
         {online && (
           <div className={styles.player}>
             <VideoJS options={videoJsOptions} onReady={handlePlayerReady} aria-label={title} />
+            {transportErrorVisible && (
+              <div className={styles.transportError} data-testid="transport-error">
+                <Translation
+                  translationKey={Localization.Frontend.Player.webrtcUnavailableNotice}
+                  defaultText="WebRTC is unavailable; using HLS."
+                />
+              </div>
+            )}
+            <PlayerControls
+              playing={isPlaying && videoPlaying}
+              muted={muted}
+              volume={volume}
+              transport={transport}
+              activeTransport="hls"
+              webrtcAvailable={webrtcAvailable}
+              qualities={qualityOptions}
+              selectedQuality={selectedQuality}
+              latencyEnabled={latencyEnabled}
+              latencySupported
+              showQuality
+              liveEdge={liveEdge}
+              behindLiveSeconds={behindLiveSeconds}
+              stats={stats}
+              sparklines={sparklines}
+              statsOpen={statsOpen}
+              fullscreen={fullscreen}
+              callbacks={{
+                onTogglePlay: togglePlayback,
+                onToggleMute: toggleMute,
+                onVolumeChange: setPlayerVolume,
+                onGoLive: goLive,
+                onTransportChange,
+                onQualityChange: selectQuality,
+                onToggleLatency: toggleLatency,
+                onToggleStats: () => {
+                  setStatsOpen(open => {
+                    if (!open) setStats(prev => ({ ...prev, collecting: true }));
+                    return !open;
+                  });
+                },
+                onTogglePip: togglePip,
+                onToggleFullscreen: toggleFullScreen,
+              }}
+            />
           </div>
         )}
         <div className={styles.poster}>
