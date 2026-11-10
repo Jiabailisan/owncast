@@ -58,6 +58,7 @@ func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName strin
 func (s *Service) HandleCallbackCode(code, state string) (*Request, *Response, error) {
 	request, exists := s.pendingAuthRequests[state]
 	if !exists {
+		log.Warnln("IndieAuth callback with unknown state:", state)
 		return nil, nil, errors.New("no auth requests pending")
 	}
 
@@ -97,14 +98,14 @@ func (s *Service) HandleCallbackCode(code, state string) (*Request, *Response, e
 
 	if response.Error != "" || response.ErrorDescription != "" {
 		errorText := makeIndieAuthClientErrorText(response.Error)
-		log.Debugln("IndieAuth error:", response.Error, response.ErrorDescription)
+		log.Warnln("IndieAuth token exchange rejected:", response.Error, response.ErrorDescription)
 		return nil, nil, fmt.Errorf("IndieAuth error: %s - %s", errorText, response.ErrorDescription)
 	}
 
 	// In case this IndieAuth server does not use OAuth error keys or has internal
 	// issues resulting in unstructured errors.
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		log.Debugln("IndieAuth error. status code:", res.StatusCode, "body:", string(body))
+		log.Warnln("IndieAuth token exchange failed with status", res.StatusCode, "body:", string(body))
 		return nil, nil, errors.New("there was an error authenticating against IndieAuth server")
 	}
 
@@ -114,6 +115,7 @@ func (s *Service) HandleCallbackCode(code, state string) (*Request, *Response, e
 
 	// What we sent and what we got back must match
 	if meRequestVerifier != meResponseVerifier {
+		log.Warnln("IndieAuth me mismatch: requested", meRequestVerifier, "returned", meResponseVerifier)
 		return nil, nil, errors.New("indieauth response does not match the initial anticipated auth destination")
 	}
 
