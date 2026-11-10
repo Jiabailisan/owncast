@@ -46,7 +46,9 @@ import { LATENCY_STORAGE_KEY } from '../PlayerControls/preferences';
 import styles from './WebRTCPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
-const AUTOPLAY_FALLBACK_VOLUME = 0.7;
+// Unmuting restores full volume: mobile has no slider, and the persisted volume
+// may be zero, which would leave the viewer silent after unmuting.
+const AUTOPLAY_FALLBACK_VOLUME = 1;
 
 export type WebRTCPlayerProps = {
   whepUrl: string;

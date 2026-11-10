@@ -95,6 +95,14 @@ type forwarder struct {
 	lastSeq atomic.Uint32
 	lastTS  atomic.Uint32
 
+	// packet is reused for every datagram when the reorder buffer is disabled,
+	// which removes one allocation and one payload copy per RTP packet.
+	packet rtp.Packet
+
+	// nextDeadline throttles SetReadDeadline: re-arming it on every packet is a
+	// syscall round-trip on the hottest path in the forwarder.
+	nextDeadline time.Time
+
 	startedAt time.Time
 }
 
@@ -127,8 +135,11 @@ func (f *forwarder) start(wg *sync.WaitGroup) {
 func (f *forwarder) run() {
 	buf := make([]byte, forwarderReadBuffer)
 	for {
-		if err := f.conn.SetReadDeadline(time.Now().Add(forwarderReadDeadline)); err != nil {
-			return
+		if now := time.Now(); now.After(f.nextDeadline) {
+			if err := f.conn.SetReadDeadline(now.Add(forwarderReadDeadline)); err != nil {
+				return
+			}
+			f.nextDeadline = now.Add(forwarderReadDeadline / 2)
 		}
 		n, _, err := f.conn.ReadFromUDP(buf)
 		if err != nil {
@@ -146,7 +157,12 @@ func (f *forwarder) run() {
 }
 
 func (f *forwarder) handleRaw(raw []byte) {
-	packet := &rtp.Packet{}
+	// The reorder buffer keeps its own copy, so the packet can be reused unless it
+	// is enabled; emit() and inspectH264() finish with it before the next read.
+	packet := &f.packet
+	if f.reorder != nil {
+		packet = &rtp.Packet{}
+	}
 	if err := packet.Unmarshal(raw); err != nil {
 		f.counters.parseErrors.Add(1)
 

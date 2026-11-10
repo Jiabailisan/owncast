@@ -3,7 +3,6 @@ import {
   autoplayModeForSetting,
   resolveAutoplaySetting,
   shouldAttemptAutoplay,
-  shouldShowBigUnmuteOverlay,
   readAutoplayPreferences,
 } from '../utils/autoplay';
 
@@ -97,18 +96,6 @@ describe('WebRTC autoplay and unmute parity helpers', () => {
       false,
     );
     expect(shouldAttemptAutoplay(AutoplaySetting.SoundOnly, { startsInaudible: true })).toBe(false);
-  });
-
-  test('the big unmute overlay is only for playback the player muted itself', () => {
-    const base = { mutedByAutoplay: false, paused: false, muted: false, volume: 1 };
-    expect(shouldShowBigUnmuteOverlay(base)).toBe(false);
-    expect(shouldShowBigUnmuteOverlay({ ...base, mutedByAutoplay: true, muted: true })).toBe(true);
-    // A viewer-initiated mute must never show the autoplay unmute affordance.
-    expect(shouldShowBigUnmuteOverlay({ ...base, muted: true })).toBe(false);
-    // Nor while paused.
-    expect(
-      shouldShowBigUnmuteOverlay({ ...base, mutedByAutoplay: true, paused: true, muted: true }),
-    ).toBe(false);
   });
 
   test('readAutoplayPreferences returns overrides and browser-derived values', () => {

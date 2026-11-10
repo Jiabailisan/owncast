@@ -239,7 +239,7 @@ func (h *Handlers) registerServedSegmentMetrics(r *http.Request, clientID, viewe
 		return
 	}
 
-	segmentSeconds := h.configRepository.GetStreamLatencyLevel().SecondsPerSegment
+	segmentSeconds := h.cachedSegmentSeconds()
 	kbps, seconds, ok := segmentSpeedSample(bytes, duration, segmentSeconds)
 	if !ok {
 		h.metrics.RegisterUnmeasurableServerSample(

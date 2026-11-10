@@ -75,7 +75,7 @@ export const StatsPanel: FC<StatsPanelProps> = ({ stats, sparklines, onClose }) 
       </div>
       <div className={styles.statsCharts}>
         <Chart
-          label={stats.isWebRTC ? 'Video' : 'Video'}
+          label="Video"
           color="#5eead4"
           values={sparklines.video}
           current={stats.videoBitrateKbps}

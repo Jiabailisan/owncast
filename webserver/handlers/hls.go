@@ -52,7 +52,7 @@ func (h *Handlers) HandleHLSRequest(w http.ResponseWriter, r *http.Request) {
 
 	// If using external storage then only allow requests for the
 	// master playlist at stream.m3u8, no variants or segments.
-	if h.configRepository.GetS3Config().Enabled && relativePath != "stream.m3u8" {
+	if h.cachedS3Enabled() && relativePath != "stream.m3u8" {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -94,7 +94,7 @@ func (h *Handlers) HandleHLSRequest(w http.ResponseWriter, r *http.Request) {
 	// Time online segment transfers as a server-side observation. Playlist
 	// requests and offline streams cannot be observed, so avoid their metrics
 	// lock acquisition on this hot path.
-	observe := !isPlaylist && h.stream.GetStatus().Online
+	observe := !isPlaylist && h.stream.IsStreamConnected()
 	var observation metrics.ServerObservation
 	if observe {
 		observation = h.metrics.ServerObservationFor(requestClientID)

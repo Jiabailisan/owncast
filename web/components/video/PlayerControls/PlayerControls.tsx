@@ -232,8 +232,21 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         onPointerDownCapture={() => {
           pointerInteractionRef.current = true;
         }}
-        onKeyDownCapture={() => {
+        onKeyDownCapture={event => {
           pointerInteractionRef.current = false;
+          if (event.key === 'Escape') {
+            setSettingsOpen(false);
+            setTransportOpen(false);
+          }
+        }}
+        onBlurCapture={event => {
+          // Keyboard users could open a menu and Tab away, which left the bar
+          // pinned with the menu open because only a pointerdown closed it.
+          const next = event.relatedTarget as Node | null;
+          if (!next || !rootRef.current?.contains(next)) {
+            setSettingsOpen(false);
+            setTransportOpen(false);
+          }
         }}
         // A mouse click leaves focus on the button, which kept the bar visible
         // forever. detail > 0 means a pointer click; keyboard focus is kept.

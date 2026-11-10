@@ -97,12 +97,3 @@ export function shouldAttemptAutoplay(
 // The big unmute affordance is only for playback the player muted itself (the
 // autoplay muted fallback). A viewer-initiated or restored persisted mute must
 // never show it, matching OwncastPlayer's video.js behavior.
-export function shouldShowBigUnmuteOverlay(args: {
-  mutedByAutoplay: boolean;
-  paused: boolean;
-  muted: boolean;
-  volume: number;
-}): boolean {
-  const { mutedByAutoplay, paused, muted, volume } = args;
-  return mutedByAutoplay && !paused && (muted || volume === 0);
-}

@@ -155,7 +155,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
   const toggleMute = () => {
     if (playerRef.current.muted() || playerRef.current.volume() === 0) {
-      playerRef.current.volume(0.7);
+      // Unmuting restores full volume; the slider is not offered on touch devices,
+      // so 100% is the only sensible default.
+      playerRef.current.volume(1);
       playerRef.current.muted(false);
     } else {
       playerRef.current.volume(0);
