@@ -1,6 +1,6 @@
 import { FC } from 'react';
 
-import { StatsSnapshot, SparklineState, PlayerQuality } from './types';
+import { StatsSnapshot, SparklineState } from './types';
 import { buildStatsRows, formatStatsBitrate, sparklinePoints } from './stats';
 import styles from './PlayerControls.module.scss';
 
@@ -8,12 +8,6 @@ export type StatsPanelProps = {
   stats: StatsSnapshot;
   sparklines: SparklineState;
   onClose: () => void;
-  // Current quality ladder and selector, shown inside the stats overlay so the
-  // viewer can inspect and change the quality without closing the panel.
-  qualities?: PlayerQuality[];
-  selectedQuality?: string;
-  showQuality?: boolean;
-  onQualityChange?: (quality: string) => void;
 };
 
 const CHART_WIDTH = 180;
@@ -58,15 +52,7 @@ const Chart: FC<{ label: string; color: string; values: number[]; current: numbe
 
 // YouTube-style Stats for nerds panel. Everything is honest "—" when the
 // transport cannot measure it; "Collecting..." shows until the first sample.
-export const StatsPanel: FC<StatsPanelProps> = ({
-  stats,
-  sparklines,
-  onClose,
-  qualities = [],
-  selectedQuality = 'auto',
-  showQuality = false,
-  onQualityChange,
-}) => {
+export const StatsPanel: FC<StatsPanelProps> = ({ stats, sparklines, onClose }) => {
   const rows = buildStatsRows(stats);
   return (
     <div
@@ -104,36 +90,14 @@ export const StatsPanel: FC<StatsPanelProps> = ({
       {stats.collecting ? (
         <div className={styles.statsEmpty}>Collecting...</div>
       ) : (
-        <>
-          {showQuality && qualities.length > 0 && (
-            <div className={styles.statsQuality}>
-              <div className={styles.statsQualityHeading}>QUALITY</div>
-              <div className={styles.statsQualityRows}>
-                {[{ id: 'auto', name: 'Auto' }, ...qualities].map(quality => (
-                  <button
-                    key={quality.id}
-                    type="button"
-                    className={styles.statsQualityRow}
-                    aria-pressed={selectedQuality === quality.id}
-                    data-quality-id={quality.id}
-                    onClick={() => onQualityChange?.(quality.id)}
-                  >
-                    <span>{quality.name}</span>
-                    {selectedQuality === quality.id && <span aria-hidden="true">✓</span>}
-                  </button>
-                ))}
-              </div>
+        <div className={styles.statsRows}>
+          {rows.map(row => (
+            <div className={styles.statsRow} key={row.label}>
+              <span className={styles.statsLabel}>{row.label}</span>
+              <span className={styles.statsValue}>{row.value}</span>
             </div>
-          )}
-          <div className={styles.statsRows}>
-            {rows.map(row => (
-              <div className={styles.statsRow} key={row.label}>
-                <span className={styles.statsLabel}>{row.label}</span>
-                <span className={styles.statsValue}>{row.value}</span>
-              </div>
-            ))}
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </div>
   );

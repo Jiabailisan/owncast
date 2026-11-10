@@ -474,6 +474,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         normalizedVolume: volumeInfo.normalizedVolume,
         codecs: 'H.264 / AAC (HLS)',
         sdp: '—',
+        qualityName:
+          selectedQuality === 'auto'
+            ? 'Auto'
+            : qualities.find(item => String(item.index) === selectedQuality)?.name ||
+              selectedQuality,
         videoBitrateKbps,
         audioBitrateKbps,
         connectionSpeedKbps,

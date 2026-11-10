@@ -25,6 +25,7 @@ export interface StatsSnapshot {
   // Negotiated SDP summary (codec/profile-level-id/candidates) for the stats
   // panel. HLS has no SDP negotiation, so it renders an em dash.
   sdp: string;
+  qualityName: string;
   videoBitrateKbps: number | null;
   audioBitrateKbps: number | null;
   connectionSpeedKbps: number | null;
@@ -56,6 +57,7 @@ export function makeEmptyStats(isWebRTC = false): StatsSnapshot {
     normalizedVolume: 'N/A',
     codecs: isWebRTC ? 'H.264 / Opus (WebRTC)' : 'H.264 / AAC (HLS)',
     sdp: '—',
+    qualityName: 'Auto',
     videoBitrateKbps: null,
     audioBitrateKbps: null,
     connectionSpeedKbps: null,

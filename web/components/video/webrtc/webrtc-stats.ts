@@ -363,20 +363,15 @@ export function collectWebRTCStatsPanel(
   };
 }
 
-// summarizeSDP returns a compact description of the negotiated media for the
-// Stats panel: H.264 profile-level-id, audio codec and candidate count.
+// summarizeSDP returns the negotiated H.264 level for the Stats panel.
 export function summarizeSDP(sdp: string | null | undefined): string {
   if (!sdp) return '—';
   const profileMatch = sdp.match(/profile-level-id=([0-9a-fA-F]{6})/);
+  if (profileMatch) {
+    return 'level-id=' + profileMatch[1].toLowerCase();
+  }
   const codecMatch = sdp.match(/a=rtpmap:\d+ (H264|H265|AV1|VP8|VP9)\//i);
-  const audioMatch = sdp.match(/a=rtpmap:\d+ (OPUS|opus|MP4A|G722)\//i);
-  const candidates = (sdp.match(/a=candidate:/g) || []).length;
-  const parts: string[] = [];
-  if (codecMatch) parts.push(codecMatch[1].toUpperCase());
-  if (profileMatch) parts.push('profile-level-id=' + profileMatch[1].toLowerCase());
-  if (audioMatch) parts.push(audioMatch[1].toUpperCase());
-  if (candidates > 0) parts.push('ICE candidates=' + candidates);
-  return parts.length > 0 ? parts.join(' / ') : '—';
+  return codecMatch ? codecMatch[1].toUpperCase() : '—';
 }
 
 export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRTCStatsBeacon {

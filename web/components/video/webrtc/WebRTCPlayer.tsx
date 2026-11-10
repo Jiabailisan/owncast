@@ -412,6 +412,72 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [whepUrl, online, selectedVariant, retryToken, sessionFactory]);
 
+  // Minimize latency applies real receiver-side playout limits. jitterBufferTarget
+  // (Chrome) and playoutDelayHint (Firefox/older Chrome) both cap the receiver
+  // buffer; the catch-up loop nudges playbackRate when the estimated playout
+  // latency still exceeds one second.
+  useEffect(() => {
+    if (phase !== 'ready') {
+      return undefined;
+    }
+    const session = sessionRef.current;
+    if (!session) {
+      return undefined;
+    }
+    const receivers =
+      typeof session.pc.getReceivers === 'function'
+        ? (session.pc.getReceivers() as (RTCRtpReceiver & {
+            jitterBufferTarget?: number;
+            playoutDelayHint?: number;
+          })[])
+        : [];
+    receivers.forEach(receiver => {
+      try {
+        if ('jitterBufferTarget' in receiver) {
+          receiver.jitterBufferTarget = latencyEnabled ? 200 : 1000;
+        }
+      } catch {
+        // Not supported by this browser.
+      }
+      try {
+        if ('playoutDelayHint' in receiver) {
+          receiver.playoutDelayHint = latencyEnabled ? 0.2 : 1;
+        }
+      } catch {
+        // Not supported by this browser.
+      }
+    });
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let lateSamples = 0;
+    if (latencyEnabled) {
+      timer = setInterval(() => {
+        const video = videoRef.current;
+        const activeSession = sessionRef.current;
+        if (!video || !activeSession || video.paused) return;
+        void activeSession.pc.getStats().then(report => {
+          const liveLatency = collectWebRTCStatsPanel(report).sample.liveLatencySeconds;
+          if (liveLatency === null) return;
+          if (liveLatency > 1) {
+            lateSamples += 1;
+            if (lateSamples >= 2 && video.playbackRate === 1) {
+              video.playbackRate = 1.1;
+            }
+          } else if (liveLatency < 0.7) {
+            lateSamples = 0;
+            if (video.playbackRate > 1) video.playbackRate = 1;
+          }
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+      const video = videoRef.current;
+      if (video && video.playbackRate !== 1) video.playbackRate = 1;
+    };
+  }, [latencyEnabled, phase, selectedVariant]);
+
   // Sample WebRTC stats at 1 Hz while the Stats for nerds panel is open.
   useEffect(() => {
     if (!statsOpen || phase !== 'ready') {
@@ -464,6 +530,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             (panelSample.audioCodec || 'OPUS') +
             ' (WebRTC)',
           sdp: summarizeSDP(session.pc.remoteDescription?.sdp),
+          qualityName:
+            selectedVariant === null
+              ? 'Auto'
+              : (variants || []).find(v => v.index === selectedVariant)?.name ||
+                String(selectedVariant),
           videoBitrateKbps: panelSample.videoBitrateKbps,
           audioBitrateKbps: panelSample.audioBitrateKbps,
           connectionSpeedKbps: panelSample.connectionSpeedKbps,

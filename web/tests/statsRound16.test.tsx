@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { PlayerControls } from '../components/video/PlayerControls/PlayerControls';
 import { makeEmptyStats } from '../components/video/PlayerControls/types';
 import { collectWebRTCStatsPanel, summarizeSDP } from '../components/video/webrtc/webrtc-stats';
@@ -34,32 +34,28 @@ const baseProps = {
   stats: {
     ...makeEmptyStats(true),
     collecting: false,
-    sdp: 'H264 / profile-level-id=4d0033 / OPUS',
+    sdp: 'level-id=4d0033',
+    qualityName: '1080p60@6Mbps',
     liveLatencySeconds: 0.42,
   },
   sparklines: { video: [1000], audio: [128] },
 };
 
-test('stats panel shows SDP, live latency and quality selection', () => {
-  const callbacks = makeCallbacks();
-  render(<PlayerControls {...baseProps} statsOpen callbacks={callbacks} />);
-  expect(screen.getByText('SDP')).toBeInTheDocument();
-  expect(screen.getByText(/profile-level-id=4d0033/)).toBeInTheDocument();
+test('stats panel shows the combined quality/SDP row and live latency', () => {
+  render(<PlayerControls {...baseProps} statsOpen callbacks={makeCallbacks()} />);
+  expect(screen.getByText('Quality / SDP')).toBeInTheDocument();
+  expect(screen.getByText('1080p60@6Mbps / level-id=4d0033')).toBeInTheDocument();
   expect(screen.getByText('0.4s')).toBeInTheDocument();
-  const quality = screen.getByText('6Mbps@60fps');
-  fireEvent.click(quality);
-  expect(callbacks.onQualityChange).toHaveBeenCalledWith('1');
-  expect(screen.getAllByText('Auto').length).toBeGreaterThanOrEqual(1);
+  // Quality switching stays in the settings menu; the stats panel must not add
+  // its own selector rows (it previously made the panel overflow).
+  expect(screen.queryAllByTestId('quality-option').length).toBe(0);
 });
 
 test('summarizeSDP exposes the negotiated H264 profile and candidate count', () => {
   const summary = summarizeSDP(
     'v=0\r\na=rtpmap:96 H264/90000\r\na=fmtp:96 profile-level-id=4d0033;packetization-mode=1\r\na=rtpmap:111 opus/48000/2\r\na=candidate:1 1 udp 1 192.0.2.10 18001 typ host\r\na=candidate:2 1 udp 1 198.51.100.20 18001 typ host\r\n',
   );
-  expect(summary).toContain('H264');
-  expect(summary).toContain('profile-level-id=4d0033');
-  expect(summary).toContain('OPUS');
-  expect(summary).toContain('ICE candidates=2');
+  expect(summary).toBe('level-id=4d0033');
 });
 
 test('WebRTC stats panel estimates live latency from jitter buffer and RTT', () => {
