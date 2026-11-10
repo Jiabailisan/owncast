@@ -292,16 +292,25 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       iconPlaceholder.innerHTML =
         '<svg viewBox="64 64 896 896" fill="currentColor" fill-rule="evenodd" aria-hidden="true" focusable="false"><path d="M771.91 115a31.65 31.65 0 00-17.42 5.27L400 351.97H236a16 16 0 00-16 16v288.06a16 16 0 0016 16h164l354.5 231.7a31.66 31.66 0 0017.42 5.27c16.65 0 32.08-13.25 32.08-32.06V147.06c0-18.8-15.44-32.06-32.09-32.06"></path></svg>';
     }
+    // A static label next to the icon; video.js only offers a visually hidden
+    // control text, which is revealed on hover and shifts the pill.
+    const unmuteLabelSpan = document.createElement('span');
+    unmuteLabelSpan.textContent = unmuteLabel;
+    unmuteButton.el().appendChild(unmuteLabelSpan);
     player.addChild(unmuteButton);
 
     const inaudible = () => player.muted() || player.volume() === 0;
+    // Kept for the autoplay-success handler below; the notice itself is driven by
+    // the audible state now.
     let mutedByAutoplay = !startedMutedByViewer && !player.paused() && inaudible();
 
     const updateUnmuteButton = () => {
       if (!inaudible()) {
         mutedByAutoplay = false;
       }
-      if (mutedByAutoplay && !player.paused() && inaudible()) {
+      // Show the notice whenever the player is audible-off and playing, not only
+      // for the first autoplay-muted case: muting again later must show it too.
+      if (!player.paused() && inaudible()) {
         unmuteButton.show();
       } else {
         unmuteButton.hide();
@@ -310,6 +319,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     player.on('autoplay-success', () => {
       mutedByAutoplay = !startedMutedByViewer && inaudible();
+      void mutedByAutoplay;
       updateUnmuteButton();
     });
 

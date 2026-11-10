@@ -79,14 +79,11 @@
       filter: none;
     }
 
-    // video.js hides the control text visually; show it as the label.
+    // The label is a real span injected by OwncastPlayer, so the
+    // screen-reader-only control text stays hidden and cannot appear on
+    // hover (which used to shift the pill contents).
     .vjs-control-text {
-      position: static;
-      width: auto;
-      height: auto;
-      overflow: visible;
-
-      white-space: nowrap;
+      display: none;
     }
 
     &:hover {

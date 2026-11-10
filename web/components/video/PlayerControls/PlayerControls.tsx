@@ -187,6 +187,13 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           if (playing && !anyMenuOpen) scheduleHide();
         }}
         onFocusCapture={reveal}
+        // A mouse click leaves focus on the button, which kept the bar visible
+        // forever. detail > 0 means a pointer click; keyboard focus is kept.
+        onClickCapture={event => {
+          if (event.detail > 0) {
+            (event.target as HTMLElement).blur();
+          }
+        }}
       >
         {loading && <div className={styles.loadingSpinner} aria-label="Loading" />}
         {!playing && !loading && (
