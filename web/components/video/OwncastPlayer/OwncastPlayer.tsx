@@ -277,8 +277,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       handleClick() {
         player.muted(false);
         if (player.volume() === 0) {
-          const saved = parseFloat(getLocalStorage(PLAYER_VOLUME));
-          player.volume(saved > 0 ? saved : 0.7);
+          // Unmuting restores full volume: mobile hides the volume slider, so this
+          // notice is the only way to get sound back there, and a persisted 0.7
+          // would leave it quiet.
+          player.volume(1);
         }
       }
     }

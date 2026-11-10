@@ -182,6 +182,19 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
     };
   }, [reveal, statsOpen]);
 
+  // Escape closes an open menu even when the click that opened it blurred the
+  // trigger, in which case the keydown never reaches the overlay root.
+  useEffect(() => {
+    if (!settingsOpen && !transportOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setSettingsOpen(false);
+      setTransportOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [settingsOpen, transportOpen]);
+
   // Close menus on outside pointerdown.
   useEffect(() => {
     if (!settingsOpen && !transportOpen) return undefined;
@@ -242,6 +255,11 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         onBlurCapture={event => {
           // Keyboard users could open a menu and Tab away, which left the bar
           // pinned with the menu open because only a pointerdown closed it.
+          // A pointer click also blurs the trigger, but the row it is clicking
+          // has not run its onClick yet: closing here unmounted the row between
+          // pointerdown and click, so the click was lost.
+          if (pointerInteractionRef.current) return;
+
           const next = event.relatedTarget as Node | null;
           if (!next || !rootRef.current?.contains(next)) {
             setSettingsOpen(false);
