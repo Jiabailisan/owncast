@@ -98,6 +98,13 @@ func (d *restrictedDialer) DialContext(ctx context.Context, network, address str
 
 	if !d.allowInternal {
 		public := publicIPAddresses(addresses)
+		if len(public) == 0 && onlyBenchmarkAddresses(addresses) {
+			// Routers that run a transparent proxy answer DNS with a fake-IP in
+			// 198.18.0.0/15 for every proxied host. Those addresses are reserved for
+			// benchmarking and never reach a private service, so refusing them
+			// would break every outbound request on such a network.
+			public = addresses
+		}
 		if len(public) == 0 {
 			return nil, fmt.Errorf("refusing to connect to host %q: it resolves only to non-public addresses", host)
 		}
@@ -176,6 +183,23 @@ func newOutboundHTTPClient(allowInternal bool) *http.Client {
 		Timeout:       8 * time.Second,
 		CheckRedirect: outboundRedirectPolicy(allowInternal),
 	}
+}
+
+// onlyBenchmarkAddresses reports whether every address is inside the reserved
+// 198.18.0.0/15 benchmarking range, which fake-IP DNS resolvers hand out.
+func onlyBenchmarkAddresses(addresses []net.IPAddr) bool {
+	if len(addresses) == 0 {
+		return false
+	}
+
+	for _, address := range addresses {
+		ip4 := address.IP.To4()
+		if ip4 == nil || ip4[0] != 198 || ip4[1] < 18 || ip4[1] > 19 {
+			return false
+		}
+	}
+
+	return true
 }
 
 func outboundRedirectPolicy(allowInternal bool) func(*http.Request, []*http.Request) error {
