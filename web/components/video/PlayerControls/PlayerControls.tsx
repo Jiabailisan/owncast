@@ -299,7 +299,11 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
               {muted || volume === 0 ? <MutedFilled /> : <SoundFilled />}
             </button>
             {volumeVisible && (
-              <div className={classNames(styles.volumePopover, styles.volumeVisible)}>
+              <div
+                className={classNames(styles.volumePopover, {
+                  [styles.volumeVisible]: volumeVisible,
+                })}
+              >
                 <VolumeSlider
                   value={muted ? 0 : volume}
                   onChange={callbacks.onVolumeChange}
