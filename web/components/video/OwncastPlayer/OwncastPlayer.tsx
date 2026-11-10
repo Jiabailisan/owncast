@@ -30,9 +30,12 @@ import {
   formatViewportFrames,
   formatVolume,
   hlsConnectionSpeedKbps,
+  hlsForwardBufferSeconds,
+  hlsLiveLatencySeconds,
   hlsLiveMode,
   hlsMeasuredFps,
   hlsPlaylistFps,
+  hlsPlaylistSegments,
   hlsResolution,
   hlsVideoBitrateKbps,
   pushSparkline,
@@ -435,22 +438,32 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       const resolution = hlsResolution(video?.videoWidth, video?.videoHeight, fps);
       const audioBitrateKbps = meter.audioBitrateKbps;
       const volumeInfo = formatVolume(video?.volume ?? 1, Boolean(video?.muted));
-      const bufferedEnd =
-        video && video.buffered && video.buffered.length > 0
-          ? video.buffered.end(video.buffered.length - 1)
-          : null;
-      const bufferHealth =
-        bufferedEnd !== null && video
-          ? Math.max(0, bufferedEnd - (Number(video.currentTime) || 0))
-          : null;
-      let latency: number | null = null;
+      const bufferedRanges: { start: number; end: number }[] = [];
+      if (video?.buffered) {
+        for (let index = 0; index < video.buffered.length; index += 1) {
+          bufferedRanges.push({
+            start: video.buffered.start(index),
+            end: video.buffered.end(index),
+          });
+        }
+      }
+      const currentPlayhead = Number(video?.currentTime ?? player.currentTime?.()) || 0;
+      const bufferHealth = hlsForwardBufferSeconds(bufferedRanges, currentPlayhead);
+      let liveEdgeLatency: number | null = null;
       try {
         const liveCurrent = Number(player.liveTracker?.liveCurrentTime?.()) || 0;
-        const current = Number(video?.currentTime ?? player.currentTime?.()) || 0;
-        if (liveCurrent > 0) latency = Math.max(0, liveCurrent - current);
+        if (liveCurrent > 0) liveEdgeLatency = Math.max(0, liveCurrent - currentPlayhead);
       } catch {
-        latency = null;
+        liveEdgeLatency = null;
       }
+      // Real latency comes from the playlist's program-date-time stamps; the
+      // live tracker only measures the distance to the seekable edge.
+      const latency = hlsLiveLatencySeconds({
+        nowMs: Date.now(),
+        currentTime: currentPlayhead,
+        segments: hlsPlaylistSegments(vhs),
+        liveEdgeLatencySeconds: liveEdgeLatency,
+      });
 
       setStats({
         collecting: false,

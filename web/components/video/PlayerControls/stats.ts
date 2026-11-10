@@ -237,3 +237,86 @@ export function hlsLiveMode(videoPipeline?: string | null): string {
     typeof videoPipeline === 'string' && videoPipeline.trim() ? videoPipeline.trim() : 'hls';
   return 'HLS (' + pipeline + ')';
 }
+
+// hlsForwardBufferSeconds is the media buffered ahead of the playhead. It only
+// counts the range that actually contains the playhead, so a stale range left
+// behind after a seek cannot inflate the number.
+export function hlsForwardBufferSeconds(
+  ranges: { start: number; end: number }[] | null | undefined,
+  currentTime: number,
+): number | null {
+  if (!ranges || ranges.length === 0) return null;
+  const playhead = Number.isFinite(currentTime) ? currentTime : 0;
+  for (const range of ranges) {
+    if (playhead >= range.start - 0.001 && playhead <= range.end) {
+      return Math.max(0, range.end - playhead);
+    }
+  }
+
+  return 0;
+}
+
+export interface HlsPlaylistSegment {
+  start?: number;
+  end?: number;
+  duration?: number;
+  dateTimeObject?: Date | null;
+}
+
+// hlsLiveLatencySeconds measures the real delay between the playhead and the
+// wall clock using the playlist's EXT-X-PROGRAM-DATE-TIME stamps. video.js'
+// liveTracker only reports the distance to the seekable edge, which excludes the
+// segments the packager has not published yet, so it under-reports latency by
+// roughly one target duration plus the encoder delay.
+export function hlsLiveLatencySeconds(input: {
+  nowMs: number;
+  currentTime: number;
+  segments?: HlsPlaylistSegment[] | null;
+  liveEdgeLatencySeconds?: number | null;
+}): number | null {
+  const playhead = Number.isFinite(input.currentTime) ? input.currentTime : 0;
+  const segments = input.segments || [];
+  let anchor: HlsPlaylistSegment | null = null;
+  for (const segment of segments) {
+    const start = Number(segment.start);
+    if (!Number.isFinite(start) || start > playhead + 0.001) continue;
+    if (!(segment.dateTimeObject instanceof Date)) continue;
+    if (anchor === null || start >= Number(anchor.start)) anchor = segment;
+  }
+  if (anchor && anchor.dateTimeObject instanceof Date) {
+    const mediaWallMs = anchor.dateTimeObject.getTime() + (playhead - Number(anchor.start)) * 1000;
+    const latency = (input.nowMs - mediaWallMs) / 1000;
+    if (Number.isFinite(latency) && latency >= 0 && latency <= 120) return latency;
+  }
+  const fallback = input.liveEdgeLatencySeconds;
+  if (fallback !== null && fallback !== undefined && Number.isFinite(fallback) && fallback >= 0) {
+    return fallback;
+  }
+
+  return null;
+}
+
+// hlsPlaylistSegments extracts the media playlist segments from video.js VHS so
+// the stats panel can read the program-date-time of the current playhead.
+export function hlsPlaylistSegments(vhs: unknown): HlsPlaylistSegment[] | null {
+  const tech = vhs as
+    | {
+        playlistController_?: { media?: () => { segments?: HlsPlaylistSegment[] } | null };
+        masterPlaylistController_?: { media?: () => { segments?: HlsPlaylistSegment[] } | null };
+      }
+    | null
+    | undefined;
+  if (!tech) return null;
+  for (const controller of [tech.playlistController_, tech.masterPlaylistController_]) {
+    try {
+      const media = typeof controller?.media === 'function' ? controller.media() : null;
+      if (media && Array.isArray(media.segments) && media.segments.length > 0) {
+        return media.segments;
+      }
+    } catch {
+      // Playlist controller may not be ready yet.
+    }
+  }
+
+  return null;
+}
