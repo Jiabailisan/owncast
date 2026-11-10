@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
 	"sync"
@@ -162,6 +163,9 @@ func (s *Service) sendWebhook(job Job) error {
 	}
 
 	defer resp.Body.Close()
+	// Drain a bounded amount so the connection can go back to the pool instead of
+	// paying a fresh TCP+TLS handshake for every delivery.
+	_, _ = io.CopyN(io.Discard, resp.Body, 4<<10)
 
 	if err := s.webhookRepository.SetWebhookAsUsed(job.webhook); err != nil {
 		log.Warnln(err)

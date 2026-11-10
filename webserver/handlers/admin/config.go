@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
@@ -722,6 +723,11 @@ func (a *Admin) SetStreamLatencyLevel(w http.ResponseWriter, r *http.Request) {
 		webutils.BadRequestHandler(w, errors.New("value must be a number"))
 		return
 	}
+	if typedValue < 0 || typedValue > 4 || typedValue != math.Trunc(typedValue) {
+		webutils.BadRequestHandler(w, errors.New("value must be an integer latency level between 0 and 4"))
+
+		return
+	}
 	if err := configRepository.SetStreamLatencyLevel(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error setting stream latency "+err.Error())
 		return
@@ -1196,15 +1202,11 @@ func getValuesFromRequest(w http.ResponseWriter, r *http.Request) ([]ConfigValue
 	}
 
 	if configValue.Value == nil {
-		webutils.BadRequestHandler(w, errors.New("value is required"))
-
 		return values, false
 	}
 
 	object := reflect.ValueOf(configValue.Value)
 	if object.Kind() != reflect.Slice && object.Kind() != reflect.Array {
-		webutils.BadRequestHandler(w, errors.New("value must be an array"))
-
 		return values, false
 	}
 

@@ -394,11 +394,15 @@ func (s *Service) Broadcast(payload events.EventPayload) error {
 			continue
 		}
 
-		select {
-		case client.send <- data:
-		default:
-			go client.close()
+		client.mu.RLock()
+		if client.send != nil {
+			select {
+			case client.send <- data:
+			default:
+				go client.close()
+			}
 		}
+		client.mu.RUnlock()
 	}
 
 	return nil
@@ -409,6 +413,13 @@ func (s *Service) Send(payload events.EventPayload, client *Client) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		log.Errorln(err)
+		return
+	}
+
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+
+	if client.send == nil {
 		return
 	}
 

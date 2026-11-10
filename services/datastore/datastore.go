@@ -27,8 +27,10 @@ func (ds *Datastore) WarmCache() {
 	log.Traceln("Warming config value cache")
 
 	res, err := ds.DB.Query("SELECT key, value FROM datastore")
-	if err != nil || res.Err() != nil {
-		log.Errorln("error warming config cache", err, res.Err())
+	if err != nil {
+		log.Errorln("error warming config cache:", err)
+
+		return
 	}
 	defer res.Close()
 

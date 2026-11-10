@@ -70,7 +70,11 @@ func isTrustedProxyPeer(address string) bool {
 		return false
 	}
 
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	// Only a proxy running on this host (Lucky, nginx, caddy bound to
+	// 127.0.0.1) is trusted to have written the forwarding headers. A LAN peer
+	// talking to Owncast directly must keep its own address, otherwise any LAN
+	// client could claim to be someone else.
+	return ip.IsLoopback()
 }
 
 // isIPv6 reports whether the address looks like an IPv6 address.

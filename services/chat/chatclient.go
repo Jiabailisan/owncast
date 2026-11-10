@@ -198,15 +198,23 @@ func (c *Client) handleEvent(data []byte) {
 func (c *Client) close() {
 	log.Traceln("client closed:", c.User.DisplayName, c.Id, c.IPAddress)
 
+	// Closing the channel and clearing the field happens under c.mu, and every
+	// sender takes c.mu.RLock first, so a broadcast can never race the close and
+	// panic with "send on closed channel". The unregister hand-off is done after
+	// the lock is released: it blocks until the chat goroutine receives, and that
+	// goroutine may need s.mu, which a broadcaster is holding.
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	if c.send == nil {
+		c.mu.Unlock()
 
-	if c.send != nil {
-		_ = c.conn.Close()
-		c.server.unregister <- c.Id
-		close(c.send)
-		c.send = nil
+		return
 	}
+	_ = c.conn.Close()
+	close(c.send)
+	c.send = nil
+	c.mu.Unlock()
+
+	c.server.unregister <- c.Id
 }
 
 func (c *Client) passesRateLimit() bool {
@@ -246,8 +254,16 @@ func (c *Client) sendPayload(payload interface{}) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.send != nil {
-		c.send <- data
+	if c.send == nil {
+		return
+	}
+
+	// Never block while holding the lock: a client that stopped reading would
+	// block here forever, keeping close() from ever running and leaking the slot.
+	select {
+	case c.send <- data:
+	default:
+		go c.close()
 	}
 }
 
