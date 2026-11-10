@@ -9,6 +9,7 @@ import (
 
 	"github.com/owncast/owncast/config"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/teris-io/shortid"
 )
 
@@ -52,18 +53,35 @@ func (t *Transcoder) sharedOutputEnabled() bool {
 // shared and the caller must fall back to the legacy layout.
 func (t *Transcoder) sharedVideoVariantFor(output RTPOutput) (int, bool) {
 	if output.VariantIndex >= 0 && output.VariantIndex < len(t.variants) {
-		variant := t.variants[output.VariantIndex]
-		if variant.isVideoPassthrough == output.CopyVideo {
+		if t.variantMatchesLeg(t.variants[output.VariantIndex], output) {
 			return output.VariantIndex, true
 		}
 	}
 	for _, variant := range t.variants {
-		if variant.isVideoPassthrough == output.CopyVideo {
+		if t.variantMatchesLeg(variant, output) {
 			return variant.index, true
 		}
 	}
 
 	return 0, false
+}
+
+// variantMatchesLeg reports whether a variant's encode can feed this leg. The
+// passthrough flag must agree: a transcode leg must never be fed the raw source
+// stream, and a copy leg must never be fed an encoded one.
+func (t *Transcoder) variantMatchesLeg(variant HLSVariant, output RTPOutput) bool {
+	if variant.isVideoPassthrough != output.CopyVideo {
+		return false
+	}
+	if !output.CopyVideo && output.VideoBitrateKbps > 0 && variant.videoBitrate != output.VideoBitrateKbps {
+		// Sharing still saves an encode, but the viewer receives the HLS
+		// variant's bitrate rather than the WebRTC-specific override; make that
+		// visible instead of silent.
+		log.Debugf("transcoder: WebRTC leg %d requests %d kbps but shares the %d kbps HLS variant",
+			output.VariantIndex, output.VideoBitrateKbps, variant.videoBitrate)
+	}
+
+	return true
 }
 
 // sharedHLSFlags mirrors the HLS muxer flags used by the legacy HLS output.
@@ -253,9 +271,62 @@ func (t *Transcoder) writeMasterPlaylist() {
 		if variant.framerate > 0 {
 			attributes = append(attributes, "FRAME-RATE="+strconv.Itoa(variant.framerate))
 		}
-		attributes = append(attributes, "CODECS=\"avc1.4d401f,mp4a.40.2\"")
+		attributes = append(attributes, "CODECS=\""+t.masterPlaylistCodecs()+"\"")
 		builder.WriteString("#EXT-X-STREAM-INF:" + strings.Join(attributes, ",") + "\n")
 		builder.WriteString(strconv.Itoa(variant.index) + "/stream.m3u8\n")
 	}
-	_ = os.WriteFile(path.Join(config.HLSStoragePath, "stream.m3u8"), []byte(builder.String()), 0o600)
+	if err := os.WriteFile(path.Join(config.HLSStoragePath, "stream.m3u8"), []byte(builder.String()), 0o600); err != nil {
+		log.Errorf("transcoder: could not write HLS master playlist: %v", err)
+	}
+}
+
+// H.264 profile_idc bytes for the master playlist CODECS attribute.
+const (
+	h264ProfileHexBaseline = "42"
+	h264ProfileHexMain     = "4d"
+	h264ProfileHexHigh     = "64"
+)
+
+// masterPlaylistCodecs renders the CODECS attribute for the master playlist from
+// the configured encoder profile and level, so a High or Baseline stream is not
+// advertised as Main 3.1.
+func (t *Transcoder) masterPlaylistCodecs() string {
+	profile := strings.ToLower(strings.TrimSpace(t.sharedH264Profile))
+	profileHex := h264ProfileHexMain
+	switch profile {
+	case h264ProfileBaseline:
+		profileHex = h264ProfileHexBaseline
+	case h264ProfileHigh:
+		profileHex = h264ProfileHexHigh
+	}
+	levelHex := "1f"
+	if level, ok := parseSharedH264LevelHex(t.sharedH264Level); ok {
+		levelHex = level
+	}
+
+	return "avc1." + profileHex + "00" + levelHex + ",mp4a.40.2"
+}
+
+// parseSharedH264LevelHex converts a configured H.264 level ("4.0", "5.1",
+// "auto") into the two hex digits used in the CODECS attribute.
+func parseSharedH264LevelHex(level string) (string, bool) {
+	level = strings.TrimSpace(strings.ToLower(level))
+	if level == "" || level == "auto" {
+		return "", false
+	}
+	parts := strings.SplitN(level, ".", 2)
+	major, err := strconv.Atoi(parts[0])
+	if err != nil || major <= 0 || major > 6 {
+		return "", false
+	}
+	minor := 0
+	if len(parts) == 2 {
+		parsed, minorErr := strconv.Atoi(parts[1])
+		if minorErr != nil || parsed < 0 || parsed > 2 {
+			return "", false
+		}
+		minor = parsed
+	}
+
+	return fmt.Sprintf("%02x", major*10+minor), true
 }

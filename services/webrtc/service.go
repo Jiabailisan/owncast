@@ -502,6 +502,9 @@ func (s *Service) dropSession(sess *session, reason string) {
 		return
 	}
 	sess.close(reason)
+	if s.engine != nil && sess.pc != nil {
+		s.engine.release(sess.pc)
+	}
 	s.capacity.releaseSession(sess.id)
 	log.Debugf("webrtc: dropped session %s (%s)", sess.id, reason)
 }

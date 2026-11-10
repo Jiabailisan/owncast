@@ -332,9 +332,12 @@ func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	leg.audioForwarder = newForwarder("audio", audioConn, tracks.audio,
 		opusClockRate, audioFrameSamples, PayloadTypeAudio, reorderWindow)
 
-	s.replaceLeg(variantIndex, leg)
+	// Start the forwarders before publishing the leg: CloseMediaLeg/Stop can
+	// otherwise take the leg and run wg.Wait() before the goroutines are
+	// tracked, leaking them against closed sockets.
 	leg.videoForwarder.start(&leg.wg)
 	leg.audioForwarder.start(&leg.wg)
+	s.replaceLeg(variantIndex, leg)
 
 	log.Infof("webrtc: media leg for variant %d open (video %s, audio %s)",
 		variantIndex, leg.VideoURL(), leg.AudioURL())

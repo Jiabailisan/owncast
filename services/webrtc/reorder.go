@@ -6,6 +6,10 @@ import (
 	"github.com/pion/rtp"
 )
 
+// maxPendingPackets bounds the reorder queue so a permanently missing sequence
+// number cannot grow it without limit.
+const maxPendingPackets = 2048
+
 type pendingPacket struct {
 	packet *rtp.Packet
 	at     time.Time
@@ -41,12 +45,32 @@ func (b *reorderBuffer) push(packet *rtp.Packet, now time.Time) []*rtp.Packet {
 		return nil
 	}
 
-	return b.drain()
+	ready := b.drain()
+	// A missing packet would otherwise pin the queue until the next read
+	// timeout, which never fires on a continuous stream. Release anything that
+	// has waited longer than the window on every push as well.
+	expired, forced := b.releaseExpired(now)
+	if forced {
+		ready = append(ready, expired...)
+	}
+	// Bound memory: never hold more than maxPendingPackets; the oldest entries
+	// are already past their deadline and are released above.
+	if len(b.pending) > maxPendingPackets {
+		drop := len(b.pending) - maxPendingPackets
+		b.pending = b.pending[drop:]
+		if len(b.pending) > 0 {
+			b.nextSeq = b.pending[0].packet.SequenceNumber
+		}
+	}
+
+	return ready
 }
 
-// flush releases packets that have waited longer than the reorder window, in
-// arrival order, then emits any newly contiguous packets.
-func (b *reorderBuffer) flush(now time.Time) (ready []*rtp.Packet, forced bool) {
+// releaseExpired emits the head of the queue once it has waited longer than the
+// reorder window, skipping ahead to the next buffered packet.
+func (b *reorderBuffer) releaseExpired(now time.Time) ([]*rtp.Packet, bool) {
+	var ready []*rtp.Packet
+	forced := false
 	for len(b.pending) > 0 {
 		head := b.pending[0]
 		if now.Sub(head.at) < b.hold {
@@ -60,6 +84,12 @@ func (b *reorderBuffer) flush(now time.Time) (ready []*rtp.Packet, forced bool) 
 	}
 
 	return ready, forced
+}
+
+// flush releases packets that have waited longer than the reorder window, in
+// arrival order, then emits any newly contiguous packets.
+func (b *reorderBuffer) flush(now time.Time) ([]*rtp.Packet, bool) {
+	return b.releaseExpired(now)
 }
 
 func (b *reorderBuffer) drain() []*rtp.Packet {

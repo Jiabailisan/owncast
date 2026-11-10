@@ -218,15 +218,23 @@ var localNetworks = []net.IPNet{
 }
 
 // IsLocalAddress reports whether an IP address belongs to the server's own
-// network rather than to a public location.
+// network rather than to a public location. IPv4-mapped IPv6 forms
+// ("::ffff:192.168.1.5") are unwrapped so they are classified by their IPv4
+// range.
 func IsLocalAddress(ip string) bool {
 	parsed := net.ParseIP(strings.TrimSpace(ip))
 	if parsed == nil {
 		return false
 	}
+	candidates := []net.IP{parsed}
+	if v4 := parsed.To4(); v4 != nil {
+		candidates = append(candidates, v4)
+	}
 	for index := range localNetworks {
-		if localNetworks[index].Contains(parsed) {
-			return true
+		for _, candidate := range candidates {
+			if localNetworks[index].Contains(candidate) {
+				return true
+			}
 		}
 	}
 

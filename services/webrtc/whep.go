@@ -369,6 +369,10 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 	}
 	sess := newSession(sessionID, tracks, peer.pc, peer.getter, peer.estimator,
 		s.clientIP(r), r.UserAgent(), peer.videoSender, peer.audioSender)
+	// Start the drains before the session becomes reachable through the registry
+	// so a concurrent DELETE/janitor cannot close it before its goroutines are
+	// tracked by the WaitGroup.
+	sess.startRTCPDrains()
 	s.sessions.add(sess)
 	if err := s.capacity.activate(reservation, sess.id); err != nil {
 		s.sessions.remove(sess.id)
@@ -378,7 +382,6 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 	}
 	reservationActive = false
 	owned = false
-	sess.startRTCPDrains()
 	rewriteAnswerH264Level(peer.answer, s.Config())
 	log.Infof("webrtc: viewer session %s started for variant %d from %s", sess.id, variantIndex, sess.ip)
 

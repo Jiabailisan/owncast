@@ -13,20 +13,36 @@ type prefetchReader struct {
 	src io.Reader
 
 	readMu sync.Mutex // serializes reads from src
-	mu     sync.Mutex // guards buf
+	mu     sync.Mutex // guards buf/prefetching
+	cond   *sync.Cond
 	buf    []byte
+
+	prefetching bool
 }
 
 // newPrefetchReader wraps an ingest reader.
 func newPrefetchReader(src io.Reader) *prefetchReader {
-	return &prefetchReader{src: src}
+	reader := &prefetchReader{src: src}
+	reader.cond = sync.NewCond(&reader.mu)
+
+	return reader
 }
 
 // Prefetch reads ahead until maxBytes are buffered or the source ends. It runs
 // in its own goroutine.
 func (p *prefetchReader) Prefetch(maxBytes int) {
+	p.mu.Lock()
+	p.prefetching = true
+	p.mu.Unlock()
+
 	const chunkSize = 32 * 1024
 	go func() {
+		defer func() {
+			p.mu.Lock()
+			p.prefetching = false
+			p.cond.Broadcast()
+			p.mu.Unlock()
+		}()
 		chunk := make([]byte, chunkSize)
 		for {
 			p.readMu.Lock()
@@ -37,6 +53,7 @@ func (p *prefetchReader) Prefetch(maxBytes int) {
 				p.buf = append(p.buf, chunk[:n]...)
 				buffered := len(p.buf)
 				p.mu.Unlock()
+				p.cond.Broadcast()
 				if buffered >= maxBytes {
 					return
 				}
@@ -51,6 +68,13 @@ func (p *prefetchReader) Prefetch(maxBytes int) {
 // Read implements io.Reader: buffered bytes first, then the live stream.
 func (p *prefetchReader) Read(b []byte) (int, error) {
 	p.mu.Lock()
+	// While the prefetch goroutine is still reading, wait instead of reading the
+	// live stream directly: a direct read could return bytes that follow a
+	// chunk the prefetcher has read but not yet appended, delivering MPEG-TS
+	// data out of order to ffmpeg.
+	for len(p.buf) == 0 && p.prefetching {
+		p.cond.Wait()
+	}
 	if len(p.buf) > 0 {
 		n := copy(b, p.buf)
 		p.buf = p.buf[n:]

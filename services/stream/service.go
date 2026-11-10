@@ -67,7 +67,15 @@ type Service struct {
 	// offline to wipe HLS content. onlineCleanupTicker fires every N
 	// minutes while a stream is up to prune old segments.
 	offlineCleanupTimer *time.Timer
+	// offlineCleanupDone ends the offline cleanup goroutine; the Timer channel
+	// itself never closes.
+	offlineCleanupDone  chan struct{}
+	offlineCleanupMu    sync.Mutex
 	onlineCleanupTicker *time.Ticker
+	// onlineCleanupDone ends the cleanup goroutine; a Ticker channel never
+	// closes, so the goroutine needs an explicit stop signal.
+	onlineCleanupDone chan struct{}
+	onlineCleanupMu   sync.Mutex
 
 	// onlineTimerCancelFunc cancels the delayed live-notification
 	// dispatcher when a stream ends before the notification fires.
@@ -103,7 +111,7 @@ type Service struct {
 	// webRTCLegs tracks the variant indices whose media legs are open for the
 	// current stream so they are closed exactly once on disconnect.
 	webRTCLegs []int
-	// legsMu guards legsByVariant.
+	// legsMu guards legsByVariant and webRTCLegs.
 	legsMu sync.RWMutex
 	// legsByVariant maps variant index to its open media leg (isolated-model
 	// restart rebasing).

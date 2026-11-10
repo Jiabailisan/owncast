@@ -362,37 +362,71 @@ func (s *Service) applyStreamOffline() {
 // StartOfflineCleanupTimer fires a cleanup after n minutes being
 // disconnected.
 func (s *Service) StartOfflineCleanupTimer() {
-	s.offlineCleanupTimer = time.NewTimer(5 * time.Minute)
+	s.StopOfflineCleanupTimer()
+	timer := time.NewTimer(5 * time.Minute)
+	done := make(chan struct{})
+	s.offlineCleanupTimer = timer
+	s.offlineCleanupDone = done
 	go func() {
-		for range s.offlineCleanupTimer.C {
+		select {
+		case <-timer.C:
 			// Set video to offline state
 			s.resetDirectories()
 			s.transitionToOfflineVideoStreamContent()
+		case <-done:
+			return
 		}
 	}()
 }
 
-// StopOfflineCleanupTimer stops the previous offline cleanup timer.
+// StopOfflineCleanupTimer stops the previous offline cleanup timer and ends its
+// goroutine. A Timer channel never closes, so without the done channel the
+// goroutine would block forever and leak once per stream.
 func (s *Service) StopOfflineCleanupTimer() {
+	s.offlineCleanupMu.Lock()
+	defer s.offlineCleanupMu.Unlock()
 	if s.offlineCleanupTimer != nil {
 		s.offlineCleanupTimer.Stop()
+		s.offlineCleanupTimer = nil
+	}
+	if s.offlineCleanupDone != nil {
+		close(s.offlineCleanupDone)
+		s.offlineCleanupDone = nil
 	}
 }
 
 func (s *Service) startOnlineCleanupTimer() {
-	s.onlineCleanupTicker = time.NewTicker(1 * time.Minute)
+	s.stopOnlineCleanupTimer()
+	ticker := time.NewTicker(1 * time.Minute)
+	done := make(chan struct{})
+	s.onlineCleanupMu.Lock()
+	s.onlineCleanupTicker = ticker
+	s.onlineCleanupDone = done
+	s.onlineCleanupMu.Unlock()
 	go func() {
-		for range s.onlineCleanupTicker.C {
-			if err := s.storage.Cleanup(); err != nil {
-				log.Errorln(err)
+		for {
+			select {
+			case <-ticker.C:
+				if err := s.storage.Cleanup(); err != nil {
+					log.Errorln(err)
+				}
+			case <-done:
+				return
 			}
 		}
 	}()
 }
 
 func (s *Service) stopOnlineCleanupTimer() {
+	s.onlineCleanupMu.Lock()
+	defer s.onlineCleanupMu.Unlock()
 	if s.onlineCleanupTicker != nil {
 		s.onlineCleanupTicker.Stop()
+		s.onlineCleanupTicker = nil
+	}
+	if s.onlineCleanupDone != nil {
+		close(s.onlineCleanupDone)
+		s.onlineCleanupDone = nil
 	}
 }
 

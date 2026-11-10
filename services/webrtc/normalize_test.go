@@ -71,6 +71,22 @@ func TestNormalizerRebaseOnSequenceDiscontinuity(t *testing.T) {
 	assert.EqualValues(t, 6100, pkt.Timestamp)
 }
 
+func TestNormalizerKeepsRunWhenPacketArrivesOutOfOrder(t *testing.T) {
+	n := newNormalizer(90000, 1500)
+	n.apply(videoPacket(100, 30000))
+	n.apply(videoPacket(101, 31500))
+	n.apply(videoPacket(102, 33000))
+
+	// A reordered packet carries an older sequence number but the same media
+	// clock: it must not be mistaken for a new producer run.
+	pkt := videoPacket(101, 31500)
+	assert.False(t, n.apply(pkt))
+	assert.EqualValues(t, 101, pkt.SequenceNumber)
+	// The output timeline stays monotonic: the late packet is clamped to the
+	// current timestamp instead of moving the stream backwards.
+	assert.EqualValues(t, 33000, pkt.Timestamp)
+}
+
 func TestNormalizerRebaseOnTimestampJump(t *testing.T) {
 	n := newNormalizer(90000, 3000)
 	n.apply(videoPacket(10, 90))

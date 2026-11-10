@@ -39,6 +39,9 @@ type Transcoder struct {
 
 	// sharedH264Profile is the profile used by the shared HLS/WebRTC encoder.
 	sharedH264Profile string
+	// sharedH264Level is the configured H.264 level ("auto" when unset). It only
+	// affects the advertised CODECS attribute of the HLS master playlist.
+	sharedH264Level string
 
 	// cfg supplies runtime values (the HLS listener port discovered at
 	// startup, the debug flag, the log directory) needed when building
@@ -657,6 +660,12 @@ func (v *HLSVariant) getAudioQualityString() []string {
 // AddVariant adds a new HLS variant to include in the output.
 // SetSharedH264Profile sets the encoder profile used by shared HLS/WebRTC
 // variants. Callers that know the WebRTC config invoke it after construction.
+// SetSharedH264Level records the configured H.264 level for the master playlist
+// CODECS attribute. "auto" (or empty) leaves the level to the encoder.
+func (t *Transcoder) SetSharedH264Level(level string) {
+	t.sharedH264Level = level
+}
+
 func (t *Transcoder) SetSharedH264Profile(profile string) {
 	t.sharedH264Profile = normalizeSharedH264Profile(profile)
 	for index := range t.variants {

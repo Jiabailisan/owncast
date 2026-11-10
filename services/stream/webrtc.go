@@ -246,15 +246,17 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 			warnings = append(warnings, models.StatusWarning{Code: "webrtc_media_leg", Message: err.Error()})
 			continue
 		}
+		s.legsMu.Lock()
 		s.webRTCLegs = append(s.webRTCLegs, index)
+		s.legsMu.Unlock()
 		s.registerWebRTCLeg(index, leg)
 
 		outputs = append(outputs, transcoder.RTPOutput{
 			VariantIndex:     index,
 			VideoURL:         leg.VideoURL(),
 			AudioURL:         leg.AudioURL(),
-			VideoPayloadType: 96,
-			AudioPayloadType: 111,
+			VideoPayloadType: webrtc.PayloadTypeVideo,
+			AudioPayloadType: webrtc.PayloadTypeAudio,
 			VideoBitrateKbps: decision.VideoBitrateKbps,
 			GOPFrames:        decision.GOPFrames,
 			CopyVideo:        decision.Copy,
@@ -292,10 +294,13 @@ func (s *Service) closeWebRTC() {
 	if s.webRTC == nil {
 		return
 	}
-	for _, index := range s.webRTCLegs {
+	s.legsMu.Lock()
+	legs := append([]int(nil), s.webRTCLegs...)
+	s.webRTCLegs = nil
+	s.legsMu.Unlock()
+	for _, index := range legs {
 		_ = s.webRTC.CloseMediaLeg(index)
 	}
-	s.webRTCLegs = nil
 	s.clearWebRTCLegs()
 	_ = s.webRTC.SetVariants(nil)
 	s.setWebRTCWarnings(nil)

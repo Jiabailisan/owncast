@@ -263,6 +263,19 @@ func (e *engine) buildInterceptorRegistry(mediaEngine *webrtc.MediaEngine) (*int
 	return registry, nil
 }
 
+// release forgets the per-viewer stats getter and bandwidth estimator recorded
+// for a closed PeerConnection. Without it every viewer session ever created
+// stays in these maps for the lifetime of the process.
+func (e *engine) release(pc *webrtc.PeerConnection) {
+	if e == nil || pc == nil {
+		return
+	}
+	e.mu.Lock()
+	delete(e.statsGetters, pc)
+	delete(e.estimators, pc)
+	e.mu.Unlock()
+}
+
 // newPeerConnection creates a PeerConnection and returns its per-viewer stats
 // getter (nil when stats are disabled, which they never are in production).
 func (e *engine) newPeerConnection() (*webrtc.PeerConnection, stats.Getter, cc.BandwidthEstimator, error) {

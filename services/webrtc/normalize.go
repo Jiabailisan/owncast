@@ -6,6 +6,7 @@ const (
 	// maxSequenceGap is the largest in-run sequence leap still treated as
 	// packet loss rather than a new producer run.
 	maxSequenceGap = 1000
+
 	// timestampGapSeconds bounds an in-run timestamp jump: more than this much
 	// media time without a new run means the producer clock restarted.
 	timestampGapSeconds = 1
@@ -106,9 +107,19 @@ func (n *normalizer) isDiscontinuity(seq uint16, ts uint32) bool {
 		// Duplicate or retransmission inside the current run.
 		return false
 	}
-	if seqDelta > maxSequenceGap {
+	// A media-clock leap means the producer restarted. The comparison is signed
+	// so a packet that is only slightly older (a reorder) does not look like a
+	// wrapped-around jump.
+	tsDelta := int64(int32(ts - n.lastInTS)) //nolint:gosec // wrap-around is the intended distance arithmetic
+	clockLeap := int64(n.clockRate) * timestampGapSeconds
+	if tsDelta > clockLeap || tsDelta < -clockLeap {
 		return true
 	}
+	// Otherwise compare signed sequence distances: a small negative distance is a
+	// packet that arrived out of order (FFmpeg's loopback UDP socket can reorder
+	// under load), not a new run. Rebasing on every reordered packet would jump
+	// the timestamp forward and inflate the viewer's jitter buffer.
+	signedDelta := int16(seqDelta) //nolint:gosec // wrap-around is the intended distance arithmetic
 
-	return ts-n.lastInTS > n.clockRate*timestampGapSeconds
+	return signedDelta > maxSequenceGap || signedDelta < -maxSequenceGap
 }
