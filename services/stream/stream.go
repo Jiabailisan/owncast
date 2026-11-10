@@ -175,14 +175,20 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	s.setCurrentSession(session)
 	s.StreamConnected(broadcast)
 
-	// For an SRT stream with a pending copy decision, read ahead so the
-	// MPEG-TS inspector can publish source metadata before the plan is fixed.
-	// The buffered bytes are replayed into FFmpeg, so nothing is lost.
+	// With a pending copy decision, read ahead so the protocol inspector can
+	// publish source metadata before the plan is fixed. SRT uses the MPEG-TS
+	// inspector; RTMP derives the same fields from its FLV/H.264 packets. The
+	// buffered bytes are replayed into FFmpeg, so nothing is lost.
 	mediaReader := session.Reader()
-	if session.Protocol() == ingest.ProtocolSRT &&
-		hasWebRTCCopyIntent(effectiveWebRTCVariants(broadcast.OutputSettings)) {
+	copyIntent := hasWebRTCCopyIntent(effectiveWebRTCVariants(broadcast.OutputSettings))
+	if copyIntent && (session.Protocol() == ingest.ProtocolSRT ||
+		session.Protocol() == ingest.ProtocolRTMP) {
+		prefetchBytes := 1 << 20
+		if session.Protocol() == ingest.ProtocolRTMP {
+			prefetchBytes = 2 << 20
+		}
 		prefetch := newPrefetchReader(mediaReader)
-		prefetch.Prefetch(1 << 20)
+		prefetch.Prefetch(prefetchBytes)
 		mediaReader = prefetch
 	}
 
