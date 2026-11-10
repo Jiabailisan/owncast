@@ -553,7 +553,9 @@ func (s *Service) sendWelcomeMessageToClient(c *Client) {
 }
 
 func (s *Service) sendAllWelcomeMessage() {
-	welcomeMessage := utils.RenderSimpleMarkdown(s.configRepository.GetServerWelcomeMessage())
+	// Render and sanitise: this body is broadcast to every client and the admin
+	// chat panel renders it with dangerouslySetInnerHTML.
+	welcomeMessage := events.RenderAndSanitize(s.configRepository.GetServerWelcomeMessage())
 
 	if welcomeMessage != "" {
 		clientMessage := events.SystemMessageEvent{

@@ -601,6 +601,20 @@ func (a *Admin) SetRTMPServerPort(w http.ResponseWriter, r *http.Request) {
 		webutils.BadRequestHandler(w, errors.New("value must be a number"))
 		return
 	}
+	if typedValue < 1 || typedValue > 65535 || typedValue != math.Trunc(typedValue) {
+		webutils.BadRequestHandler(w, errors.New("value must be a whole port number between 1 and 65535"))
+
+		return
+	}
+	// A port the process cannot bind kills it at startup, so refuse the ports the
+	// other listeners already own instead of persisting an unbootable value.
+	if typedValue == float64(configRepository.GetHTTPPortNumber()) ||
+		typedValue == float64(configRepository.GetSRTConfig().Port) ||
+		typedValue == float64(configRepository.GetWebRTCConfig().UDPPort) {
+		webutils.BadRequestHandler(w, errors.New("port is already used by another listener"))
+
+		return
+	}
 	if err := configRepository.SetRTMPPortNumber(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return

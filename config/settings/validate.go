@@ -348,7 +348,7 @@ func validateWebRTCMedia(errs *FieldErrors, config models.WebRTCConfig) {
 		config.MinBitratePerViewerKbps > config.MaxBitratePerViewerKbps {
 		errs.addf("minBitratePerViewerKbps", "must be less than or equal to maxBitratePerViewerKbps (%d)", config.MaxBitratePerViewerKbps)
 	}
-	checkIntRange(errs, "rtpReorderBufferMs", config.RTPReorderBufferMs, 0, 2000)
+	checkIntRange(errs, "rtpReorderBufferMs", config.RTPReorderBufferMs, 0, 100)
 	if config.BandwidthEstimation && !config.TWCC {
 		errs.addf("bandwidthEstimation", "requires twcc to consume transport feedback")
 	}
