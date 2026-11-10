@@ -488,12 +488,7 @@ func (a *Admin) SetFfmpegPath(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	typedValue, valueOK := valueAsStringOK(configValue.Value)
-	if !valueOK {
-		webutils.BadRequestHandler(w, errors.New("value must be a string"))
-		return
-	}
-	if err := configRepository.SetFfmpegPath(typedValue); err != nil {
+	if err := configRepository.SetFfmpegPath(path); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}

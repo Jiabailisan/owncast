@@ -47,10 +47,6 @@ func (a *Admin) UpdateMessageVisibility(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if request.IdArray == nil || request.Visible == nil {
-		webutils.BadRequestHandler(w, errors.New("message ids and visibility are required"))
-		return
-	}
 	if err := a.chat.SetMessagesVisibility(*request.IdArray, *request.Visible, middleware.UserFromRequest(r)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return

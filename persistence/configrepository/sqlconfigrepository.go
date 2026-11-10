@@ -755,7 +755,10 @@ func (r *SqlConfigRepository) FindHighestVideoQualityIndex(qualities []models.St
 		index   int
 	}
 
-	if len(qualities) < 2 {
+	if len(qualities) == 0 {
+		return 0, false
+	}
+	if len(qualities) == 1 {
 		return 0, qualities[0].IsVideoPassthrough
 	}
 

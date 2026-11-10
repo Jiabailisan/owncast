@@ -301,13 +301,18 @@ func (s *Service) LiveViewers() []models.LiveViewer {
 	now := time.Now()
 	sessions := s.sessions.all()
 	rows := make([]models.LiveViewer, 0, len(sessions))
+	// Resolve the measured fps once per variant instead of once per session.
+	fpsByVariant := map[int]*float64{}
 	for _, sess := range sessions {
 		snapshot := sess.snapshot(now)
-		var serverMeasuredFPS *float64
-		if leg := s.mediaLeg(snapshot.Variant); leg != nil {
-			if measured := leg.Stats().MeasuredVideoFPS; measured > 0 {
-				serverMeasuredFPS = &measured
+		serverMeasuredFPS, resolved := fpsByVariant[snapshot.Variant]
+		if !resolved {
+			if leg := s.mediaLeg(snapshot.Variant); leg != nil {
+				if measured := leg.Stats().MeasuredVideoFPS; measured > 0 {
+					serverMeasuredFPS = &measured
+				}
 			}
+			fpsByVariant[snapshot.Variant] = serverMeasuredFPS
 		}
 		rows = append(rows, liveViewerRow(snapshot, serverMeasuredFPS))
 	}
