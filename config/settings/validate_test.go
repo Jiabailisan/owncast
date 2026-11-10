@@ -177,7 +177,7 @@ func TestValidateWebRTCRules(t *testing.T) {
 		{"ice ordering failed", func(c *models.WebRTCConfig) { c.ICEFailedTimeoutMs = 4000 }, nil, "iceFailedTimeoutMs"},
 		{"ice ordering disconnected", func(c *models.WebRTCConfig) { c.ICEDisconnectedTimeoutMs = 1000; c.ICEKeepaliveIntervalMs = 2000 }, nil, "iceFailedTimeoutMs"},
 		{"unknown h264 profile", func(c *models.WebRTCConfig) { c.H264Profile = "high10" }, nil, "h264Profile"},
-		{"unknown h264 level", func(c *models.WebRTCConfig) { c.H264Level = "5.0" }, nil, "h264Level"},
+		{"unknown h264 level", func(c *models.WebRTCConfig) { c.H264Level = "7.0" }, nil, "h264Level"},
 		{"keyframe interval too low", func(c *models.WebRTCConfig) { c.KeyframeIntervalSeconds = 0.2 }, nil, "keyframeIntervalSeconds"},
 		{"keyframe interval too high", func(c *models.WebRTCConfig) { c.KeyframeIntervalSeconds = 11 }, nil, "keyframeIntervalSeconds"},
 		{"opus bitrate too low", func(c *models.WebRTCConfig) { c.OpusBitrateKbps = 8 }, nil, "opusBitrateKbps"},
