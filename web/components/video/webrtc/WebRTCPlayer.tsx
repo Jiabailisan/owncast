@@ -166,7 +166,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const updateBigUnmute = useCallback(() => {
     const video = videoRef.current;
     if (!video) {
-      setBigUnmuteVisible(!video.paused && (video.muted || video.volume === 0));
+      setBigUnmuteVisible(false);
       return;
     }
     setBigUnmuteVisible(

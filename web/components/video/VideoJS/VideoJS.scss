@@ -57,7 +57,10 @@
   // full-frame speaker overlay, so it no longer covers the picture.
   .vjs-big-unmute-button.vjs-control {
     position: absolute;
-    inset: 12px 12px auto auto;
+
+    // Same corner as the WebRTC notice: bottom right, just above the control
+    // bar, so the affordance does not jump when the transport switches.
+    inset: auto max(16px, env(safe-area-inset-right)) calc(max(14px, env(safe-area-inset-bottom)) + 52px) auto;
     z-index: 3;
     display: flex;
     gap: 8px;

@@ -169,10 +169,14 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       if (!statsOpen) reveal();
     };
 
+    // A tap produces pointerdown, not pointermove, so touch devices need this
+    // listener or the hidden bar could never be brought back.
     document.addEventListener('pointermove', handleMove, { passive: true });
+    document.addEventListener('pointerdown', handleMove, { passive: true });
     window.addEventListener('keydown', handleKey, { passive: true });
     return () => {
       document.removeEventListener('pointermove', handleMove);
+      document.removeEventListener('pointerdown', handleMove);
       window.removeEventListener('keydown', handleKey);
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
