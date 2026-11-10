@@ -771,6 +771,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             onClick={handleBigUnmute}
           >
             <MutedFilled />
+            <span>{unmuteLabel}</span>
           </button>
         )}
 
