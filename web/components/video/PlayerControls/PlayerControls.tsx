@@ -136,11 +136,11 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
     const onActivity = () => {
       if (!statsOpen) reveal();
     };
-    const events: Array<[string, EventListener]> = [
-      ['pointermove', onActivity],
-      ['pointerdown', onActivity],
-      ['keydown', onActivity],
-    ];
+    // Keyboard activity anywhere still reveals the controls (shortcuts are
+    // global), but pointer movement must not: the overlay handles its own
+    // pointer events, and a window listener re-showed the bar from anywhere on
+    // the page.
+    const events: Array<[string, EventListener]> = [['keydown', onActivity]];
     events.forEach(([name, handler]) => window.addEventListener(name, handler, { passive: true }));
     return () => {
       events.forEach(([name, handler]) => window.removeEventListener(name, handler));
@@ -190,6 +190,9 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         }}
         onPointerEnter={reveal}
         onPointerLeave={() => {
+          // The bar fades out without a mouseleave on the volume group, which
+          // used to leave the slider expanded after the controls disappeared.
+          setVolumeVisible(false);
           if (playing && !anyMenuOpen) scheduleHide();
         }}
         onFocusCapture={reveal}
