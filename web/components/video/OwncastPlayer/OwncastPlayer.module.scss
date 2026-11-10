@@ -4,6 +4,7 @@
   display: grid;
   width: 100%;
   justify-items: center;
+
   // Size the player from the decoded picture instead of a fixed viewport
   // height: a fixed height made the 16/9 video letterbox inside a taller box,
   // which is what showed black bars above and below the picture.
@@ -16,6 +17,19 @@
     width: 100%;
     grid-column: 1;
     grid-row: 1;
+  }
+
+  // video.js sizes its element to the container; make the tech fill it exactly
+  // and cover (never letterbox) so no sub-pixel seam shows at the edges.
+  .player {
+    overflow: hidden;
+
+    :global(.video-js),
+    :global(.vjs-tech) {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
   }
 
   .transportError {
