@@ -203,6 +203,7 @@ func filterLiveViewers(viewers []models.LiveViewer, protocol, query string) []mo
 			!strings.Contains(strings.ToLower(viewer.IPAddress), needle) &&
 			!strings.Contains(strings.ToLower(viewer.ClientID), needle) &&
 			!strings.Contains(strings.ToLower(viewer.Country), needle) &&
+			!strings.Contains(strings.ToLower(viewer.Region), needle) &&
 			!strings.Contains(strings.ToLower(viewer.City), needle) {
 			continue
 		}

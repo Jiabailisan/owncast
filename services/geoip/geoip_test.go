@@ -8,15 +8,37 @@ import (
 	"github.com/oschwald/geoip2-golang"
 )
 
-func TestLocalhostLookup(t *testing.T) {
+func TestLocalAddressLookup(t *testing.T) {
 	client := NewClient()
-	for _, ip := range []string{"127.0.0.1", "::1"} {
+	local := []string{
+		"127.0.0.1", "::1", // loopback
+		"192.168.50.7", "10.1.2.3", "172.16.0.9", // RFC 1918
+		"100.64.1.2",         // CGNAT
+		"169.254.10.5",       // link-local
+		"fd00::1", "fe80::1", // IPv6 ULA and link-local
+	}
+	for _, ip := range local {
 		details := client.GetGeoFromIP(ip)
 		if details == nil {
-			t.Fatalf("expected localhost details for %s", ip)
+			t.Fatalf("expected local details for %s", ip)
 		}
-		if details.CountryCode != "N/A" || details.RegionName != "Localhost" {
-			t.Errorf("unexpected localhost details for %s: %+v", ip, details)
+		if details.CountryCode != "N/A" || details.RegionName != localRegionName {
+			t.Errorf("unexpected local details for %s: %+v", ip, details)
+		}
+	}
+}
+
+func TestIsLocalAddress(t *testing.T) {
+	local := []string{"127.0.0.1", "::1", "192.168.1.1", "10.0.0.1", "172.31.255.255", "100.64.0.1", "169.254.1.1", "fd12::1", "fe80::abcd"}
+	for _, ip := range local {
+		if !IsLocalAddress(ip) {
+			t.Errorf("%s should be local", ip)
+		}
+	}
+	public := []string{"8.8.8.8", "1.1.1.1", "172.32.0.1", "192.169.0.1", "2001:4860:4860::8888", "", "not-an-ip"}
+	for _, ip := range public {
+		if IsLocalAddress(ip) {
+			t.Errorf("%s should not be local", ip)
 		}
 	}
 }

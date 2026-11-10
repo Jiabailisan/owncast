@@ -25,6 +25,21 @@ const { Text } = Typography;
 const PAGE_SIZE = 25;
 const VIEWERS_REFRESH_MS = 10000;
 
+// Placeholders that must never be joined into the location string. GeoIP reports
+// "N/A" for viewers without a public location (viewers on the server's own
+// network are labelled "Local"), so joining naively produced "Local, N/A".
+const LOCATION_PLACEHOLDERS = new Set(['n/a', 'unknown', '']);
+
+// viewerLocationText renders the location column/card value, or null when the
+// viewer has no usable location information.
+export function viewerLocationText(viewer: LiveViewer): string | null {
+  const parts = [viewer.city, viewer.region, viewer.country]
+    .map(part => (typeof part === 'string' ? part.trim() : ''))
+    .filter(part => !LOCATION_PLACEHOLDERS.has(part.toLowerCase()));
+
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
 export type LiveViewerTableProps = {
   enabled: boolean;
 };
@@ -159,13 +174,11 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       ),
       key: 'location',
       render: (_, viewer) => {
-        const parts = [viewer.city, viewer.region, viewer.country].filter((part): part is string =>
-          Boolean(part),
-        );
-        if (parts.length === 0) return na('GeoIP lookup unavailable for this viewer.', null);
+        const location = viewerLocationText(viewer);
+        if (location === null) return na('GeoIP lookup unavailable for this viewer.', null);
         return (
           <Tooltip title={viewer.locationApproximate ? 'Location is approximate.' : undefined}>
-            <span>{parts.join(', ')}</span>
+            <span>{location}</span>
           </Tooltip>
         );
       },
@@ -298,8 +311,7 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
   const mobileCards = (
     <div className={styles.viewerCards}>
       {(data?.viewers || []).map(viewer => {
-        const locationText =
-          [viewer.city, viewer.region, viewer.country].filter(Boolean).join(', ') || 'N/A';
+        const locationText = viewerLocationText(viewer) || 'N/A';
         return (
           <Card key={viewer.clientID} size="small" className={styles.viewerCard}>
             <div className={styles.viewerCardHeader}>

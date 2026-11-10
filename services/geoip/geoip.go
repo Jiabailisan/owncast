@@ -198,6 +198,41 @@ type GeoDetails struct {
 	City        string `json:"city,omitempty"`
 }
 
+// localRegionName is the location label used for viewers on the server's own
+// network. It is derived from the IP address itself, so it is reported even
+// when no GeoIP database is configured.
+const localRegionName = "Local"
+
+// localNetworks are the address ranges that never belong to a public location:
+// RFC 1918 private space, CGNAT, link-local, IPv6 unique-local and loopback.
+var localNetworks = []net.IPNet{
+	{IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
+	{IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},
+	{IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)},
+	{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)},
+	{IP: net.IPv4(169, 254, 0, 0), Mask: net.CIDRMask(16, 32)},
+	{IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
+	{IP: net.ParseIP("fc00::"), Mask: net.CIDRMask(7, 128)},
+	{IP: net.ParseIP("fe80::"), Mask: net.CIDRMask(10, 128)},
+	{IP: net.ParseIP("::1"), Mask: net.CIDRMask(128, 128)},
+}
+
+// IsLocalAddress reports whether an IP address belongs to the server's own
+// network rather than to a public location.
+func IsLocalAddress(ip string) bool {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return false
+	}
+	for index := range localNetworks {
+		if localNetworks[index].Contains(parsed) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetGeoFromIP returns geo details associated with an IP address if we
 // have previously fetched it.
 func (c *Client) GetGeoFromIP(ip string) *GeoDetails {
@@ -205,10 +240,14 @@ func (c *Client) GetGeoFromIP(ip string) *GeoDetails {
 		return cachedGeoDetails.(*GeoDetails)
 	}
 
-	if ip == "::1" || ip == "127.0.0.1" {
+	// Viewers on the local network (loopback, RFC 1918, CGNAT, link-local,
+	// IPv6 ULA) have no public location. Reporting them as "Local" is derived
+	// from the address itself, so it stays correct with GeoIP disabled or
+	// without a matching database record.
+	if IsLocalAddress(ip) {
 		return &GeoDetails{
 			CountryCode: "N/A",
-			RegionName:  "Localhost",
+			RegionName:  localRegionName,
 			TimeZone:    "",
 		}
 	}
