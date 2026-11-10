@@ -38,7 +38,7 @@ type WebRTCProvider interface {
 	SetVariants(variants []models.StreamOutputVariant) error
 	// OpenMediaLeg allocates the Go-owned loopback sockets for a variant and
 	// starts the RTP forwarder.
-	OpenMediaLeg(variantIndex int, copyVideo ...bool) (WebRTCMediaLeg, error)
+	OpenMediaLeg(variantIndex int) (WebRTCMediaLeg, error)
 	// CloseMediaLeg tears the variant leg down.
 	CloseMediaLeg(variantIndex int) error
 }
@@ -240,7 +240,7 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 			continue
 		}
 
-		leg, err := s.webRTC.OpenMediaLeg(index, decision.Copy)
+		leg, err := s.webRTC.OpenMediaLeg(index)
 		if err != nil {
 			log.Errorln("webrtc: unable to open media leg for variant", index, ":", err)
 			warnings = append(warnings, models.StatusWarning{Code: "webrtc_media_leg", Message: err.Error()})

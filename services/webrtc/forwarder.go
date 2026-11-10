@@ -28,6 +28,10 @@ const (
 	defaultVariantFPS     = 30
 	audioFrameSamples     = 960 // 20 ms at 48 kHz
 	forwarderKindVideo    = "video"
+
+	// loopbackReadBufferBytes is the SO_RCVBUF request for the FFmpeg loopback
+	// RTP sockets. Linux clamps it to net.core.rmem_max.
+	loopbackReadBufferBytes = 8 << 20
 )
 
 // MediaLegStats is the health snapshot of one loopback media leg.
@@ -91,29 +95,19 @@ type forwarder struct {
 	lastSeq atomic.Uint32
 	lastTS  atomic.Uint32
 
-	// outSeq is assigned by the forwarder for every emitted video packet. It
-	// lets cached SPS/PPS be inserted before an IDR without breaking the
-	// viewer's RTP sequence space. Only copy legs opt in; encoded legs already
-	// carry parameter sets and keep their original sequence numbers.
-	outSeq          uint16
-	outSeqSet       bool
-	injectParamSets bool
-	startedAt       time.Time
+	startedAt time.Time
 }
 
 func newForwarder(kind string, conn *net.UDPConn, track trackWriter,
 	clockRate, expectedDelta uint32, payloadType uint8, reorderWindow time.Duration,
-	injectParamSets ...bool,
 ) *forwarder {
-	inject := len(injectParamSets) > 0 && injectParamSets[0]
 	f := &forwarder{
-		kind:            kind,
-		conn:            conn,
-		track:           track,
-		expectedPT:      payloadType,
-		normalizer:      newNormalizer(clockRate, expectedDelta),
-		injectParamSets: inject,
-		startedAt:       time.Now(),
+		kind:       kind,
+		conn:       conn,
+		track:      track,
+		expectedPT: payloadType,
+		normalizer: newNormalizer(clockRate, expectedDelta),
+		startedAt:  time.Now(),
 	}
 	if reorderWindow > 0 {
 		f.reorder = newReorderBuffer(reorderWindow)
@@ -205,31 +199,12 @@ func (f *forwarder) emit(packet *rtp.Packet) {
 		f.counters.rebases.Add(1)
 		log.Debugf("webrtc: %s forwarder rebased RTP stream", f.kind)
 	}
-	if f.kind == forwarderKindVideo && f.injectParamSets {
-		// Copy legs can carry SPS/PPS only at the start of the source stream.
-		// Browsers joining later need parameter sets before every IDR, so
-		// insert the cached SPS/PPS ahead of each keyframe.
-		sps, pps := f.parameterSets()
-		payload := packet.Payload
-		hasParameterSet := len(payload) > 0 && payload[0]&0x1f == nalTypeSTAPA
-		isIDR := false
-		for _, nalType := range h264NALTypes(payload) {
-			if nalType == nalTypeIDR {
-				isIDR = true
-			}
-		}
-		if isIDR && !hasParameterSet && len(sps) > 0 && len(pps) > 0 {
-			sequence := f.nextOutSequence(packet.SequenceNumber)
-			parameterPacket := *packet
-			parameterPacket.Payload = buildSTAPA(sps, pps)
-			parameterPacket.SequenceNumber = sequence
-			parameterPacket.Marker = false
-			if err := f.track.WriteRTP(&parameterPacket); err != nil {
-				f.counters.writeErrors.Add(1)
-			}
-		}
-		packet.SequenceNumber = f.nextOutSequence(packet.SequenceNumber)
-	}
+	// Copy legs already carry SPS/PPS on every keyframe because the copy RTP
+	// output applies h264_mp4toannexb,dump_extra. Do not inject extra parameter
+	// sets or renumber the sequence: renumbering hides packets that the loopback
+	// socket lost, so the receiver assembles incomplete frames instead of asking
+	// for a keyframe (green/partial pictures). Keeping the producer sequence
+	// leaves gaps visible to the receiver's NACK/PLI logic.
 	if err := f.track.WriteRTP(packet); err != nil {
 		f.counters.writeErrors.Add(1)
 
@@ -237,31 +212,6 @@ func (f *forwarder) emit(packet *rtp.Packet) {
 	}
 	f.lastSeq.Store(uint32(packet.SequenceNumber))
 	f.lastTS.Store(packet.Timestamp)
-}
-
-// nextOutSequence keeps the forwarded video RTP sequence contiguous even when
-// a parameter-set packet is inserted. initial is used for the first packet.
-func (f *forwarder) nextOutSequence(initial uint16) uint16 {
-	if !f.outSeqSet {
-		f.outSeq = initial
-		f.outSeqSet = true
-
-		return f.outSeq
-	}
-	f.outSeq++
-
-	return f.outSeq
-}
-
-func buildSTAPA(sps, pps []byte) []byte {
-	payload := make([]byte, 0, 1+2+len(sps)+2+len(pps))
-	payload = append(payload, 0x78)                              // STAP-A, nal_ref_idc=3 (parameter sets)
-	payload = append(payload, byte(len(sps)>>8), byte(len(sps))) //nolint:gosec // SPS/PPS are far shorter than 65535 bytes
-	payload = append(payload, sps...)
-	payload = append(payload, byte(len(pps)>>8), byte(len(pps))) //nolint:gosec // SPS/PPS are far shorter than 65535 bytes
-	payload = append(payload, pps...)
-
-	return payload
 }
 
 func (f *forwarder) markRestart() {
@@ -341,7 +291,7 @@ type MediaLeg struct {
 // OpenMediaLeg binds the two loopback UDP sockets for one WebRTC variant and
 // starts the forwarders. It replaces and closes any previous leg for the same
 // variant index.
-func (s *Service) OpenMediaLeg(variantIndex int, copyVideo ...bool) (*MediaLeg, error) {
+func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	if !s.Enabled() {
 		return nil, ErrDisabled
 	}
@@ -378,7 +328,7 @@ func (s *Service) OpenMediaLeg(variantIndex int, copyVideo ...bool) (*MediaLeg, 
 	reorderWindow := time.Duration(cfg.RTPReorderBufferMs) * time.Millisecond
 
 	leg.videoForwarder = newForwarder(forwarderKindVideo, videoConn, tracks.video,
-		rtpClockRate, videoDelta, PayloadTypeVideo, reorderWindow, len(copyVideo) > 0 && copyVideo[0])
+		rtpClockRate, videoDelta, PayloadTypeVideo, reorderWindow)
 	leg.audioForwarder = newForwarder("audio", audioConn, tracks.audio,
 		opusClockRate, audioFrameSamples, PayloadTypeAudio, reorderWindow)
 
@@ -515,7 +465,20 @@ func (s *Service) forgetLeg(variantIndex int, leg *MediaLeg) {
 }
 
 func listenLoopbackUDP() (*net.UDPConn, error) {
-	return net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		return nil, err
+	}
+	// FFmpeg writes a 1440p60 copy leg at ~1400 packets/s. The default 208 KiB
+	// receive buffer is only ~100 ms of media, so a single scheduling hiccup
+	// overflows it and the kernel silently drops packets (visible as
+	// Udp.RcvbufErrors). Ask for a multi-second buffer; Linux clamps it to
+	// net.core.rmem_max.
+	if err := conn.SetReadBuffer(loopbackReadBufferBytes); err != nil {
+		log.Warnf("webrtc: could not enlarge loopback RTP receive buffer: %v", err)
+	}
+
+	return conn, nil
 }
 
 func newest(a, b time.Time) time.Time {
