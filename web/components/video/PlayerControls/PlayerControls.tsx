@@ -85,6 +85,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   // True while the last interaction came from a pointer, so focus that a
   // click leaves behind does not pin the control bar.
   const pointerInteractionRef = useRef(false);
+  const volumeGroupRef = useRef<HTMLDivElement | null>(null);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visible, setVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
@@ -170,6 +171,21 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
   }, [reveal, statsOpen]);
+
+  // Close the volume popover as soon as the pointer moves anywhere outside
+  // the volume group. mouseleave alone was not reliable: the popover overlaps
+  // its trigger and the bar can fade out underneath the pointer.
+  useEffect(() => {
+    if (!volumeVisible) return undefined;
+    const handler = (event: PointerEvent) => {
+      const group = volumeGroupRef.current;
+      if (group && !group.contains(event.target as Node)) {
+        setVolumeVisible(false);
+      }
+    };
+    document.addEventListener('pointermove', handler, { passive: true });
+    return () => document.removeEventListener('pointermove', handler);
+  }, [volumeVisible]);
 
   // Close menus on outside pointerdown.
   useEffect(() => {
@@ -258,6 +274,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           </button>
 
           <div
+            ref={volumeGroupRef}
             className={classNames(styles.volumeGroup, { [styles.volumeVisible]: volumeVisible })}
             onMouseEnter={() => setVolumeVisible(true)}
             onMouseLeave={() => setVolumeVisible(false)}
