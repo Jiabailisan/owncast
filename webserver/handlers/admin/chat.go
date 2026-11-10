@@ -4,11 +4,11 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/config"
@@ -71,7 +71,12 @@ func (a *Admin) BanIPAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.authRepository.BanIPAddress(valueAsString(configValue.Value), "manually added"); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := a.authRepository.BanIPAddress(typedValue, "manually added"); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error saving IP address ban")
 		return
 	}
@@ -91,7 +96,12 @@ func (a *Admin) UnBanIPAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.authRepository.RemoveIPAddressBan(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := a.authRepository.RemoveIPAddressBan(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error removing IP address ban")
 		return
 	}
@@ -154,7 +164,7 @@ func (a *Admin) updateUserStatus(request generated.UpdateUserEnabledJSONBody, mo
 
 	messageIDs, err := a.chatMessageRepository.GetMessageIdsForUserID(*request.UserId)
 	if err != nil {
-		return errors.Wrap(err, "error fetching user messages")
+		return fmt.Errorf("error fetching user messages: %w", err)
 	}
 
 	if !*request.Enabled && len(messageIDs) > 0 {
@@ -382,7 +392,12 @@ func (a *Admin) SetEnableEstablishedChatUserMode(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}

@@ -26,24 +26,6 @@ func valueAsString(value interface{}) string {
 	return ""
 }
 
-func valueAsBool(value interface{}) bool {
-	if typed, ok := value.(bool); ok {
-		return typed
-	}
-	log.Debugln("configuration value is not a boolean")
-
-	return false
-}
-
-func valueAsFloat64(value interface{}) float64 {
-	if typed, ok := value.(float64); ok {
-		return typed
-	}
-	log.Debugln("configuration value is not a number")
-
-	return 0
-}
-
 // derefStringSlice returns the pointed-to slice, or nil when the field was
 // omitted from the request body.
 func derefStringSlice(value *[]string) []string {

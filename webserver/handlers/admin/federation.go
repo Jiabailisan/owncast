@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 
 	webutils "github.com/owncast/owncast/webserver/utils"
@@ -47,7 +48,12 @@ func (a *Admin) SetFederationEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.configRepository.SetFederationEnabled(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := a.configRepository.SetFederationEnabled(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -65,7 +71,12 @@ func (a *Admin) SetFederationActivityPrivate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := a.configRepository.SetFederationIsPrivate(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := a.configRepository.SetFederationIsPrivate(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -90,7 +101,12 @@ func (a *Admin) SetFederationShowEngagement(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := a.configRepository.SetFederationShowEngagement(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := a.configRepository.SetFederationShowEngagement(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -132,7 +148,12 @@ func (a *Admin) SetFederationHideFollowersTab(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := a.configRepository.SetFederationHideFollowersTab(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := a.configRepository.SetFederationHideFollowersTab(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -150,7 +171,12 @@ func (a *Admin) SetFederationUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.configRepository.SetFederationUsername(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := a.configRepository.SetFederationUsername(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -169,7 +195,12 @@ func (a *Admin) SetFederationGoLiveMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := a.configRepository.SetFederationGoLiveMessage(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := a.configRepository.SetFederationGoLiveMessage(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -110,7 +111,12 @@ func (a *Admin) SetServerName(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetServerName(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetServerName(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -136,7 +142,12 @@ func (a *Admin) SetServerSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetServerSummary(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetServerSummary(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -162,7 +173,12 @@ func (a *Admin) SetCustomOfflineMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetCustomOfflineMessage(strings.TrimSpace(valueAsString(configValue.Value))); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetCustomOfflineMessage(strings.TrimSpace(typedValue)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -182,7 +198,12 @@ func (a *Admin) SetServerWelcomeMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetServerWelcomeMessage(strings.TrimSpace(valueAsString(configValue.Value))); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetServerWelcomeMessage(strings.TrimSpace(typedValue)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -202,7 +223,12 @@ func (a *Admin) SetExtraPageContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetExtraPageBodyContent(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetExtraPageBodyContent(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -222,7 +248,12 @@ func (a *Admin) SetAdminPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetAdminPassword(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetAdminPassword(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -378,7 +409,12 @@ func (a *Admin) SetNSFW(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetNSFW(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetNSFW(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -435,7 +471,12 @@ func (a *Admin) SetFfmpegPath(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetFfmpegPath(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetFfmpegPath(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -513,7 +554,12 @@ func (a *Admin) SetRTMPServerBindAddress(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetRTMPBindAddress(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetRTMPBindAddress(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -533,7 +579,12 @@ func (a *Admin) SetRTMPServerPort(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetRTMPPortNumber(valueAsFloat64(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsFloat64OK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a number"))
+		return
+	}
+	if err := configRepository.SetRTMPPortNumber(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -599,7 +650,12 @@ func (a *Admin) SetSocketHostOverride(w http.ResponseWriter, r *http.Request) {
 
 	configRepository := a.configRepository
 
-	if err := configRepository.SetWebsocketOverrideHost(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetWebsocketOverrideHost(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -620,7 +676,12 @@ func (a *Admin) SetDirectoryEnabled(w http.ResponseWriter, r *http.Request) {
 
 	configRepository := a.configRepository
 
-	if err := configRepository.SetDirectoryEnabled(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetDirectoryEnabled(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -640,7 +701,12 @@ func (a *Admin) SetStreamLatencyLevel(w http.ResponseWriter, r *http.Request) {
 
 	configRepository := a.configRepository
 
-	if err := configRepository.SetStreamLatencyLevel(valueAsFloat64(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsFloat64OK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a number"))
+		return
+	}
+	if err := configRepository.SetStreamLatencyLevel(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error setting stream latency "+err.Error())
 		return
 	}
@@ -766,7 +832,12 @@ func (a *Admin) SetChatDisabled(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatDisabled(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetChatDisabled(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -787,7 +858,12 @@ func (a *Admin) SetVideoCodec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetVideoCodec(valueAsString(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetVideoCodec(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, "unable to update codec")
 		return
 	}
@@ -826,7 +902,12 @@ func (a *Admin) SetCustomStyles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetCustomStyles(valueAsString(customStyles.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(customStyles.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetCustomStyles(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -843,7 +924,12 @@ func (a *Admin) SetCustomJavascript(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetCustomJavascript(valueAsString(customJavascript.Value)); err != nil {
+	typedValue, valueOK := valueAsStringOK(customJavascript.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+	if err := configRepository.SetCustomJavascript(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -902,7 +988,12 @@ func (a *Admin) SetChatJoinMessagesEnabled(w http.ResponseWriter, r *http.Reques
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatJoinMessagesEnabled(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetChatJoinMessagesEnabled(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -923,7 +1014,12 @@ func (a *Admin) SetHideViewerCount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetHideViewerCount(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetHideViewerCount(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -944,7 +1040,12 @@ func (a *Admin) SetDisableSearchIndexing(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetDisableSearchIndexing(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetDisableSearchIndexing(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -987,7 +1088,12 @@ func (a *Admin) SetChatSpamProtectionEnabled(w http.ResponseWriter, r *http.Requ
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatSpamProtectionEnabled(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetChatSpamProtectionEnabled(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -1006,7 +1112,12 @@ func (a *Admin) SetChatSlurFilterEnabled(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatSlurFilterEnabled(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetChatSlurFilterEnabled(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -1025,7 +1136,12 @@ func (a *Admin) SetChatRequireAuthentication(w http.ResponseWriter, r *http.Requ
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatRequireAuthentication(valueAsBool(configValue.Value)); err != nil {
+	typedValue, valueOK := valueAsBoolOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+	if err := configRepository.SetChatRequireAuthentication(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
