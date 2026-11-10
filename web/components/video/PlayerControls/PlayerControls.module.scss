@@ -58,6 +58,10 @@ $blur: var(--owncast-overlay-blur, 12px);
   svg {
     width: 32px;
     height: 32px;
+
+    // A right-pointing triangle sits left of the box centre by construction;
+    // nudge it so it looks centred inside the circle.
+    transform: translateX(2px);
   }
 
   &:hover {
@@ -431,8 +435,14 @@ $blur: var(--owncast-overlay-blur, 12px);
   top: 50%;
   left: 50%;
   z-index: 2;
+
+  // Fixed square box: a stretched or shrunken flex/grid parent used to turn the
+  // ring into an ellipse, which made the moving arc look off its track.
+  box-sizing: border-box;
+  flex: none;
   width: 48px;
   height: 48px;
+  aspect-ratio: 1;
   pointer-events: none;
   border: 4px solid rgb(255 255 255 / 24%);
   border-top-color: #fff;
