@@ -95,7 +95,9 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   // expanded in some interaction order, so the state is gone entirely.
   const volumeVisible = true;
 
-  const anyMenuOpen = settingsOpen || transportOpen || volumeVisible || statsOpen;
+  // The volume slider is part of the bar now, so it must not count as an open
+  // menu: doing so kept the bar pinned visible forever.
+  const anyMenuOpen = settingsOpen || transportOpen || statsOpen;
 
   const scheduleHide = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);

@@ -138,9 +138,12 @@ $blur: var(--owncast-overlay-blur, 12px);
   // Single continuous pill: the speaker button and slider share one background.
   &:hover,
   &:focus-within,
+  // Always expanded: the slider lives in the bar, so this class only sets the
+  // width. The highlight is reserved for hover, otherwise the pill looked
+  // permanently selected.
   &.volumeVisible {
     width: 120px;
-    background: rgb(255 255 255 / 12%);
+    background: none;
 
     .volumePopover {
       width: 78px;
