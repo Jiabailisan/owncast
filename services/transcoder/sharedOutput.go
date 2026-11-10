@@ -209,11 +209,18 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 		if !output.CopyVideo {
 			continue
 		}
+		copyBitstreamFilter := "dump_extra=freq=keyframe"
+		if strings.EqualFold(t.inputFormat.String(), "flv") {
+			// FLV carries H.264 in AVCC form without in-band parameter sets.
+			// Convert it and let dump_extra inject SPS/PPS on keyframes so
+			// WebRTC copy legs are decodable.
+			copyBitstreamFilter = "h264_mp4toannexb,dump_extra=freq=keyframe"
+		}
 		flags = append(
 			flags,
 			ffmpegFlagMap, "0:v:0",
 			"-c:v", "copy",
-			"-bsf:v", "dump_extra=freq=keyframe",
+			"-bsf:v", copyBitstreamFilter,
 			"-f", "rtp",
 			"-payload_type", strconv.Itoa(output.VideoPayloadType),
 			withRTPPacketSize(output.VideoURL),
