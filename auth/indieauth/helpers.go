@@ -38,7 +38,13 @@ func createAuthRequest(authDestination, userID, displayName, accessToken, baseSe
 	codeChallenge := createCodeChallenge(codeVerifier)
 	state := randString(20)
 	responseType := "code"
+	// indielogin.com (and the IndieAuth spec) treat the client_id as an exact
+	// string: an application registered as https://host/ is only matched when the
+	// client sends the trailing slash, so normalise it here.
 	clientID := baseServerURL.String() // Our local URL
+	if !strings.HasSuffix(clientID, "/") {
+		clientID += "/"
+	}
 	codeChallengeMethod := "S256"
 
 	redirect := *authEndpointURL
