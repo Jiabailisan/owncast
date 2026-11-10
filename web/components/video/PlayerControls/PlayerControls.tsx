@@ -82,6 +82,9 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   callbacks,
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // True while the last interaction came from a pointer, so focus that a
+  // click leaves behind does not pin the control bar.
+  const pointerInteractionRef = useRef(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visible, setVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
@@ -99,7 +102,10 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       // the overlay root, whose pointer-events are disabled, so one bar
       // interaction could pin the controls visible forever.
       const root = rootRef.current;
-      const focusedInside = Boolean(root && root.contains(document.activeElement));
+      // Focus only pins the bar for keyboard users: after a mouse click the
+      // clicked button keeps focus, which used to keep the bar visible forever.
+      const focusedInside =
+        !pointerInteractionRef.current && Boolean(root && root.contains(document.activeElement));
       const pointerInside = Boolean(root && root.querySelector(':hover'));
       if (!playing || focusedInside || pointerInside) {
         scheduleHide();
@@ -187,6 +193,12 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           if (playing && !anyMenuOpen) scheduleHide();
         }}
         onFocusCapture={reveal}
+        onPointerDownCapture={() => {
+          pointerInteractionRef.current = true;
+        }}
+        onKeyDownCapture={() => {
+          pointerInteractionRef.current = false;
+        }}
         // A mouse click leaves focus on the button, which kept the bar visible
         // forever. detail > 0 means a pointer click; keyboard focus is kept.
         onClickCapture={event => {

@@ -2,7 +2,6 @@
 import React, { CSSProperties, FC, useContext, useEffect, useState } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { useTranslation } from 'next-export-i18n';
 import classNames from 'classnames';
 import { ErrorBoundary, getErrorMessage } from 'react-error-boundary';
 import { VideoJS } from '../VideoJS/VideoJS';
@@ -119,7 +118,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     videoPipeline: null,
   });
   const clockSkew = useAtomValue(clockSkewAtom);
-  const { t } = useTranslation();
 
   // A persisted volume of 0 is a mute the viewer chose on a previous visit
   // (handleVolume stores muted as 0). Restoring it is a manual mute, not an
@@ -285,8 +283,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     const unmuteButton = new UnmuteButton();
     unmuteButton.addClass('vjs-big-unmute-button');
-    const unmuteLabel = t(Localization.Frontend.unmute);
-    unmuteButton.controlText(unmuteLabel === Localization.Frontend.unmute ? 'Unmute' : unmuteLabel);
+    // Kept in English on purpose: this is an action hint, not a translated label.
+    const unmuteLabel = 'Unmute';
+    unmuteButton.controlText(unmuteLabel);
     const iconPlaceholder = unmuteButton.el().querySelector('.vjs-icon-placeholder');
     if (iconPlaceholder) {
       iconPlaceholder.innerHTML =

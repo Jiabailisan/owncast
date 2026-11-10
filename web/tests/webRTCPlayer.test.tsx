@@ -273,6 +273,13 @@ describe('WebRTCPlayer', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText('Unmute')).toBeInTheDocument());
+    // The notice is shown whenever playback runs with audio off, not only for the
+    // first autoplay-muted case, so query it by its own class: the control bar has a
+    // mute button with the same accessible name.
+    await waitFor(() => {
+      const notice = document.querySelector('.bigUnmuteButton');
+      expect(notice).not.toBeNull();
+      expect(notice?.textContent).toBe('Unmute');
+    });
   });
 });

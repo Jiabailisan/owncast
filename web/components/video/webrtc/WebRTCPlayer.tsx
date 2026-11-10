@@ -4,7 +4,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { useTranslation } from 'next-export-i18n';
 import MutedFilled from '@ant-design/icons/MutedFilled';
 
-import { autoplayModeForSetting, shouldShowBigUnmuteOverlay } from '../../../utils/autoplay';
+import { autoplayModeForSetting } from '../../../utils/autoplay';
 import { getLocalStorage, setLocalStorage } from '../../../utils/localStorage';
 import { Localization } from '../../../types/localization';
 import { Translation } from '../../ui/Translation/Translation';
@@ -128,7 +128,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(true));
   const [sparklines, setSparklines] = useState<SparklineState>({ video: [], audio: [] });
 
-  const unmuteLabel = useLabel(Localization.Frontend.unmute, 'Unmute');
+  // Kept in English on purpose: this is an action hint, not a translated label.
+  const unmuteLabel = 'Unmute';
   const retryLabel = useLabel(Localization.Frontend.Player.retry, 'Retry');
 
   // WebRTC exposes the same quality ladder HLS has; "Auto" lets the server pick
@@ -165,16 +166,13 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const updateBigUnmute = useCallback(() => {
     const video = videoRef.current;
     if (!video) {
-      setBigUnmuteVisible(false);
+      setBigUnmuteVisible(!video.paused && (video.muted || video.volume === 0));
       return;
     }
     setBigUnmuteVisible(
-      shouldShowBigUnmuteOverlay({
-        mutedByAutoplay: mutedByAutoplayRef.current,
-        paused: video.paused,
-        muted: video.muted,
-        volume: video.volume,
-      }),
+      // Show the notice whenever playback is running and audio is off; the
+      // autoplay-only condition meant a later manual mute showed nothing.
+      !video.paused && (video.muted || video.volume === 0),
     );
   }, []);
 
