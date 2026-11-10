@@ -112,10 +112,6 @@ export const TransportMenuOpen: Story = {
   args: { ...baseArgs, initialMenu: 'transport' },
 };
 
-export const VolumePillOpen: Story = {
-  args: { ...baseArgs, initialMenu: 'volume' },
-};
-
 export const StatsOpen: Story = {
   args: { ...baseArgs, statsOpen: true },
 };

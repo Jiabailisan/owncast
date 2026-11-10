@@ -78,6 +78,8 @@ func isTrustedProxyPeer(address string) bool {
 }
 
 // isIPv6 reports whether the address looks like an IPv6 address.
+//
+//nolint:unused // exercised by the address parsing tests
 func isIPv6(address string) bool {
 	return strings.Count(address, ":") >= 2
 }

@@ -52,7 +52,7 @@ export type PlayerControlsProps = {
   // Quality rows only exist for the HLS transport in the reference player.
   showQuality?: boolean;
   // Storybook/tests only: open one of the menus on first render.
-  initialMenu?: 'settings' | 'transport' | 'volume' | null;
+  initialMenu?: 'settings' | 'transport' | null;
   callbacks: PlayerControlsCallbacks;
 };
 
@@ -86,7 +86,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   // click leaves behind does not pin the control bar.
   const pointerInteractionRef = useRef(false);
   const pointerInsideRef = useRef(false);
-  const volumeGroupRef = useRef<HTMLDivElement | null>(null);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visible, setVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
@@ -264,7 +263,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
             {playing ? <PauseOutlined /> : <CaretRightOutlined />}
           </button>
 
-          <div ref={volumeGroupRef} className={styles.volumeGroup}>
+          <div className={styles.volumeGroup}>
             <button
               type="button"
               className={styles.iconButton}
