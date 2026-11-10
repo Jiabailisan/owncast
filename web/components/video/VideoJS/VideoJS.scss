@@ -98,10 +98,11 @@
     }
   }
 
+  // video.js draws its own buffering ring on a fixed 50px box that does not
+  // line up with the custom overlay, so two rings ended up on screen and the
+  // video.js one looked off its track. The overlay renders the only spinner.
   .vjs-loading-spinner {
-    z-index: 10;
-    display: block;
-    color: var(--theme-color-components-text-on-light);
+    display: none !important;
   }
 
   .vjs-control-bar {
