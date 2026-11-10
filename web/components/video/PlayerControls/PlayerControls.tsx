@@ -145,29 +145,39 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   }, [playing, anyMenuOpen, scheduleHide]);
 
   useEffect(() => {
-    const onActivity = () => {
+    // Reveal on any pointer activity that happens over the player box, plus any
+    // key press. Filtering by the player rectangle keeps page-wide mouse
+    // movement from waking the controls, and does not depend on which element
+    // happens to receive the event (the overlay root ignores pointer events).
+    const insidePlayer = (event: Event): boolean => {
+      const root = rootRef.current;
+      if (!root) return false;
+      const pointer = event as PointerEvent;
+      if (typeof pointer.clientX !== 'number') return false;
+      const rect = root.getBoundingClientRect();
+      return (
+        pointer.clientX >= rect.left &&
+        pointer.clientX <= rect.right &&
+        pointer.clientY >= rect.top &&
+        pointer.clientY <= rect.bottom
+      );
+    };
+
+    const onPointerActivity = (event: Event) => {
+      if (statsOpen || !insidePlayer(event)) return;
+      reveal();
+    };
+    const onKeyActivity = () => {
       if (!statsOpen) reveal();
     };
-    // Keyboard activity anywhere reveals the controls (shortcuts are global).
-    // Pointer movement only counts over the player itself: the overlay root has
-    // pointer-events disabled, so its own handlers never fire, and a window
-    // listener re-showed the bar from anywhere on the page. Listening on the
-    // player wrapper gives exactly the player area.
-    const player = rootRef.current?.parentElement ?? null;
-    const onPointerLeave = () => {
-      // Leaving the player collapses the volume popover: fading the bar out does
-      // not fire mouseleave on the volume group, so the slider used to stay open.
-      setVolumeVisible(false);
-    };
-    player?.addEventListener('pointermove', onActivity, { passive: true });
-    player?.addEventListener('pointerdown', onActivity, { passive: true });
-    player?.addEventListener('pointerleave', onPointerLeave, { passive: true });
-    window.addEventListener('keydown', onActivity, { passive: true });
+
+    document.addEventListener('pointermove', onPointerActivity, { passive: true });
+    document.addEventListener('pointerdown', onPointerActivity, { passive: true });
+    window.addEventListener('keydown', onKeyActivity, { passive: true });
     return () => {
-      player?.removeEventListener('pointermove', onActivity);
-      player?.removeEventListener('pointerdown', onActivity);
-      player?.removeEventListener('pointerleave', onPointerLeave);
-      window.removeEventListener('keydown', onActivity);
+      document.removeEventListener('pointermove', onPointerActivity);
+      document.removeEventListener('pointerdown', onPointerActivity);
+      window.removeEventListener('keydown', onKeyActivity);
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
   }, [reveal, statsOpen]);
