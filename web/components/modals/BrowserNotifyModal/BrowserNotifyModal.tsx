@@ -16,6 +16,7 @@ import { Localization } from '../../../types/localization';
 
 import { isMobileSafariHomeScreenApp, isMobileSafariIos } from '../../../utils/helpers';
 import { arePushNotificationSupported } from '../../../utils/browserPushNotifications';
+import { MODAL_Z_INDEX } from '../../ui/Modal/zIndex';
 
 const { Title } = Typography;
 
@@ -325,7 +326,7 @@ export const BrowserNotifyModal: FC<BrowserNotifyModalProps> = ({ open, handleCl
     title="Browser Notifications"
     open={open}
     onCancel={handleClose}
-    zIndex={999}
+    zIndex={MODAL_Z_INDEX}
     footer={null}
     centered
   >

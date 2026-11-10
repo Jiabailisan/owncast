@@ -2,7 +2,9 @@
   display: grid;
   width: 100%;
   justify-items: center;
-  aspect-ratio: 16 / 9;
+  // Follow the decoded picture so the box never letterboxes (see
+  // videoAspectRatio); 16/9 is only the pre-load fallback.
+  aspect-ratio: var(--video-aspect-ratio, 16 / 9);
   background: #000;
 }
 

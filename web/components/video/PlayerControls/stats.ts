@@ -320,3 +320,21 @@ export function hlsPlaylistSegments(vhs: unknown): HlsPlaylistSegment[] | null {
 
   return null;
 }
+
+// videoAspectRatio returns a CSS aspect-ratio value matching the decoded video
+// so the player box never letterboxes the picture. The player container sizes
+// itself from this value, which keeps black bars (and the black container
+// background behind them) from appearing on any viewport.
+export function videoAspectRatio(
+  width: number | null | undefined,
+  height: number | null | undefined,
+  fallback = '16 / 9',
+): string {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return fallback;
+  const ratio = w / h;
+  if (ratio < 0.2 || ratio > 5) return fallback;
+
+  return String(Math.round(ratio * 1000) / 1000);
+}

@@ -5,6 +5,7 @@ import styles from './FollowModal.module.scss';
 import { FollowForm } from './FollowForm';
 import { Translation } from '../../ui/Translation/Translation';
 import { Localization } from '../../../types/localization';
+import { MODAL_Z_INDEX } from '../../ui/Modal/zIndex';
 
 /*
 First production surface migrated to Ant Design v6. Theming and class-prefix
@@ -27,7 +28,7 @@ export const FollowModal: FC<FollowModalProps> = ({ open, handleClose, account, 
     open={open}
     onCancel={handleClose}
     width="550px"
-    zIndex={999}
+    zIndex={MODAL_Z_INDEX}
     footer={null}
     centered
   >

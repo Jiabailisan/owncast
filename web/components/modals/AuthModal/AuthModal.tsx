@@ -14,6 +14,7 @@ import {
   clientConfigStateAtom,
 } from '../../stores/ClientConfigStore';
 import { ComponentError } from '../../ui/ComponentError/ComponentError';
+import { MODAL_Z_INDEX } from '../../ui/Modal/zIndex';
 
 export type AuthModalProps = {
   open: boolean;
@@ -80,7 +81,7 @@ export const AuthModal: FC<AuthModalProps> = ({ open, handleClose, forceTabs }) 
       open={open}
       onCancel={handleClose}
       maskClosable={false}
-      zIndex={999}
+      zIndex={MODAL_Z_INDEX}
       footer={null}
       centered
     >

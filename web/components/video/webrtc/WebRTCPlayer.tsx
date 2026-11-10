@@ -1,4 +1,4 @@
-import { FC, useCallback, useEffect, useRef, useState } from 'react';
+import { CSSProperties, FC, useCallback, useEffect, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useTranslation } from 'next-export-i18n';
@@ -36,7 +36,12 @@ import {
   SparklineState,
   makeEmptyStats,
 } from '../PlayerControls/types';
-import { formatViewportFrames, formatVolume, pushSparkline } from '../PlayerControls/stats';
+import {
+  formatViewportFrames,
+  formatVolume,
+  pushSparkline,
+  videoAspectRatio,
+} from '../PlayerControls/stats';
 import { LATENCY_STORAGE_KEY } from '../PlayerControls/preferences';
 import styles from './WebRTCPlayer.module.scss';
 
@@ -117,6 +122,9 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     () => getLocalStorage(LATENCY_STORAGE_KEY) === 'true',
   );
   const [statsOpen, setStatsOpen] = useState(false);
+  // The container follows the decoded picture so no letterboxing (and no black
+  // bars) can appear at any viewport size.
+  const [aspectRatio, setAspectRatio] = useState('16 / 9');
   const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(true));
   const [sparklines, setSparklines] = useState<SparklineState>({ video: [], audio: [] });
 
@@ -563,6 +571,20 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     };
   }, [statsOpen, phase]);
 
+  // Keep the player box in sync with the decoded picture.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return undefined;
+    const sync = () => setAspectRatio(videoAspectRatio(video.videoWidth, video.videoHeight));
+    sync();
+    video.addEventListener('loadedmetadata', sync);
+    video.addEventListener('resize', sync);
+    return () => {
+      video.removeEventListener('loadedmetadata', sync);
+      video.removeEventListener('resize', sync);
+    };
+  }, [phase]);
+
   const togglePlayback = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -703,6 +725,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       className={classNames(styles.container, className)}
       id="player"
       data-protocol="webrtc"
+      style={{ '--video-aspect-ratio': aspectRatio } as CSSProperties}
     >
       <div className={styles.player}>
         <video

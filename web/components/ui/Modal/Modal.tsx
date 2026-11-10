@@ -3,6 +3,7 @@ import { FC, ReactNode, useState } from 'react';
 import { ErrorBoundary, getErrorMessage } from 'react-error-boundary';
 import { ComponentError } from '../ComponentError/ComponentError';
 import styles from './Modal.module.scss';
+import { MODAL_Z_INDEX } from './zIndex';
 
 export type ModalProps = {
   title: string;
@@ -72,7 +73,7 @@ export const Modal: FC<ModalProps> = ({
       afterClose={afterClose}
       bodyStyle={modalContentBodyStyle}
       width={width ?? defaultWidth}
-      zIndex={999}
+      zIndex={MODAL_Z_INDEX}
       footer={null}
       centered
       maskClosable={maskClosable}

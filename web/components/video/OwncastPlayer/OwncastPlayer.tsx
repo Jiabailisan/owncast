@@ -1,5 +1,5 @@
 /* eslint-disable max-classes-per-file */
-import React, { FC, useContext, useEffect, useState } from 'react';
+import React, { CSSProperties, FC, useContext, useEffect, useState } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useTranslation } from 'next-export-i18n';
@@ -39,6 +39,7 @@ import {
   hlsResolution,
   hlsVideoBitrateKbps,
   pushSparkline,
+  videoAspectRatio,
 } from '../PlayerControls/stats';
 import { LATENCY_COMPENSATION_ENABLED } from '../settings-menu';
 import styles from './OwncastPlayer.module.scss';
@@ -91,6 +92,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const [selectedQuality, setSelectedQuality] = useState('auto');
   const [transportErrorVisible, setTransportErrorVisible] = useState(false);
   const [latencyEnabled, setLatencyEnabled] = useState(false);
+  // The player box follows the decoded picture so a fixed container height can
+  // never letterbox the video (which showed as black bars above and below).
+  const [aspectRatio, setAspectRatio] = useState('16 / 9');
   const [fullscreen, setFullscreen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(false));
@@ -327,6 +331,20 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         // Live tracker may not be ready.
       }
     }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Keep the player box in sync with the decoded picture.
+  useEffect(() => {
+    const sync = () => {
+      const video =
+        (playerRef.current?.el?.() as HTMLElement | undefined)?.querySelector('video') || null;
+      if (!video) return;
+      setAspectRatio(videoAspectRatio(video.videoWidth, video.videoHeight));
+    };
+    sync();
+    const timer = setInterval(sync, 1000);
+
     return () => clearInterval(timer);
   }, []);
 
@@ -682,6 +700,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         className={classNames(styles.container, className)}
         id="player"
         data-protocol="hls"
+        style={{ '--video-aspect-ratio': aspectRatio } as CSSProperties}
       >
         {online && (
           <div className={styles.player}>
