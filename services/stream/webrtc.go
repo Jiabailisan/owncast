@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -78,23 +77,6 @@ func effectiveWebRTCVariants(variants []models.StreamOutputVariant) []models.Str
 // hasWebRTCCopyIntent reports whether any WebRTC-enabled variant asks for copy
 // delivery (explicitly or by inheriting a passthrough HLS variant). Copy
 // eligibility needs source metadata, so only these streams wait for it.
-// variantWantsCopy reports an explicit copy mode or inheritance from a
-// passthrough HLS variant.
-func variantWantsCopy(variant models.StreamOutputVariant) bool {
-	mode := ""
-	if variant.Outputs != nil && variant.Outputs.WebRTC != nil {
-		mode = strings.ToLower(strings.TrimSpace(variant.Outputs.WebRTC.Mode))
-	}
-	switch mode {
-	case models.OutputModeTranscode:
-		return false
-	case models.OutputModeCopy:
-		return true
-	default:
-		return variant.IsVideoPassthrough
-	}
-}
-
 func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 	for _, variant := range variants {
 		if !variant.WebRTCEnabled() {
@@ -187,26 +169,6 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 		for _, reason := range decision.IneligibilityReasons {
 			warnings = append(warnings, models.StatusWarning{Code: "webrtc_copy_ineligible", Message: reason})
 			log.Infoln("webrtc copy ineligible:", reason)
-		}
-		// RTMP carries no profile/level/B-frame metadata, so the strict copy
-		// eligibility decision always falls back to transcode. When the
-		// operator asked for passthrough (explicit copy or HLS passthrough
-		// inheritance), honour it optimistically; the copy stream is visible in
-		// the status warnings as unverified and clients can fall back to the
-		// encoded quality if the source turns out to be copy-unfriendly.
-		if session.Protocol() == ingest.ProtocolRTMP && !decision.Copy && variantWantsCopy(variant) {
-			warnings = append(warnings, models.StatusWarning{
-				Code:    "webrtc_copy_unverified",
-				Message: "RTMP copy leg is delivered without B-frame/profile verification",
-			})
-			log.Warnln("webrtc: delivering unverified RTMP copy leg for variant", index)
-			decision = webrtc.LegDecision{
-				Enabled:     true,
-				Mode:        models.OutputModeCopy,
-				Copy:        true,
-				H264Profile: webrtcConfig.H264Profile,
-				Source:      source,
-			}
 		}
 
 		if !decision.Enabled {
