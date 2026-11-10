@@ -91,7 +91,9 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   const [visible, setVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
   const [transportOpen, setTransportOpen] = useState(initialMenu === 'transport');
-  const [volumeVisible, setVolumeVisible] = useState(initialMenu === 'volume');
+  // The slider is always part of the bar. Every hover/popover variant left it
+  // expanded in some interaction order, so the state is gone entirely.
+  const volumeVisible = true;
 
   const anyMenuOpen = settingsOpen || transportOpen || volumeVisible || statsOpen;
 
@@ -122,7 +124,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   // pointer and no mouseleave reached the volume group.
   useEffect(() => {
     if (!visible) {
-      setVolumeVisible(false);
       setSettingsOpen(false);
       setTransportOpen(false);
     }
@@ -164,16 +165,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       pointerInsideRef.current = insidePlayer;
 
       if (insidePlayer && !statsOpen) reveal();
-
-      const group = volumeGroupRef.current;
-      if (!group) return;
-      const box = group.getBoundingClientRect();
-      const overVolume =
-        event.clientX >= box.left &&
-        event.clientX <= box.right &&
-        event.clientY >= box.top &&
-        event.clientY <= box.bottom;
-      setVolumeVisible(overVolume);
     };
 
     const handleKey = () => {
@@ -233,7 +224,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         onPointerLeave={() => {
           // The bar fades out without a mouseleave on the volume group, which
           // used to leave the slider expanded after the controls disappeared.
-          setVolumeVisible(false);
           if (playing && !anyMenuOpen) scheduleHide();
         }}
         onFocusCapture={reveal}
@@ -294,11 +284,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
                   [styles.volumeVisible]: volumeVisible,
                 })}
               >
-                <VolumeSlider
-                  value={muted ? 0 : volume}
-                  onChange={callbacks.onVolumeChange}
-                  onFocusChange={focused => setVolumeVisible(focused)}
-                />
+                <VolumeSlider value={muted ? 0 : volume} onChange={callbacks.onVolumeChange} />
               </div>
             )}
           </div>
