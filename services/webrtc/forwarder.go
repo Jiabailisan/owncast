@@ -93,23 +93,27 @@ type forwarder struct {
 
 	// outSeq is assigned by the forwarder for every emitted video packet. It
 	// lets cached SPS/PPS be inserted before an IDR without breaking the
-	// viewer's RTP sequence space.
-	outSeq    uint16
-	outSeqSet bool
-
-	startedAt time.Time
+	// viewer's RTP sequence space. Only copy legs opt in; encoded legs already
+	// carry parameter sets and keep their original sequence numbers.
+	outSeq          uint16
+	outSeqSet       bool
+	injectParamSets bool
+	startedAt       time.Time
 }
 
 func newForwarder(kind string, conn *net.UDPConn, track trackWriter,
 	clockRate, expectedDelta uint32, payloadType uint8, reorderWindow time.Duration,
+	injectParamSets ...bool,
 ) *forwarder {
+	inject := len(injectParamSets) > 0 && injectParamSets[0]
 	f := &forwarder{
-		kind:       kind,
-		conn:       conn,
-		track:      track,
-		expectedPT: payloadType,
-		normalizer: newNormalizer(clockRate, expectedDelta),
-		startedAt:  time.Now(),
+		kind:            kind,
+		conn:            conn,
+		track:           track,
+		expectedPT:      payloadType,
+		normalizer:      newNormalizer(clockRate, expectedDelta),
+		injectParamSets: inject,
+		startedAt:       time.Now(),
 	}
 	if reorderWindow > 0 {
 		f.reorder = newReorderBuffer(reorderWindow)
@@ -201,7 +205,7 @@ func (f *forwarder) emit(packet *rtp.Packet) {
 		f.counters.rebases.Add(1)
 		log.Debugf("webrtc: %s forwarder rebased RTP stream", f.kind)
 	}
-	if f.kind == forwarderKindVideo {
+	if f.kind == forwarderKindVideo && f.injectParamSets {
 		// Copy legs can carry SPS/PPS only at the start of the source stream.
 		// Browsers joining later need parameter sets before every IDR, so
 		// insert the cached SPS/PPS ahead of each keyframe.
@@ -337,7 +341,7 @@ type MediaLeg struct {
 // OpenMediaLeg binds the two loopback UDP sockets for one WebRTC variant and
 // starts the forwarders. It replaces and closes any previous leg for the same
 // variant index.
-func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
+func (s *Service) OpenMediaLeg(variantIndex int, copyVideo ...bool) (*MediaLeg, error) {
 	if !s.Enabled() {
 		return nil, ErrDisabled
 	}
@@ -374,7 +378,7 @@ func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	reorderWindow := time.Duration(cfg.RTPReorderBufferMs) * time.Millisecond
 
 	leg.videoForwarder = newForwarder(forwarderKindVideo, videoConn, tracks.video,
-		rtpClockRate, videoDelta, PayloadTypeVideo, reorderWindow)
+		rtpClockRate, videoDelta, PayloadTypeVideo, reorderWindow, len(copyVideo) > 0 && copyVideo[0])
 	leg.audioForwarder = newForwarder("audio", audioConn, tracks.audio,
 		opusClockRate, audioFrameSamples, PayloadTypeAudio, reorderWindow)
 
