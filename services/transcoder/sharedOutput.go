@@ -32,12 +32,38 @@ func (t *Transcoder) sharedOutputEnabled() bool {
 		return false
 	}
 	for _, output := range t.rtpOutputs {
+		if _, ok := t.sharedVideoVariantFor(output); !ok {
+			return false
+		}
+	}
+	for _, output := range t.rtpOutputs {
 		if output.VariantIndex < 0 || output.VariantIndex >= len(t.variants) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// sharedVideoVariantFor maps a WebRTC leg to the HLS variant whose encoded
+// stream it can reuse. A transcode leg must select a transcoded HLS variant and
+// a copy leg a passthrough variant; the same logical index is preferred, then
+// any variant with matching encoding. The false return means the leg cannot be
+// shared and the caller must fall back to the legacy layout.
+func (t *Transcoder) sharedVideoVariantFor(output RTPOutput) (int, bool) {
+	if output.VariantIndex >= 0 && output.VariantIndex < len(t.variants) {
+		variant := t.variants[output.VariantIndex]
+		if variant.isVideoPassthrough == output.CopyVideo {
+			return output.VariantIndex, true
+		}
+	}
+	for _, variant := range t.variants {
+		if variant.isVideoPassthrough == output.CopyVideo {
+			return variant.index, true
+		}
+	}
+
+	return 0, false
 }
 
 // sharedHLSFlags mirrors the HLS muxer flags used by the legacy HLS output.
@@ -125,7 +151,11 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 	// stream, in that order.
 	for index := range t.variants {
 		options := []string{
+			// HLS writes go over HTTP to Owncast and can occasionally block;
+			// a deep FIFO keeps that from stalling the RTP slaves (which are
+			// written directly so their packets stay real-time).
 			teeOptionString("use_fifo", "1"),
+			teeOptionString("fifo_options", "queue_size=10000"),
 			teeOptionString("f", "hls"),
 			teeOptionString("select", teeSelect(fmt.Sprintf("v:%d,a:%d", index, index))),
 			teeOptionString("hls_time", strconv.Itoa(t.currentLatencyLevel.SecondsPerSegment)),
@@ -151,9 +181,12 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 		// only encoded legs share the tee video stream. The source packets are
 		// still copied, not re-encoded.
 		if !output.CopyVideo {
+			videoVariant, ok := t.sharedVideoVariantFor(output)
+			if !ok {
+				continue
+			}
 			videoSlaveOptions := []string{
-				teeOptionString("use_fifo", "1"),
-				teeOptionString("select", teeSelect("v:"+strconv.Itoa(output.VariantIndex))),
+				teeOptionString("select", teeSelect("v:"+strconv.Itoa(videoVariant))),
 				teeOptionString("f", "rtp"),
 				teeOptionString("payload_type", strconv.Itoa(output.VideoPayloadType)),
 			}
@@ -161,7 +194,6 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 		}
 
 		audioSlaveOptions := []string{
-			teeOptionString("use_fifo", "1"),
 			teeOptionString("select", teeSelect("a:"+strconv.Itoa(opusAudioOrdinal))),
 			teeOptionString("f", "rtp"),
 			teeOptionString("payload_type", strconv.Itoa(output.AudioPayloadType)),

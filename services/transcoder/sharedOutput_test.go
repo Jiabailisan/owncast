@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/owncast/owncast/config"
+	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 )
 
 func sharedTestTranscoder(t *testing.T) *Transcoder {
@@ -89,5 +91,36 @@ func TestSharedMasterPlaylistListsVariants(t *testing.T) {
 	master := string(data)
 	if !strings.Contains(master, "#EXT-X-STREAM-INF:") || !strings.Contains(master, "0/stream.m3u8") {
 		t.Fatalf("unexpected master playlist: %s", master)
+	}
+}
+
+func TestSharedLegsSelectCompatibleHLSVariant(t *testing.T) {
+	tr := new(Transcoder)
+	tr.cfg = &config.Config{LogDirectory: "data/logs"}
+	tr.ffmpegPath = "ffmpeg"
+	tr.internalListenerPort = "8927"
+	tr.input = "pipe:0"
+	tr.inputFormat = ingest.FLVInputFormat()
+	tr.currentLatencyLevel = models.GetLatencyLevel(2)
+	tr.codec = &NvencCodec{}
+	tr.SetIdentifier("goldenid")
+	tr.AddVariant(HLSVariant{index: 0, isVideoPassthrough: true, isAudioPassthrough: true, cpuUsageLevel: 2})
+	tr.AddVariant(HLSVariant{videoBitrate: 6000, isAudioPassthrough: true, cpuUsageLevel: 2})
+	leg := rtpTestOutput("h264_nvenc")
+	leg.VariantIndex = 0
+	leg.H264Profile = "main"
+	leg2 := rtpTestOutput("h264_nvenc")
+	leg2.VariantIndex = 1
+	leg2.VideoURL = "rtp://127.0.0.1:41000?pkt_size=1200"
+	leg2.AudioURL = "rtp://127.0.0.1:41001?pkt_size=1200"
+	tr.SetRTPOutputs([]RTPOutput{leg, leg2})
+	if !tr.sharedOutputEnabled() {
+		t.Fatal("expected shared output")
+	}
+	joined := strings.Join(tr.getSharedOutputFlags("http://127.0.0.1:8927"), " ")
+	// WebRTC leg 0 is a transcode leg while HLS variant 0 is passthrough, so it
+	// must select the transcode variant (v:1), never the source copy stream.
+	if !strings.Contains(joined, "select=\\'v:1\\'") {
+		t.Fatalf("transcode leg did not select the encoded HLS variant: %s", joined)
 	}
 }
