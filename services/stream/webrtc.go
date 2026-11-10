@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -77,6 +78,17 @@ func effectiveWebRTCVariants(variants []models.StreamOutputVariant) []models.Str
 // hasWebRTCCopyIntent reports whether any WebRTC-enabled variant asks for copy
 // delivery (explicitly or by inheriting a passthrough HLS variant). Copy
 // eligibility needs source metadata, so only these streams wait for it.
+func variantRequestsVideoCopy(variant models.StreamOutputVariant) bool {
+	if variant.IsVideoPassthrough {
+		return true
+	}
+	if hls := variant.HLSOutput(); hls != nil {
+		return strings.EqualFold(strings.TrimSpace(hls.Mode), models.OutputModeCopy)
+	}
+
+	return false
+}
+
 func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 	for _, variant := range variants {
 		if !variant.WebRTCEnabled() {
@@ -89,7 +101,7 @@ func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 		if mode == models.OutputModeCopy {
 			return true
 		}
-		if (mode == "" || mode == models.OutputModeInherit) && variant.IsVideoPassthrough {
+		if (mode == "" || mode == models.OutputModeInherit) && variantRequestsVideoCopy(variant) {
 			return true
 		}
 	}
