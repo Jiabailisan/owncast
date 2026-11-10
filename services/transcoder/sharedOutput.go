@@ -271,7 +271,7 @@ func (t *Transcoder) writeMasterPlaylist() {
 		if variant.framerate > 0 {
 			attributes = append(attributes, "FRAME-RATE="+strconv.Itoa(variant.framerate))
 		}
-		attributes = append(attributes, "CODECS=\""+t.masterPlaylistCodecs()+"\"")
+		attributes = append(attributes, "CODECS=\""+t.masterPlaylistCodecs(variant)+"\"")
 		builder.WriteString("#EXT-X-STREAM-INF:" + strings.Join(attributes, ",") + "\n")
 		builder.WriteString(strconv.Itoa(variant.index) + "/stream.m3u8\n")
 	}
@@ -287,10 +287,11 @@ const (
 	h264ProfileHexHigh     = "64"
 )
 
-// masterPlaylistCodecs renders the CODECS attribute for the master playlist from
-// the configured encoder profile and level, so a High or Baseline stream is not
-// advertised as Main 3.1.
-func (t *Transcoder) masterPlaylistCodecs() string {
+// masterPlaylistCodecs renders the CODECS attribute for one variant from the
+// configured encoder profile and level, so a High or Baseline stream is not
+// advertised as Main 3.1. With "auto" the level is derived from the variant's
+// resolution and frame rate, which is what hardware encoders pick.
+func (t *Transcoder) masterPlaylistCodecs(variant HLSVariant) string {
 	profile := strings.ToLower(strings.TrimSpace(t.sharedH264Profile))
 	profileHex := h264ProfileHexMain
 	switch profile {
@@ -299,12 +300,87 @@ func (t *Transcoder) masterPlaylistCodecs() string {
 	case h264ProfileHigh:
 		profileHex = h264ProfileHexHigh
 	}
-	levelHex := "1f"
-	if level, ok := parseSharedH264LevelHex(t.sharedH264Level); ok {
-		levelHex = level
+	levelHex, ok := parseSharedH264LevelHex(t.sharedH264Level)
+	if !ok {
+		levelHex = estimatedH264LevelHex(variant.videoSize.Width, variant.videoSize.Height, variant.framerate)
+		if levelHex == "" {
+			// A passthrough variant has no configured size or frame rate; the
+			// source is at least as large as the biggest transcode variant.
+			levelHex = t.largestVariantLevelHex()
+		}
 	}
 
 	return "avc1." + profileHex + "00" + levelHex + ",mp4a.40.2"
+}
+
+// largestVariantLevelHex returns the highest level required by any variant with
+// a known size and frame rate.
+func (t *Transcoder) largestVariantLevelHex() string {
+	best := "1f"
+	bestRank := -1
+	for _, variant := range t.variants {
+		hex := estimatedH264LevelHex(variant.videoSize.Width, variant.videoSize.Height, variant.framerate)
+		if hex == "" {
+			continue
+		}
+		if rank := levelHexRank(hex); rank > bestRank {
+			best, bestRank = hex, rank
+		}
+	}
+
+	return best
+}
+
+// levelHexRank orders the level hex strings produced by estimatedH264LevelHex.
+func levelHexRank(hex string) int {
+	switch hex {
+	case "28":
+		return 40
+	case "29":
+		return 41
+	case "2a":
+		return 42
+	case "32":
+		return 50
+	case "33":
+		return 51
+	case "34":
+		return 52
+	default:
+		return 0
+	}
+}
+
+// estimatedH264LevelHex picks the smallest H.264 level that can carry the given
+// resolution and frame rate, using the level's macroblock limits.
+func estimatedH264LevelHex(width, height, fps int) string {
+	if width <= 0 || height <= 0 || fps <= 0 {
+		return ""
+	}
+	mbWidth := (width + 15) / 16
+	mbHeight := (height + 15) / 16
+	mbPerFrame := mbWidth * mbHeight
+	mbPerSecond := mbPerFrame * fps
+	type levelLimit struct {
+		levelHex      string
+		maxMBPerSec   int
+		maxMBPerFrame int
+	}
+	limits := []levelLimit{
+		{"28", 245760, 8192},   // 4.0
+		{"29", 245760, 8192},   // 4.1
+		{"2a", 522240, 8704},   // 4.2
+		{"32", 589824, 22080},  // 5.0
+		{"33", 983040, 36864},  // 5.1
+		{"34", 2073600, 36864}, // 5.2
+	}
+	for _, limit := range limits {
+		if mbPerSecond <= limit.maxMBPerSec && mbPerFrame <= limit.maxMBPerFrame {
+			return limit.levelHex
+		}
+	}
+
+	return "34"
 }
 
 // parseSharedH264LevelHex converts a configured H.264 level ("4.0", "5.1",
