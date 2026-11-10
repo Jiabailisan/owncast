@@ -27,6 +27,7 @@ const (
 	forwarderReadDeadline = 200 * time.Millisecond
 	defaultVariantFPS     = 30
 	audioFrameSamples     = 960 // 20 ms at 48 kHz
+	forwarderKindVideo    = "video"
 )
 
 // MediaLegStats is the health snapshot of one loopback media leg.
@@ -89,6 +90,12 @@ type forwarder struct {
 
 	lastSeq atomic.Uint32
 	lastTS  atomic.Uint32
+
+	// outSeq is assigned by the forwarder for every emitted video packet. It
+	// lets cached SPS/PPS be inserted before an IDR without breaking the
+	// viewer's RTP sequence space.
+	outSeq    uint16
+	outSeqSet bool
 
 	startedAt time.Time
 }
@@ -156,7 +163,7 @@ func (f *forwarder) handleRaw(raw []byte) {
 	if packet.PayloadType != f.expectedPT {
 		f.counters.ptMismatch.Add(1)
 	}
-	if f.kind == "video" {
+	if f.kind == forwarderKindVideo {
 		f.inspectH264(packet.Payload)
 		if packet.Marker {
 			f.counters.frames.Add(1)
@@ -194,6 +201,31 @@ func (f *forwarder) emit(packet *rtp.Packet) {
 		f.counters.rebases.Add(1)
 		log.Debugf("webrtc: %s forwarder rebased RTP stream", f.kind)
 	}
+	if f.kind == forwarderKindVideo {
+		// Copy legs can carry SPS/PPS only at the start of the source stream.
+		// Browsers joining later need parameter sets before every IDR, so
+		// insert the cached SPS/PPS ahead of each keyframe.
+		sps, pps := f.parameterSets()
+		payload := packet.Payload
+		hasParameterSet := len(payload) > 0 && payload[0]&0x1f == nalTypeSTAPA
+		isIDR := false
+		for _, nalType := range h264NALTypes(payload) {
+			if nalType == nalTypeIDR {
+				isIDR = true
+			}
+		}
+		if isIDR && !hasParameterSet && len(sps) > 0 && len(pps) > 0 {
+			sequence := f.nextOutSequence(packet.SequenceNumber)
+			parameterPacket := *packet
+			parameterPacket.Payload = buildSTAPA(sps, pps)
+			parameterPacket.SequenceNumber = sequence
+			parameterPacket.Marker = false
+			if err := f.track.WriteRTP(&parameterPacket); err != nil {
+				f.counters.writeErrors.Add(1)
+			}
+		}
+		packet.SequenceNumber = f.nextOutSequence(packet.SequenceNumber)
+	}
 	if err := f.track.WriteRTP(packet); err != nil {
 		f.counters.writeErrors.Add(1)
 
@@ -201,6 +233,31 @@ func (f *forwarder) emit(packet *rtp.Packet) {
 	}
 	f.lastSeq.Store(uint32(packet.SequenceNumber))
 	f.lastTS.Store(packet.Timestamp)
+}
+
+// nextOutSequence keeps the forwarded video RTP sequence contiguous even when
+// a parameter-set packet is inserted. initial is used for the first packet.
+func (f *forwarder) nextOutSequence(initial uint16) uint16 {
+	if !f.outSeqSet {
+		f.outSeq = initial
+		f.outSeqSet = true
+
+		return f.outSeq
+	}
+	f.outSeq++
+
+	return f.outSeq
+}
+
+func buildSTAPA(sps, pps []byte) []byte {
+	payload := make([]byte, 0, 1+2+len(sps)+2+len(pps))
+	payload = append(payload, 0x78)                              // STAP-A, nal_ref_idc=3 (parameter sets)
+	payload = append(payload, byte(len(sps)>>8), byte(len(sps))) //nolint:gosec // SPS/PPS are far shorter than 65535 bytes
+	payload = append(payload, sps...)
+	payload = append(payload, byte(len(pps)>>8), byte(len(pps))) //nolint:gosec // SPS/PPS are far shorter than 65535 bytes
+	payload = append(payload, pps...)
+
+	return payload
 }
 
 func (f *forwarder) markRestart() {
@@ -316,7 +373,7 @@ func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	videoDelta := rtpClockRate / uint32(fps) //nolint:gosec // fps is a small positive int
 	reorderWindow := time.Duration(cfg.RTPReorderBufferMs) * time.Millisecond
 
-	leg.videoForwarder = newForwarder("video", videoConn, tracks.video,
+	leg.videoForwarder = newForwarder(forwarderKindVideo, videoConn, tracks.video,
 		rtpClockRate, videoDelta, PayloadTypeVideo, reorderWindow)
 	leg.audioForwarder = newForwarder("audio", audioConn, tracks.audio,
 		opusClockRate, audioFrameSamples, PayloadTypeAudio, reorderWindow)
