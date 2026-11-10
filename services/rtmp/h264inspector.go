@@ -25,7 +25,7 @@ type h264SourceInspector struct {
 	changed       bool
 }
 
-const slicesForRTMPBFrameDecision = 30
+const slicesForRTMPBFrameDecision = 3
 
 func newH264SourceInspector() *h264SourceInspector {
 	return &h264SourceInspector{nalLengthSize: 4}
