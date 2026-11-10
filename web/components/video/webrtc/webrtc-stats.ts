@@ -241,6 +241,9 @@ interface WebRTCBytesSample {
   videoBytes: number;
   audioBytes: number;
   framesDecoded: number | null;
+  jitterBufferDelay: number;
+  jitterBufferEmitted: number;
+  processingDelay: number;
 }
 
 export function collectWebRTCStatsPanel(
@@ -326,7 +329,23 @@ export function collectWebRTCStatsPanel(
     if (delta >= 0 && delta <= 30) liveLatencySeconds = delta;
   }
   if (liveLatencySeconds === null && jitterBufferSeconds !== null) {
-    liveLatencySeconds = jitterBufferSeconds + processingSeconds + (candidateRtt || 0) / 2000;
+    // Report the most recent interval rather than the session average so the
+    // Stats row reacts as quickly as the other 1 Hz measurements.
+    let intervalJitterBuffer = jitterBufferSeconds;
+    let intervalProcessing = processingSeconds;
+    if (previous && jitterBufferEmitted > previous.jitterBufferEmitted) {
+      intervalJitterBuffer =
+        (jitterBufferDelay - previous.jitterBufferDelay) /
+        (jitterBufferEmitted - previous.jitterBufferEmitted);
+    }
+    if (previous && decodedFrames > previous.framesDecoded) {
+      intervalProcessing =
+        (processingDelay - previous.processingDelay) / (decodedFrames - previous.framesDecoded);
+    }
+    liveLatencySeconds =
+      Math.max(0, intervalJitterBuffer) +
+      Math.max(0, intervalProcessing) +
+      (candidateRtt || 0) / 2000;
   }
 
   const videoCodecId = video.codecId ? String(video.codecId) : '';
@@ -359,7 +378,15 @@ export function collectWebRTCStatsPanel(
       videoBytes,
       audioBytes,
     },
-    bytes: { timestamp, videoBytes, audioBytes, framesDecoded },
+    bytes: {
+      timestamp,
+      videoBytes,
+      audioBytes,
+      framesDecoded,
+      jitterBufferDelay,
+      jitterBufferEmitted,
+      processingDelay,
+    },
   };
 }
 
