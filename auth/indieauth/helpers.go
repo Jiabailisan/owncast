@@ -65,7 +65,7 @@ func createAuthRequest(authDestination, userID, displayName, accessToken, baseSe
 		DisplayName:        displayName,
 		CurrentAccessToken: accessToken,
 		Endpoint:           authEndpointURL,
-		ClientID:           baseServer,
+		ClientID:           clientID,
 		CodeVerifier:       codeVerifier,
 		CodeChallenge:      codeChallenge,
 		State:              state,
