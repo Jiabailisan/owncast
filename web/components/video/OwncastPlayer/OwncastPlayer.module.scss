@@ -19,12 +19,21 @@
     grid-row: 1;
   }
 
-  // video.js sizes its element to the container; make the tech fill it exactly
-  // and cover (never letterbox) so no sub-pixel seam shows at the edges.
+  // video.js sizes its element to the container. Overhang it by one pixel on
+  // every side and clip so the compositor cannot leave a one-pixel strip of the
+  // black container background along the right edge; the tech element covers
+  // the extra pixels instead of letterboxing them.
   .player {
     overflow: hidden;
 
-    :global(.video-js),
+    :global(.video-js) {
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      width: calc(100% + 2px);
+      height: calc(100% + 2px);
+    }
+
     :global(.vjs-tech) {
       width: 100%;
       height: 100%;
