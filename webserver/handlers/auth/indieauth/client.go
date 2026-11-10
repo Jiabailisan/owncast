@@ -88,6 +88,10 @@ func (h *Handler) HandleRedirect(w http.ResponseWriter, r *http.Request) {
 	request, response, err := h.indieAuth.HandleCallbackCode(code, state)
 	if err != nil {
 		log.Debugln(err)
+		// Log every failure branch: the page is generic, and without this the
+		// reason only existed in a debug-level line that production never emits.
+		log.Warnln("IndieAuth callback failed:", err, "state:", r.URL.Query().Get("state"))
+
 		msg := `Unable to complete authentication. <a href="/">Go back.</a><hr/>`
 		_ = webutils.WriteString(w, msg, http.StatusBadRequest)
 		return
