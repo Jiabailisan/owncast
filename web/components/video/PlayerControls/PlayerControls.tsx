@@ -91,9 +91,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   const [visible, setVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
   const [transportOpen, setTransportOpen] = useState(initialMenu === 'transport');
-  // The slider is always part of the bar. Every hover/popover variant left it
-  // expanded in some interaction order, so the state is gone entirely.
-  const volumeVisible = true;
 
   // The volume slider is part of the bar now, so it must not count as an open
   // menu: doing so kept the bar pinned visible forever.
@@ -267,10 +264,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
             {playing ? <PauseOutlined /> : <CaretRightOutlined />}
           </button>
 
-          <div
-            ref={volumeGroupRef}
-            className={classNames(styles.volumeGroup, { [styles.volumeVisible]: volumeVisible })}
-          >
+          <div ref={volumeGroupRef} className={styles.volumeGroup}>
             <button
               type="button"
               className={styles.iconButton}
@@ -280,15 +274,11 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
             >
               {muted || volume === 0 ? <MutedFilled /> : <SoundFilled />}
             </button>
-            {volumeVisible && (
-              <div
-                className={classNames(styles.volumePopover, {
-                  [styles.volumeVisible]: volumeVisible,
-                })}
-              >
+            {
+              <div className={styles.volumePopover}>
                 <VolumeSlider value={muted ? 0 : volume} onChange={callbacks.onVolumeChange} />
               </div>
-            )}
+            }
           </div>
 
           <button

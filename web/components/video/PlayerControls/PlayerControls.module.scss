@@ -135,11 +135,12 @@ $blur: var(--owncast-overlay-blur, 12px);
     width 0.18s,
     background-color 0.16s;
 
-  // The slider is always part of the bar, so this class only sets the layout.
-  // The highlight lives in its own rule below: sharing it here made the pill look
-  // permanently selected.
-  &.volumeVisible {
+  // Expansion is owned by CSS: the browser tracks hover and focus itself, so
+  // there is no React state that can fall out of sync with the pointer.
+  &:hover,
+  &:focus-within {
     width: 120px;
+    background: rgb(255 255 255 / 12%);
 
     .volumePopover {
       width: 78px;
