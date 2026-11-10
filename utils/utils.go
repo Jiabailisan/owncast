@@ -219,8 +219,11 @@ func GetCacheDurationSecondsForPath(filePath string) int {
 		// Thumbnails & preview gif re-generate during live
 		return 20
 	} else if fileExtension == ".js" || fileExtension == ".css" {
-		// Cache javascript & CSS
-		return 60 * 60 * 24 * defaultDaysCached
+		// The frontend bundle keeps stable file names across builds, so a long
+		// max-age pins an old stylesheet or script in every browser that has seen
+		// it, and a deploy never reaches those clients. Revalidate instead: the
+		// files are served with a validator, so the usual answer is a cheap 304.
+		return 0
 	} else if fileExtension == ".ts" || fileExtension == ".woff2" {
 		// Cache video segments as long as you want. They can't change.
 		// This matters most for local hosting of segments for recordings
