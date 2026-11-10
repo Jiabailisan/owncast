@@ -137,8 +137,11 @@ $blur: var(--owncast-overlay-blur, 12px);
 
   // Expansion is owned by CSS: the browser tracks hover and focus itself, so
   // there is no React state that can fall out of sync with the pointer.
+  // Pointer hover, or keyboard focus only. Plain :focus-within also matched the
+  // focus a mouse click leaves on the button, which pinned the pill open until
+  // something else took focus (the reported "stuck like a tab selection").
   &:hover,
-  &:focus-within {
+  &:has(:focus-visible) {
     width: 120px;
     background: rgb(255 255 255 / 12%);
 
