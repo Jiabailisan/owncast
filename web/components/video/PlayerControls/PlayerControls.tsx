@@ -136,14 +136,26 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
     const onActivity = () => {
       if (!statsOpen) reveal();
     };
-    // Keyboard activity anywhere still reveals the controls (shortcuts are
-    // global), but pointer movement must not: the overlay handles its own
-    // pointer events, and a window listener re-showed the bar from anywhere on
-    // the page.
-    const events: Array<[string, EventListener]> = [['keydown', onActivity]];
-    events.forEach(([name, handler]) => window.addEventListener(name, handler, { passive: true }));
+    // Keyboard activity anywhere reveals the controls (shortcuts are global).
+    // Pointer movement only counts over the player itself: the overlay root has
+    // pointer-events disabled, so its own handlers never fire, and a window
+    // listener re-showed the bar from anywhere on the page. Listening on the
+    // player wrapper gives exactly the player area.
+    const player = rootRef.current?.parentElement ?? null;
+    const onPointerLeave = () => {
+      // Leaving the player collapses the volume popover: fading the bar out does
+      // not fire mouseleave on the volume group, so the slider used to stay open.
+      setVolumeVisible(false);
+    };
+    player?.addEventListener('pointermove', onActivity, { passive: true });
+    player?.addEventListener('pointerdown', onActivity, { passive: true });
+    player?.addEventListener('pointerleave', onPointerLeave, { passive: true });
+    window.addEventListener('keydown', onActivity, { passive: true });
     return () => {
-      events.forEach(([name, handler]) => window.removeEventListener(name, handler));
+      player?.removeEventListener('pointermove', onActivity);
+      player?.removeEventListener('pointerdown', onActivity);
+      player?.removeEventListener('pointerleave', onPointerLeave);
+      window.removeEventListener('keydown', onActivity);
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
   }, [reveal, statsOpen]);
