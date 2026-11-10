@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -68,7 +70,7 @@ func (h *Handler) StartAuthFlow(u models.User, w http.ResponseWriter, r *http.Re
 
 	accessToken := r.URL.Query().Get("accessToken")
 
-	redirectURL, err := h.indieAuth.StartAuthFlow(authRequest.AuthHost, u.ID, accessToken, u.DisplayName)
+	redirectURL, err := h.indieAuth.StartAuthFlow(authRequest.AuthHost, u.ID, accessToken, u.DisplayName, requestOrigin(r))
 	if err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
@@ -78,6 +80,35 @@ func (h *Handler) StartAuthFlow(u models.User, w http.ResponseWriter, r *http.Re
 		Redirect: redirectURL.String(),
 	}
 	webutils.WriteResponse(w, redirectResponse)
+}
+
+// requestOrigin returns the public origin the viewer is using, so the IndieAuth
+// client_id matches the hostname in the address bar. An empty result means the
+// caller should fall back to the configured server URL.
+func requestOrigin(r *http.Request) string {
+	host := r.Host
+	if host == "" {
+		return ""
+	}
+
+	// A bare IP or localhost is not a domain an IndieAuth client can be
+	// registered for, so let the configured server URL handle it.
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	if hostname == "localhost" || net.ParseIP(hostname) != nil {
+		return ""
+	}
+
+	scheme := "https"
+	if proto := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); proto == "http" || proto == "https" {
+		scheme = proto
+	} else if r.TLS == nil && r.URL.Scheme == "http" {
+		scheme = "http"
+	}
+
+	return scheme + "://" + host
 }
 
 // HandleRedirect will handle the redirect from an IndieAuth server to

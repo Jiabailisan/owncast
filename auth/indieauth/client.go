@@ -16,7 +16,7 @@ import (
 )
 
 // StartAuthFlow will begin the IndieAuth flow by generating an auth request.
-func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName string) (*url.URL, error) {
+func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName, requestOrigin string) (*url.URL, error) {
 	// Limit the number of pending requests
 	if len(s.pendingAuthRequests) >= maxPendingRequests {
 		return nil, errors.New("Please try again later. Too many pending requests.")
@@ -38,7 +38,13 @@ func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName strin
 		return nil, errors.New("only servers secured with https are supported")
 	}
 
-	serverURL := s.configRepository.GetServerURL()
+	// Prefer the origin the viewer is browsing: an instance reachable under
+	// several hostnames must authenticate on each of them, because the IndieAuth
+	// client_id is that origin. Fall back to the configured server URL.
+	serverURL := strings.TrimSpace(requestOrigin)
+	if serverURL == "" {
+		serverURL = s.configRepository.GetServerURL()
+	}
 	if serverURL == "" {
 		return nil, errors.New("Owncast server URL must be set when using auth")
 	}
