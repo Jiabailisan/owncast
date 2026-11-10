@@ -184,8 +184,15 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	if copyIntent && (session.Protocol() == ingest.ProtocolSRT ||
 		session.Protocol() == ingest.ProtocolRTMP) {
 		prefetchBytes := 1 << 20
+		if session.Protocol() == ingest.ProtocolRTMP {
+			// RTMP publishers can take a few seconds to deliver enough slices
+			// for the B-frame verdict; read further before giving up.
+			prefetchBytes = 8 << 20
+		}
 		prefetch := newPrefetchReader(mediaReader)
-		prefetch.Prefetch(prefetchBytes)
+		prefetch.PrefetchUntil(prefetchBytes, func() bool {
+			return sourceInfoReady(session.Broadcaster())
+		})
 		mediaReader = prefetch
 	}
 

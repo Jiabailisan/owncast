@@ -89,6 +89,18 @@ func variantRequestsVideoCopy(variant models.StreamOutputVariant) bool {
 	return false
 }
 
+// sourceInfoReady reports whether the protocol inspector has published every
+// property the copy eligibility rules need.
+func sourceInfoReady(broadcaster *models.Broadcaster) bool {
+	if broadcaster == nil {
+		return false
+	}
+	details := broadcaster.StreamDetails
+
+	return details.HasBFrames != nil && details.VideoProfile != "" &&
+		details.VideoLevel != "" && details.Width > 0 && details.Height > 0
+}
+
 func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 	for _, variant := range variants {
 		if !variant.WebRTCEnabled() {
@@ -122,12 +134,8 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 	deadline := time.Now().Add(webRTCSourceWaitTimeout)
 	for {
 		broadcaster := session.Broadcaster()
-		if broadcaster != nil {
-			details := broadcaster.StreamDetails
-			if details.HasBFrames != nil && details.VideoProfile != "" &&
-				details.VideoLevel != "" && details.Width > 0 && details.Height > 0 {
-				return broadcaster
-			}
+		if sourceInfoReady(broadcaster) {
+			return broadcaster
 		}
 		if time.Now().After(deadline) {
 			return broadcaster

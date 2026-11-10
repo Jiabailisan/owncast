@@ -33,6 +33,12 @@ func newPrefetchReader(src io.Reader) *prefetchReader {
 // doing so could return bytes that were read after a chunk the prefetch
 // goroutine has not appended yet, reordering the FLV/MPEG-TS stream.
 func (p *prefetchReader) Prefetch(maxBytes int) {
+	p.PrefetchUntil(maxBytes, nil)
+}
+
+// PrefetchUntil is Prefetch with a stop predicate so a copy decision can keep
+// reading only until the protocol inspector has enough source metadata.
+func (p *prefetchReader) PrefetchUntil(maxBytes int, stop func() bool) {
 	p.mu.Lock()
 	p.prefetching = true
 	p.mu.Unlock()
@@ -57,7 +63,7 @@ func (p *prefetchReader) Prefetch(maxBytes int) {
 				buffered := len(p.buf)
 				p.cond.Broadcast()
 				p.mu.Unlock()
-				if buffered >= maxBytes {
+				if buffered >= maxBytes || (stop != nil && stop()) {
 					return
 				}
 			}
