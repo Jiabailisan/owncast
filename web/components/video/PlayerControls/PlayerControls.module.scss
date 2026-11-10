@@ -158,9 +158,11 @@ $blur: var(--owncast-overlay-blur, 12px);
   }
 
   // Single continuous pill: the speaker button and slider share one highlight,
-  // exactly like the other controls in the bar.
+  // exactly like the other controls in the bar. Only keyboard focus counts:
+  // :focus-within also matched the focus a mouse click leaves behind, which kept
+  // the icon looking selected after the pill had collapsed.
   &:hover,
-  &:focus-within {
+  &:has(:focus-visible) {
     background: rgb(255 255 255 / 12%);
   }
 
