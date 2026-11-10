@@ -184,9 +184,6 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	if copyIntent && (session.Protocol() == ingest.ProtocolSRT ||
 		session.Protocol() == ingest.ProtocolRTMP) {
 		prefetchBytes := 1 << 20
-		if session.Protocol() == ingest.ProtocolRTMP {
-			prefetchBytes = 2 << 20
-		}
 		prefetch := newPrefetchReader(mediaReader)
 		prefetch.Prefetch(prefetchBytes)
 		mediaReader = prefetch

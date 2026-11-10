@@ -16,7 +16,7 @@ import (
 // before planning WebRTC legs. The SRT MPEG-TS inspector and the RTMP FLV/H.264
 // inspector usually publish within a second or two; without metadata any copy
 // intent falls back to transcode, which is the safe default.
-const webRTCSourceWaitTimeout = 4000 * time.Millisecond
+const webRTCSourceWaitTimeout = 8000 * time.Millisecond
 
 // WebRTCMediaLeg is the loopback RTP leg contract exposed by the WebRTC
 // delivery service. One leg carries one video and one audio RTP stream.
