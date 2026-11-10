@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 
 	"github.com/nareix/joy5/av"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/owncast/owncast/models"
 )
 
@@ -395,4 +397,5 @@ func (s *session) applySourceInspection(inspector *h264SourceInspector) {
 		broadcaster.StreamDetails.HasBFrames = hasBFrames
 	}
 	s.SetBroadcaster(broadcaster)
+	log.Infof("rtmp: source inspection profile=%q level=%q size=%dx%d bframes=%v", broadcaster.StreamDetails.VideoProfile, broadcaster.StreamDetails.VideoLevel, broadcaster.StreamDetails.Width, broadcaster.StreamDetails.Height, broadcaster.StreamDetails.HasBFrames)
 }
