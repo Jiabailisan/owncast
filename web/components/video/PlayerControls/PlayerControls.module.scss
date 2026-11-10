@@ -135,15 +135,11 @@ $blur: var(--owncast-overlay-blur, 12px);
     width 0.18s,
     background-color 0.16s;
 
-  // Single continuous pill: the speaker button and slider share one background.
-  &:hover,
-  &:focus-within,
-  // Always expanded: the slider lives in the bar, so this class only sets the
-  // width. The highlight is reserved for hover, otherwise the pill looked
+  // The slider is always part of the bar, so this class only sets the layout.
+  // The highlight lives in its own rule below: sharing it here made the pill look
   // permanently selected.
   &.volumeVisible {
     width: 120px;
-    background: none;
 
     .volumePopover {
       width: 78px;
@@ -155,6 +151,13 @@ $blur: var(--owncast-overlay-blur, 12px);
     .iconButton {
       background: transparent;
     }
+  }
+
+  // Single continuous pill: the speaker button and slider share one highlight,
+  // exactly like the other controls in the bar.
+  &:hover,
+  &:focus-within {
+    background: rgb(255 255 255 / 12%);
   }
 
   .iconButton {
