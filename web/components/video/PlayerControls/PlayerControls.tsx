@@ -188,7 +188,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         }}
         onFocusCapture={reveal}
       >
-        {loading && !playing && <div className={styles.loadingSpinner} aria-label="Loading" />}
+        {loading && <div className={styles.loadingSpinner} aria-label="Loading" />}
         {!playing && !loading && (
           <button
             type="button"

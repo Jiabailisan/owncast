@@ -97,6 +97,8 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const [aspectRatio, setAspectRatio] = useState('16 / 9');
   const [fullscreen, setFullscreen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  // video.js buffering state, surfaced through the custom overlay spinner.
+  const [buffering, setBuffering] = useState(false);
   const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(false));
   const [sparklines, setSparklines] = useState<SparklineState>({ video: [], audio: [] });
   // Rolling HLS metering state for the stats effect: decoded-frame deltas,
@@ -615,6 +617,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       ping.stop();
     });
 
+    player.on('waiting', () => setBuffering(true));
+    player.on('canplay', () => setBuffering(false));
+    player.on('seeked', () => setBuffering(false));
     player.on('playing', () => {
       ping.start();
       setVideoPlaying(true);
@@ -729,6 +734,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
               behindLiveSeconds={behindLiveSeconds}
               stats={stats}
               sparklines={sparklines}
+              loading={buffering}
               statsOpen={statsOpen}
               fullscreen={fullscreen}
               callbacks={{
