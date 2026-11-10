@@ -254,7 +254,7 @@ func (a *Admin) SetCustomPlayerPath(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	path, ok := configValue.Value.(string)
+	path, ok := valueAsStringOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "custom player path must be a string")
 		return
@@ -283,7 +283,7 @@ func (a *Admin) SetCustomFrontendDir(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	directory, ok := configValue.Value.(string)
+	directory, ok := valueAsStringOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "custom frontend directory must be a string")
 		return

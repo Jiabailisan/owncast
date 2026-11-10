@@ -38,7 +38,7 @@ func (a *Admin) SetTags(w http.ResponseWriter, r *http.Request) {
 
 	tagStrings := make([]string, 0)
 	for _, tag := range configValues {
-		tagStrings = append(tagStrings, strings.TrimLeft(tag.Value.(string), "#"))
+		tagStrings = append(tagStrings, strings.TrimLeft(valueAsString(tag.Value), "#"))
 	}
 
 	configRepository := a.configRepository
@@ -67,7 +67,7 @@ func (a *Admin) SetStreamTitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	value := configValue.Value.(string)
+	value := valueAsString(configValue.Value)
 	configRepository := a.configRepository
 
 	if err := configRepository.SetStreamTitle(value); err != nil {
@@ -110,7 +110,7 @@ func (a *Admin) SetServerName(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetServerName(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetServerName(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -136,7 +136,7 @@ func (a *Admin) SetServerSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetServerSummary(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetServerSummary(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -162,7 +162,7 @@ func (a *Admin) SetCustomOfflineMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetCustomOfflineMessage(strings.TrimSpace(configValue.Value.(string))); err != nil {
+	if err := configRepository.SetCustomOfflineMessage(strings.TrimSpace(valueAsString(configValue.Value))); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -182,7 +182,7 @@ func (a *Admin) SetServerWelcomeMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetServerWelcomeMessage(strings.TrimSpace(configValue.Value.(string))); err != nil {
+	if err := configRepository.SetServerWelcomeMessage(strings.TrimSpace(valueAsString(configValue.Value))); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -202,7 +202,7 @@ func (a *Admin) SetExtraPageContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetExtraPageBodyContent(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetExtraPageBodyContent(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -222,7 +222,7 @@ func (a *Admin) SetAdminPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetAdminPassword(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetAdminPassword(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -241,7 +241,7 @@ func (a *Admin) SetLogo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	value, ok := configValue.Value.(string)
+	value, ok := valueAsStringOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "unable to find image data")
 		return
@@ -293,7 +293,7 @@ func (a *Admin) SetFavicon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	value, ok := configValue.Value.(string)
+	value, ok := valueAsStringOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "unable to find image data")
 		return
@@ -378,7 +378,7 @@ func (a *Admin) SetNSFW(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetNSFW(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetNSFW(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -397,7 +397,7 @@ func (a *Admin) SetAutoplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	value, ok := configValue.Value.(string)
+	value, ok := valueAsStringOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "invalid autoplay value")
 		return
@@ -428,14 +428,14 @@ func (a *Admin) SetFfmpegPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := configValue.Value.(string)
+	path := valueAsString(configValue.Value)
 	if err := utils.VerifyFFMpegPath(path); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetFfmpegPath(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetFfmpegPath(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -455,7 +455,7 @@ func (a *Admin) SetWebServerPort(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if port, ok := configValue.Value.(float64); ok {
+	if port, ok := valueAsFloat64OK(configValue.Value); ok {
 		if (port < 1) || (port > 65535) {
 			webutils.WriteSimpleResponse(w, false, "Port number must be between 1 and 65535")
 			return
@@ -484,7 +484,7 @@ func (a *Admin) SetWebServerIP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if input, ok := configValue.Value.(string); ok {
+	if input, ok := valueAsStringOK(configValue.Value); ok {
 		if ip := net.ParseIP(input); ip != nil {
 			if err := configRepository.SetHTTPListenAddress(ip.String()); err != nil {
 				webutils.WriteSimpleResponse(w, false, err.Error())
@@ -513,7 +513,7 @@ func (a *Admin) SetRTMPServerBindAddress(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetRTMPBindAddress(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetRTMPBindAddress(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -533,7 +533,7 @@ func (a *Admin) SetRTMPServerPort(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetRTMPPortNumber(configValue.Value.(float64)); err != nil {
+	if err := configRepository.SetRTMPPortNumber(valueAsFloat64(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -552,7 +552,7 @@ func (a *Admin) SetServerURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawValue, ok := configValue.Value.(string)
+	rawValue, ok := valueAsStringOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "could not read server url")
 		return
@@ -599,7 +599,7 @@ func (a *Admin) SetSocketHostOverride(w http.ResponseWriter, r *http.Request) {
 
 	configRepository := a.configRepository
 
-	if err := configRepository.SetWebsocketOverrideHost(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetWebsocketOverrideHost(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -620,7 +620,7 @@ func (a *Admin) SetDirectoryEnabled(w http.ResponseWriter, r *http.Request) {
 
 	configRepository := a.configRepository
 
-	if err := configRepository.SetDirectoryEnabled(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetDirectoryEnabled(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -640,7 +640,7 @@ func (a *Admin) SetStreamLatencyLevel(w http.ResponseWriter, r *http.Request) {
 
 	configRepository := a.configRepository
 
-	if err := configRepository.SetStreamLatencyLevel(configValue.Value.(float64)); err != nil {
+	if err := configRepository.SetStreamLatencyLevel(valueAsFloat64(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error setting stream latency "+err.Error())
 		return
 	}
@@ -766,7 +766,7 @@ func (a *Admin) SetChatDisabled(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatDisabled(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetChatDisabled(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -787,7 +787,7 @@ func (a *Admin) SetVideoCodec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetVideoCodec(configValue.Value.(string)); err != nil {
+	if err := configRepository.SetVideoCodec(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, "unable to update codec")
 		return
 	}
@@ -826,7 +826,7 @@ func (a *Admin) SetCustomStyles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetCustomStyles(customStyles.Value.(string)); err != nil {
+	if err := configRepository.SetCustomStyles(valueAsString(customStyles.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -843,7 +843,7 @@ func (a *Admin) SetCustomJavascript(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetCustomJavascript(customJavascript.Value.(string)); err != nil {
+	if err := configRepository.SetCustomJavascript(valueAsString(customJavascript.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -862,7 +862,7 @@ func (a *Admin) SetForbiddenUsernameList(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetForbiddenUsernameList(*request.Value); err != nil {
+	if err := configRepository.SetForbiddenUsernameList(derefStringSlice(request.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -881,7 +881,7 @@ func (a *Admin) SetSuggestedUsernameList(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetSuggestedUsernamesList(*request.Value); err != nil {
+	if err := configRepository.SetSuggestedUsernamesList(derefStringSlice(request.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -902,7 +902,7 @@ func (a *Admin) SetChatJoinMessagesEnabled(w http.ResponseWriter, r *http.Reques
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatJoinMessagesEnabled(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetChatJoinMessagesEnabled(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -923,7 +923,7 @@ func (a *Admin) SetHideViewerCount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetHideViewerCount(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetHideViewerCount(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -944,7 +944,7 @@ func (a *Admin) SetDisableSearchIndexing(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetDisableSearchIndexing(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetDisableSearchIndexing(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -960,7 +960,7 @@ func (a *Admin) SetVideoServingEndpoint(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	value, ok := endpoint.Value.(string)
+	value, ok := valueAsStringOK(endpoint.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "unable to update custom video serving endpoint")
 		return
@@ -987,7 +987,7 @@ func (a *Admin) SetChatSpamProtectionEnabled(w http.ResponseWriter, r *http.Requ
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatSpamProtectionEnabled(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetChatSpamProtectionEnabled(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -1006,7 +1006,7 @@ func (a *Admin) SetChatSlurFilterEnabled(w http.ResponseWriter, r *http.Request)
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatSlurFilterEnabled(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetChatSlurFilterEnabled(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -1025,7 +1025,7 @@ func (a *Admin) SetChatRequireAuthentication(w http.ResponseWriter, r *http.Requ
 	}
 
 	configRepository := a.configRepository
-	if err := configRepository.SetChatRequireAuthentication(configValue.Value.(bool)); err != nil {
+	if err := configRepository.SetChatRequireAuthentication(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -1064,6 +1064,9 @@ func getValuesFromRequest(w http.ResponseWriter, r *http.Request) ([]ConfigValue
 	}
 
 	object := reflect.ValueOf(configValue.Value)
+	if object.Kind() != reflect.Slice && object.Kind() != reflect.Array {
+		return values, false
+	}
 
 	for i := 0; i < object.Len(); i++ {
 		values = append(values, ConfigValue{Value: object.Index(i).Interface()})

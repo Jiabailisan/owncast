@@ -47,6 +47,10 @@ func (a *Admin) UpdateMessageVisibility(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if request.IdArray == nil || request.Visible == nil {
+		webutils.BadRequestHandler(w, errors.New("message ids and visibility are required"))
+		return
+	}
 	if err := a.chat.SetMessagesVisibility(*request.IdArray, *request.Visible, middleware.UserFromRequest(r)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
@@ -67,7 +71,7 @@ func (a *Admin) BanIPAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.authRepository.BanIPAddress(configValue.Value.(string), "manually added"); err != nil {
+	if err := a.authRepository.BanIPAddress(valueAsString(configValue.Value), "manually added"); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error saving IP address ban")
 		return
 	}
@@ -87,7 +91,7 @@ func (a *Admin) UnBanIPAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.authRepository.RemoveIPAddressBan(configValue.Value.(string)); err != nil {
+	if err := a.authRepository.RemoveIPAddressBan(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error removing IP address ban")
 		return
 	}
@@ -217,6 +221,10 @@ func (a *Admin) UpdateUserModerator(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the user object with new moderation access.
+	if req.UserId == nil || req.IsModerator == nil {
+		webutils.BadRequestHandler(w, errors.New("user id and moderator flag are required"))
+		return
+	}
 	if err := a.userRepository.SetModerator(*req.UserId, *req.IsModerator); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
@@ -317,7 +325,7 @@ func (a *Admin) SendIntegrationChatMessage(integration models.ExternalAPIUser, w
 		return
 	}
 	event.SetDefaults()
-	event.RenderBody()
+	event.RenderAndSanitizeMessageBody()
 	event.Type = "CHAT"
 
 	if event.Empty() {
@@ -374,7 +382,7 @@ func (a *Admin) SetEnableEstablishedChatUserMode(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(configValue.Value.(bool)); err != nil {
+	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}

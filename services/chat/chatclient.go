@@ -258,6 +258,6 @@ func (c *Client) sendAction(message string) {
 		},
 	}
 	clientMessage.SetDefaults()
-	clientMessage.RenderBody()
+	clientMessage.RenderAndSanitizeMessageBody()
 	c.sendPayload(clientMessage.GetBroadcastPayload())
 }

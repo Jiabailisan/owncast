@@ -13,6 +13,13 @@ import (
 	webutils "github.com/owncast/owncast/webserver/utils"
 )
 
+// allowedWebhookScheme keeps webhook delivery to plain HTTP(S): a stored URL is
+// requested server-side, so other schemes are never useful and only widen the
+// attack surface.
+func allowedWebhookScheme(scheme string) bool {
+	return scheme == schemeHTTP || scheme == schemeHTTPS
+}
+
 type createWebhookRequest struct {
 	URL           string             `json:"url"`
 	Events        []models.EventType `json:"events"`
@@ -35,7 +42,7 @@ func (a *Admin) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parsedURL, urlErr := url.Parse(strings.TrimSpace(request.URL))
-	if urlErr != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+	if urlErr != nil || parsedURL.Host == "" || !allowedWebhookScheme(parsedURL.Scheme) {
 		webutils.BadRequestHandler(w, errors.New("webhook url must be an absolute http(s) url"))
 		return
 	}
@@ -81,6 +88,10 @@ func (a *Admin) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if request.Id == nil {
+		webutils.BadRequestHandler(w, errors.New("webhook id is required"))
+		return
+	}
 	if err := a.webhookRepository.DeleteWebhook(*request.Id); err != nil {
 		webutils.InternalErrorHandler(w, err)
 		return

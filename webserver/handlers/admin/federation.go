@@ -22,7 +22,7 @@ func (a *Admin) SendFederatedMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	message, ok := configValue.Value.(string)
+	message, ok := valueAsStringOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "unable to send message")
 		return
@@ -47,7 +47,7 @@ func (a *Admin) SetFederationEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.configRepository.SetFederationEnabled(configValue.Value.(bool)); err != nil {
+	if err := a.configRepository.SetFederationEnabled(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -65,7 +65,7 @@ func (a *Admin) SetFederationActivityPrivate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := a.configRepository.SetFederationIsPrivate(configValue.Value.(bool)); err != nil {
+	if err := a.configRepository.SetFederationIsPrivate(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -90,7 +90,7 @@ func (a *Admin) SetFederationShowEngagement(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := a.configRepository.SetFederationShowEngagement(configValue.Value.(bool)); err != nil {
+	if err := a.configRepository.SetFederationShowEngagement(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -108,7 +108,7 @@ func (a *Admin) SetFederationEnableQuotes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	enabled, ok := configValue.Value.(bool)
+	enabled, ok := valueAsBoolOK(configValue.Value)
 	if !ok {
 		webutils.WriteSimpleResponse(w, false, "invalid value for federation enable quotes")
 		return
@@ -132,7 +132,7 @@ func (a *Admin) SetFederationHideFollowersTab(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := a.configRepository.SetFederationHideFollowersTab(configValue.Value.(bool)); err != nil {
+	if err := a.configRepository.SetFederationHideFollowersTab(valueAsBool(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -150,7 +150,7 @@ func (a *Admin) SetFederationUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.configRepository.SetFederationUsername(configValue.Value.(string)); err != nil {
+	if err := a.configRepository.SetFederationUsername(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -169,7 +169,7 @@ func (a *Admin) SetFederationGoLiveMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := a.configRepository.SetFederationGoLiveMessage(configValue.Value.(string)); err != nil {
+	if err := a.configRepository.SetFederationGoLiveMessage(valueAsString(configValue.Value)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -191,7 +191,7 @@ func (a *Admin) SetFederationBlockDomains(w http.ResponseWriter, r *http.Request
 
 	domainStrings := make([]string, 0)
 	for _, domain := range configValues {
-		domainStrings = append(domainStrings, domain.Value.(string))
+		domainStrings = append(domainStrings, valueAsString(domain.Value))
 	}
 
 	if err := a.configRepository.SetBlockedFederatedDomains(domainStrings); err != nil {

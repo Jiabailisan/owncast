@@ -140,7 +140,7 @@ func (s *Service) SendSystemMessage(text string, ephemeral bool) error {
 		ServerName: s.configRepository.GetServerName(),
 	}
 	message.SetDefaults()
-	message.RenderBody()
+	message.RenderAndSanitizeMessageBody()
 
 	if err := s.BroadcastEvent(&message); err != nil {
 		log.Errorln("error sending system message", err)
@@ -233,7 +233,7 @@ func (s *Service) SendSystemAction(text string, ephemeral bool) error {
 	}
 
 	message.SetDefaults()
-	message.RenderBody()
+	message.RenderAndSanitizeMessageBody()
 
 	if err := s.BroadcastEvent(&message); err != nil {
 		log.Errorln("error sending system chat action")

@@ -566,7 +566,7 @@ func (s *Service) sendSystemMessageToClient(c *Client, message string) {
 		ServerName: s.configRepository.GetServerName(),
 	}
 	clientMessage.SetDefaults()
-	clientMessage.RenderBody()
+	clientMessage.RenderAndSanitizeMessageBody()
 	s.Send(clientMessage.GetBroadcastPayload(), c)
 }
 
@@ -580,6 +580,6 @@ func (s *Service) sendActionToClient(c *Client, message string) {
 		},
 	}
 	clientMessage.SetDefaults()
-	clientMessage.RenderBody()
+	clientMessage.RenderAndSanitizeMessageBody()
 	s.Send(clientMessage.GetBroadcastPayload(), c)
 }
