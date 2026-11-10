@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -378,9 +379,30 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 	reservationActive = false
 	owned = false
 	sess.startRTCPDrains()
+	rewriteAnswerH264Level(peer.answer, s.Config())
 	log.Infof("webrtc: viewer session %s started for variant %d from %s", sess.id, variantIndex, sess.ip)
 
 	return sess, peer.answer, nil
+}
+
+var answerH264LevelPattern = regexp.MustCompile("profile-level-id=([0-9a-fA-F]{4})[0-9a-fA-F]{2}")
+
+// rewriteAnswerH264Level makes the answer advertise the level of the encoded
+// shared stream instead of echoing the browser offered (often lower) level.
+// Browsers use the negotiated level when choosing a hardware decoder; a 1440p60
+// stream advertised as level 3.1 can fall back to software decoding.
+func rewriteAnswerH264Level(answer *webrtc.SessionDescription, cfg models.WebRTCConfig) {
+	if answer == nil {
+		return
+	}
+	levelHex := h264LevelHex(cfg.H264Level, cfg.H264Profile)
+	answer.SDP = answerH264LevelPattern.ReplaceAllStringFunc(answer.SDP, func(match string) string {
+		index := strings.Index(match, "profile-level-id=")
+		if index < 0 {
+			return match
+		}
+		return match[:index+len("profile-level-id=")+4] + levelHex
+	})
 }
 
 // negotiate creates the PeerConnection, adds the variant tracks and performs
