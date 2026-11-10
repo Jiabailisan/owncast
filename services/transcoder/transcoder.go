@@ -37,6 +37,9 @@ func (e *execInfo) String() string {
 type Transcoder struct {
 	codec Codec
 
+	// sharedH264Profile is the profile used by the shared HLS/WebRTC encoder.
+	sharedH264Profile string
+
 	// cfg supplies runtime values (the HLS listener port discovered at
 	// startup, the debug flag, the log directory) needed when building
 	// the ffmpeg command line.
@@ -115,6 +118,11 @@ type HLSVariant struct {
 	isVideoPassthrough bool // Override all settings and just copy the video stream
 
 	isAudioPassthrough bool // Override all settings and just copy the audio stream
+
+	// h264Profile is the shared HLS/WebRTC encoder profile (baseline, main or
+	// high), copied from the WebRTC h264Profile setting so the encoded SPS and
+	// the negotiated SDP profile agree.
+	h264Profile string
 }
 
 // VideoSize is the scaled size of the video output.
@@ -647,9 +655,34 @@ func (v *HLSVariant) getAudioQualityString() []string {
 }
 
 // AddVariant adds a new HLS variant to include in the output.
+// SetSharedH264Profile sets the encoder profile used by shared HLS/WebRTC
+// variants. Callers that know the WebRTC config invoke it after construction.
+func (t *Transcoder) SetSharedH264Profile(profile string) {
+	t.sharedH264Profile = normalizeSharedH264Profile(profile)
+	for index := range t.variants {
+		t.variants[index].h264Profile = t.sharedH264Profile
+	}
+}
+
 func (t *Transcoder) AddVariant(variant HLSVariant) {
 	variant.index = len(t.variants)
+	if variant.h264Profile == "" {
+		variant.h264Profile = t.sharedH264Profile
+	}
 	t.variants = append(t.variants, variant)
+}
+
+// normalizeSharedH264Profile maps the browser-facing WebRTC profile labels to
+// the encoder profile names used by libx264/NVENC.
+func normalizeSharedH264Profile(profile string) string {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "high":
+		return "high"
+	case "baseline", "constrained-baseline":
+		return "baseline"
+	default:
+		return "main"
+	}
 }
 
 // SetInput sets the input stream on the filesystem.

@@ -608,8 +608,16 @@ func (c *Libx264Codec) SharedVariantFlags(v *HLSVariant) []string {
 		fmt.Sprintf("-bufsize:v:%d", v.index), fmt.Sprintf("%dk", v.getBufferSize()),
 		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.getAllocatedVideoBitrate()),
 		fmt.Sprintf("-fps_mode:v:%d", v.index), "cfr",
-		fmt.Sprintf("-profile:v:%d", v.index), h264ProfileMain,
+		fmt.Sprintf("-profile:v:%d", v.index), sharedVariantH264Profile(v),
 	}
+}
+
+func sharedVariantH264Profile(v *HLSVariant) string {
+	if v != nil && v.h264Profile != "" {
+		return v.h264Profile
+	}
+
+	return h264ProfileMain
 }
 
 func (c *NvencCodec) SupportsSharedTranscode() bool { return true }
@@ -621,7 +629,7 @@ func (c *NvencCodec) SharedVariantFlags(v *HLSVariant) []string {
 		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.getAllocatedVideoBitrate()),
 		fmt.Sprintf("-bufsize:v:%d", v.index), fmt.Sprintf("%dk", v.getBufferSize()),
 		fmt.Sprintf("-fps_mode:v:%d", v.index), "cfr",
-		fmt.Sprintf("-profile:v:%d", v.index), h264ProfileMain,
+		fmt.Sprintf("-profile:v:%d", v.index), sharedVariantH264Profile(v),
 		fmt.Sprintf("-bf:v:%d", v.index), "0",
 	}
 }

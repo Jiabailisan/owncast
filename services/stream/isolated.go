@@ -29,6 +29,7 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	s.setIngestTee(tee)
 
 	hls := transcoder.NewTranscoder(s.cfg, s.configRepository)
+	hls.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 	hls.SetPurpose([]string{publicPipelineHLS})
 	hls.SetInputFormat(session.InputFormat())
 	hls.SetStdin(tee.AddBranch("hls", true, nil))
@@ -53,6 +54,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 
 	for attempt := 0; ; attempt++ {
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
+		tr.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 		tr.SetPurpose([]string{"webrtc"})
 		tr.SetRTPOnly(true)
 		tr.SetInputFormat(session.InputFormat())

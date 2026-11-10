@@ -114,6 +114,7 @@ func (s *Service) transitionToOfflineVideoStreamContent() {
 	log.Traceln("Firing transcoder with offline stream state")
 
 	offlineTranscoder := transcoder.NewTranscoder(s.cfg, s.configRepository)
+	offlineTranscoder.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 	offlineTranscoder.SetIdentifier("offline")
 	offlineTranscoder.SetLatencyLevel(models.GetLatencyLevel(4))
 	offlineTranscoder.SetIsEvent(true)
@@ -200,6 +201,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 		}
 
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
+		tr.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 		purpose := []string{publicPipelineHLS}
 		if len(rtpOutputs) > 0 {
 			purpose = append(purpose, "webrtc")
