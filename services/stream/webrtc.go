@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -12,11 +11,11 @@ import (
 	"github.com/owncast/owncast/services/webrtc"
 )
 
-// webRTCSourceWaitTimeout bounds how long the stream waits for source metadata
-// before planning WebRTC legs. The SRT MPEG-TS inspector and the RTMP FLV/H.264
-// inspector usually publish within a second or two; without metadata any copy
-// intent falls back to transcode, which is the safe default.
-const webRTCSourceWaitTimeout = 8000 * time.Millisecond
+// webRTCSourceWaitTimeout bounds how long the stream waits for SRT source
+// metadata before planning WebRTC legs. The MPEG-TS inspector usually publishes
+// within about a second; without metadata any copy intent falls back to
+// transcode, which is the safe default.
+const webRTCSourceWaitTimeout = 2500 * time.Millisecond
 
 // WebRTCMediaLeg is the loopback RTP leg contract exposed by the WebRTC
 // delivery service. One leg carries one video and one audio RTP stream.
@@ -78,29 +77,6 @@ func effectiveWebRTCVariants(variants []models.StreamOutputVariant) []models.Str
 // hasWebRTCCopyIntent reports whether any WebRTC-enabled variant asks for copy
 // delivery (explicitly or by inheriting a passthrough HLS variant). Copy
 // eligibility needs source metadata, so only these streams wait for it.
-func variantRequestsVideoCopy(variant models.StreamOutputVariant) bool {
-	if variant.IsVideoPassthrough {
-		return true
-	}
-	if hls := variant.HLSOutput(); hls != nil {
-		return strings.EqualFold(strings.TrimSpace(hls.Mode), models.OutputModeCopy)
-	}
-
-	return false
-}
-
-// sourceInfoReady reports whether the protocol inspector has published every
-// property the copy eligibility rules need.
-func sourceInfoReady(broadcaster *models.Broadcaster) bool {
-	if broadcaster == nil {
-		return false
-	}
-	details := broadcaster.StreamDetails
-
-	return details.HasBFrames != nil && details.VideoProfile != "" &&
-		details.VideoLevel != "" && details.Width > 0 && details.Height > 0
-}
-
 func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 	for _, variant := range variants {
 		if !variant.WebRTCEnabled() {
@@ -113,28 +89,27 @@ func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 		if mode == models.OutputModeCopy {
 			return true
 		}
-		if (mode == "" || mode == models.OutputModeInherit) && variantRequestsVideoCopy(variant) {
+		if (mode == "" || mode == models.OutputModeInherit) && variant.IsVideoPassthrough {
 			return true
 		}
 	}
 	return false
 }
 
-// waitForSourceInfo blocks briefly for source metadata when a copy decision is
-// pending. SRT publishes it from the MPEG-TS inspector; RTMP derives it from
-// the FLV/H.264 packets (profile, level, dimensions and B-frames) so both
-// protocols make the same copy decision.
+// waitForSourceInfo blocks briefly for SRT source metadata when a copy decision
+// is pending. RTMP metadata cannot provide profile/B-frame information, so RTMP
+// never waits (copy intent falls back to transcode by design).
 func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant) *models.Broadcaster {
-	if !hasWebRTCCopyIntent(variants) {
+	if session.Protocol() != ingest.ProtocolSRT || !hasWebRTCCopyIntent(variants) {
 		return session.Broadcaster()
 	}
-	// A copy decision needs the B-frame verdict plus profile/level/resolution.
-	// Wait (bounded) until the protocol inspector has observed enough media to
+	// A copy decision needs the B-frame verdict, not just the first metadata
+	// tick. Wait (bounded) until the inspector has observed enough slices to
 	// decide, otherwise fall back to transcode.
 	deadline := time.Now().Add(webRTCSourceWaitTimeout)
 	for {
 		broadcaster := session.Broadcaster()
-		if sourceInfoReady(broadcaster) {
+		if broadcaster != nil && broadcaster.StreamDetails.HasBFrames != nil {
 			return broadcaster
 		}
 		if time.Now().After(deadline) {

@@ -124,7 +124,6 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 	s.setStreamAsConnected(session)
 
 	w := flv.NewMuxer(rtmpIn)
-	inspector := newH264SourceInspector()
 
 	for {
 		// If we don't get a readable packet in 10 seconds give up and disconnect.
@@ -150,10 +149,6 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 		if err != nil {
 			s.handleDisconnect(session)
 			return
-		}
-
-		if inspector.Observe(pkt) {
-			session.applySourceInspection(inspector)
 		}
 
 		if err := w.WritePacket(pkt); err != nil {
