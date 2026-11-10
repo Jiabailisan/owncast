@@ -85,6 +85,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   // True while the last interaction came from a pointer, so focus that a
   // click leaves behind does not pin the control bar.
   const pointerInteractionRef = useRef(false);
+  const pointerInsideRef = useRef(false);
   const volumeGroupRef = useRef<HTMLDivElement | null>(null);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visible, setVisible] = useState(true);
@@ -107,7 +108,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       // clicked button keeps focus, which used to keep the bar visible forever.
       const focusedInside =
         !pointerInteractionRef.current && Boolean(root && root.contains(document.activeElement));
-      const pointerInside = Boolean(root && root.querySelector(':hover'));
+      const pointerInside = pointerInsideRef.current;
       if (!playing || focusedInside || pointerInside) {
         scheduleHide();
         return;
@@ -144,58 +145,49 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
     };
   }, [playing, anyMenuOpen, scheduleHide]);
 
+  // One positional tracker drives every piece of control state: the bar is
+  // visible while the pointer is over the player, and the volume popover is
+  // expanded exactly while the pointer is over the volume control. Deriving both
+  // from the pointer position removes the enter/leave/click state machine that
+  // could get stuck.
   useEffect(() => {
-    // Reveal on any pointer activity that happens over the player box, plus any
-    // key press. Filtering by the player rectangle keeps page-wide mouse
-    // movement from waking the controls, and does not depend on which element
-    // happens to receive the event (the overlay root ignores pointer events).
-    const insidePlayer = (event: Event): boolean => {
+    const handleMove = (event: PointerEvent) => {
       const root = rootRef.current;
-      if (!root) return false;
-      const pointer = event as PointerEvent;
-      if (typeof pointer.clientX !== 'number') return false;
+      if (!root) return;
+
       const rect = root.getBoundingClientRect();
-      return (
-        pointer.clientX >= rect.left &&
-        pointer.clientX <= rect.right &&
-        pointer.clientY >= rect.top &&
-        pointer.clientY <= rect.bottom
-      );
+      const insidePlayer =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      pointerInsideRef.current = insidePlayer;
+
+      if (insidePlayer && !statsOpen) reveal();
+
+      const group = volumeGroupRef.current;
+      if (!group) return;
+      const box = group.getBoundingClientRect();
+      const overVolume =
+        event.clientX >= box.left &&
+        event.clientX <= box.right &&
+        event.clientY >= box.top &&
+        event.clientY <= box.bottom;
+      setVolumeVisible(overVolume);
     };
 
-    const onPointerActivity = (event: Event) => {
-      if (statsOpen || !insidePlayer(event)) return;
-      reveal();
-    };
-    const onKeyActivity = () => {
+    const handleKey = () => {
       if (!statsOpen) reveal();
     };
 
-    document.addEventListener('pointermove', onPointerActivity, { passive: true });
-    document.addEventListener('pointerdown', onPointerActivity, { passive: true });
-    window.addEventListener('keydown', onKeyActivity, { passive: true });
+    document.addEventListener('pointermove', handleMove, { passive: true });
+    window.addEventListener('keydown', handleKey, { passive: true });
     return () => {
-      document.removeEventListener('pointermove', onPointerActivity);
-      document.removeEventListener('pointerdown', onPointerActivity);
-      window.removeEventListener('keydown', onKeyActivity);
+      document.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('keydown', handleKey);
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
   }, [reveal, statsOpen]);
-
-  // Close the volume popover as soon as the pointer moves anywhere outside
-  // the volume group. mouseleave alone was not reliable: the popover overlaps
-  // its trigger and the bar can fade out underneath the pointer.
-  useEffect(() => {
-    if (!volumeVisible) return undefined;
-    const handler = (event: PointerEvent) => {
-      const group = volumeGroupRef.current;
-      if (group && !group.contains(event.target as Node)) {
-        setVolumeVisible(false);
-      }
-    };
-    document.addEventListener('pointermove', handler, { passive: true });
-    return () => document.removeEventListener('pointermove', handler);
-  }, [volumeVisible]);
 
   // Close menus on outside pointerdown.
   useEffect(() => {
@@ -286,8 +278,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           <div
             ref={volumeGroupRef}
             className={classNames(styles.volumeGroup, { [styles.volumeVisible]: volumeVisible })}
-            onMouseEnter={() => setVolumeVisible(true)}
-            onMouseLeave={() => setVolumeVisible(false)}
           >
             <button
               type="button"

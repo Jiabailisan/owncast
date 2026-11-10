@@ -100,14 +100,15 @@ describe('stats presentation helpers', () => {
 describe('PlayerControls overlay', () => {
   test('renders the control bar with transport pill, live state and settings', () => {
     const callbacks = makeCallbacks();
-    render(<PlayerControls {...makeProps({ callbacks })} />);
+    render(<PlayerControls {...makeProps({ callbacks, initialMenu: 'volume' })} />);
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Playback transport' })).toHaveTextContent('Auto');
     expect(screen.getByRole('button', { name: 'Live' })).toHaveTextContent('LIVE');
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
     // The volume slider appears when the volume group is hovered/focused.
     const volumeGroup = screen.getByRole('button', { name: 'Mute' }).parentElement as Element;
-    fireEvent.mouseEnter(volumeGroup);
+    // Opened through initialMenu: the popover is otherwise driven by the
+    // pointer position, which jsdom cannot simulate.
     expect(screen.getByLabelText('Volume')).toBeInTheDocument();
     // The volume pill is one continuous control: no caret arrow, a custom
     // div-based slider (not a native input) lives inside the same pill.
@@ -164,7 +165,7 @@ describe('PlayerControls overlay', () => {
 
   test('opens the settings menu and toggles quality/latency/stats', () => {
     const callbacks = makeCallbacks();
-    render(<PlayerControls {...makeProps({ callbacks })} />);
+    render(<PlayerControls {...makeProps({ callbacks, initialMenu: 'volume' })} />);
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByText('QUALITY')).toBeInTheDocument();
     expect(screen.getByText('Stats for nerds')).toBeInTheDocument();
