@@ -19,4 +19,11 @@ func TestRewriteAnswerH264Level(t *testing.T) {
 	if !strings.Contains(answer.SDP, "profile-level-id=4d0028") {
 		t.Fatalf("configured level 4.0 not honored in answer: %s", answer.SDP)
 	}
+	// Strict clients such as Firefox require the offered profile bytes to be
+	// preserved; only the level byte may change.
+	answer.SDP = "a=fmtp:116 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+	rewriteAnswerH264Level(answer, models.WebRTCConfig{H264Profile: "main", H264Level: "auto"})
+	if !strings.Contains(answer.SDP, "profile-level-id=42e033") {
+		t.Fatalf("offered profile must be preserved for Firefox: %s", answer.SDP)
+	}
 }

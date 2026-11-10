@@ -387,24 +387,24 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 
 var answerH264LevelPattern = regexp.MustCompile("profile-level-id=([0-9a-fA-F]{4})[0-9a-fA-F]{2}")
 
-// rewriteAnswerH264Level makes the answer advertise the level of the encoded
-// shared stream instead of echoing the browser offered (often lower) level.
-// Browsers use the negotiated level when choosing a hardware decoder; a 1440p60
-// stream advertised as level 3.1 can fall back to software decoding.
+// rewriteAnswerH264Level raises the level of the answer's H.264 fmtp to the
+// level of the encoded stream, while preserving the profile/constraint bytes
+// the browser offered. Preserving the profile is required for strict clients:
+// Firefox rejects an answer whose profile-level-id does not match the offered
+// H.264 payload (42e01f -> 4d0033 causes "no codecs in common"), but accepts
+// the same profile with a higher level (42e033).
 func rewriteAnswerH264Level(answer *webrtc.SessionDescription, cfg models.WebRTCConfig) {
 	if answer == nil {
 		return
 	}
-	profileLevelID, err := canonicalH264ProfileLevelID(cfg.H264Profile, cfg.H264Level)
-	if err != nil {
-		return
-	}
+	levelHex := h264LevelHex(cfg.H264Level, cfg.H264Profile)
 	answer.SDP = answerH264LevelPattern.ReplaceAllStringFunc(answer.SDP, func(match string) string {
 		index := strings.Index(match, "profile-level-id=")
 		if index < 0 {
 			return match
 		}
-		return match[:index+len("profile-level-id=")] + profileLevelID
+		prefix := match[:index+len("profile-level-id=")+4]
+		return prefix + levelHex
 	})
 }
 
