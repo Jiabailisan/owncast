@@ -101,7 +101,10 @@ func (s *Service) GetClientsForUser(userID string) ([]*Client, error) {
 
 // FindClientByID will return a single connected client by ID.
 func (s *Service) FindClientByID(clientID uint) (*Client, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	client, found := s.clients[clientID]
+
 	return client, found
 }
 
@@ -113,6 +116,10 @@ func (s *Service) GetClients() []*Client {
 		return clients
 	}
 
+	// The map is mutated by the connection handlers under s.mu; iterating it
+	// without the lock crashes the process with a concurrent map iteration.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, client := range s.clients {
 		clients = append(clients, client)
 	}

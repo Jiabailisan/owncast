@@ -479,14 +479,16 @@ func BuildHostFunctions(env *HostEnv) []extism.HostFunction {
 	// Chat send fns resolve both slug and chat display name at call time:
 	// slug routes to the right bot user, display name is what chat viewers
 	// see.
-	fns = append(fns,
+	fns = append(
+		fns,
 		hostSendChat(env),
 		hostSendChatAction(env),
 		hostSendChatSystem(env),
 		hostSendChatTo(env),
 	)
 	fns = append(fns, hostEmitEvent(env))
-	fns = append(fns,
+	fns = append(
+		fns,
 		hostStreamCurrent(env),
 		hostServerInfo(env),
 		hostServerSocials(env),
@@ -496,23 +498,27 @@ func BuildHostFunctions(env *HostEnv) []extism.HostFunction {
 		hostServerTags(env),
 	)
 	fns = append(fns, hostChatHistory(env))
-	fns = append(fns,
+	fns = append(
+		fns,
 		hostDeleteMessage(env),
 		hostKickClient(env),
 	)
-	fns = append(fns,
+	fns = append(
+		fns,
 		hostSendDiscord(env),
 		hostSendBrowserPush(env),
 		hostSendFediverse(env),
 	)
 	fns = append(fns, hostChatClients(env))
 	fns = append(fns, hostUsersList(env), hostUserGet(env))
-	fns = append(fns,
+	fns = append(
+		fns,
 		hostUsersRegister(env),
 		hostAuthGrantSession(env),
 		hostAuthEndSession(env),
 	)
-	fns = append(fns,
+	fns = append(
+		fns,
 		hostUserSetEnabled(env),
 		hostBanIP(env),
 	)
@@ -531,7 +537,8 @@ func BuildHostFunctions(env *HostEnv) []extism.HostFunction {
 	fns = append(fns, hostConfigGet(env))
 	// Asset reading is ambient: a plugin reads only files it shipped itself.
 	fns = append(fns, hostAssetRead())
-	fns = append(fns,
+	fns = append(
+		fns,
 		hostAddActions(env),
 		hostClearActions(env),
 	)

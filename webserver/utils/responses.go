@@ -18,8 +18,15 @@ func InternalErrorHandler(w http.ResponseWriter, err error) {
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(J{"error": err.Error()}); err != nil {
-		InternalErrorHandler(w, err)
+	writeJSON(w, J{"error": err.Error()})
+}
+
+// writeJSON encodes the payload once. An encode failure is logged and dropped:
+// recursing into the error handler would retry the same broken write until the
+// goroutine stack is exhausted, which kills the process.
+func writeJSON(w http.ResponseWriter, payload any) {
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Debugln("unable to write response:", err)
 	}
 }
 
@@ -32,9 +39,7 @@ func BadRequestHandler(w http.ResponseWriter, err error) {
 	log.Debugln(err)
 
 	w.WriteHeader(http.StatusBadRequest)
-	if err := json.NewEncoder(w).Encode(J{"error": err.Error()}); err != nil {
-		InternalErrorHandler(w, err)
-	}
+	writeJSON(w, J{"error": err.Error()})
 }
 
 // WriteSimpleResponse will return a message as a response.
@@ -67,9 +72,7 @@ func writeSimpleResponse(w http.ResponseWriter, response models.BaseAPIResponse)
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		InternalErrorHandler(w, err)
-	}
+	writeJSON(w, response)
 }
 
 // WriteResponse will return an object as a JSON encoded uncacheable response.
@@ -79,9 +82,7 @@ func WriteResponse(w http.ResponseWriter, response interface{}) {
 
 	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		InternalErrorHandler(w, err)
-	}
+	writeJSON(w, response)
 }
 
 // WriteString will return a basic string and a status code to the client.

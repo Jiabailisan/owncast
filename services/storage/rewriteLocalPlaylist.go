@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/grafov/m3u8"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/config"
 )
@@ -15,12 +14,15 @@ import (
 func rewritePlaylistLocations(localFilePath, remoteServingEndpoint, hlsPrefix string) error {
 	f, err := os.Open(localFilePath) // nolint
 	if err != nil {
-		log.Fatalln(err)
+		// A momentarily missing playlist must not kill the server.
+		return err
 	}
+	defer f.Close()
 
 	p := m3u8.NewMasterPlaylist()
 	if err := p.DecodeFrom(bufio.NewReader(f), false); err != nil {
-		log.Warnln(err)
+		// Never write a partially decoded playlist back over the live one.
+		return err
 	}
 
 	if hlsPrefix == "" {

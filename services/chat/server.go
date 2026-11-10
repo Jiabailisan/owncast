@@ -307,7 +307,10 @@ func (s *Service) HandleClientConnection(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Limit concurrent chat connections
-	if uint64(len(s.clients)) >= s.maxSocketConnectionLimit {
+	s.mu.RLock()
+	connected := uint64(len(s.clients))
+	s.mu.RUnlock()
+	if connected >= s.maxSocketConnectionLimit {
 		log.Warnln("rejecting incoming client connection as it exceeds the max client count of", s.maxSocketConnectionLimit)
 		_, _ = w.Write([]byte(events.ErrorMaxConnectionsExceeded))
 		return
@@ -409,7 +412,13 @@ func (s *Service) Send(payload events.EventPayload, client *Client) {
 		return
 	}
 
-	client.send <- data
+	select {
+	case client.send <- data:
+	default:
+		// A client that stopped reading must not stall the caller, which is the
+		// single chat event loop: drop it instead.
+		go client.close()
+	}
 }
 
 // DisconnectClients will forcefully disconnect all clients belonging to a user by ID.

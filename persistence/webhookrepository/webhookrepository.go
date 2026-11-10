@@ -117,8 +117,15 @@ func (r *SqlWebhookRepository) GetWebhooksForEvent(event models.EventType) []mod
 	  ) AS webhook WHERE event IS ?`
 
 	rows, err := r.datastore.DB.Query(query, event)
-	if err != nil || rows.Err() != nil {
-		log.Fatal(err)
+	if err != nil {
+		log.Errorln("unable to query webhooks:", err)
+
+		return []models.Webhook{}
+	}
+	if rows.Err() != nil {
+		log.Errorln("unable to read webhooks:", rows.Err())
+
+		return []models.Webhook{}
 	}
 	defer rows.Close()
 

@@ -74,6 +74,13 @@ func (s *Service) userNameChanged(eventData chatClientEvent) {
 	}
 
 	savedUser := s.userRepository.GetUserByToken(eventData.client.accessToken)
+	if savedUser == nil {
+		// The token was revoked or the row is gone; do not crash the chat
+		// goroutine, just refresh the client with what we still know.
+		eventData.client.sendConnectedClientInfo()
+
+		return
+	}
 	oldName := savedUser.DisplayName
 
 	// Check that the new name is different from old.

@@ -567,8 +567,9 @@ func (a *Admin) SetServerURL(w http.ResponseWriter, r *http.Request) {
 	// Block Private IP URLs
 	ipAddr, ipErr := netip.ParseAddr(utils.GetHostnameWithoutPortFromURLString(rawValue))
 
-	if ipErr == nil && ipAddr.IsPrivate() {
-		webutils.WriteSimpleResponse(w, false, "Server URL cannot be private")
+	if ipErr == nil && (ipAddr.IsPrivate() || ipAddr.IsLoopback() ||
+		ipAddr.IsLinkLocalUnicast() || ipAddr.IsLinkLocalMulticast() || ipAddr.IsUnspecified()) {
+		webutils.WriteSimpleResponse(w, false, "Server URL cannot be a private or local address")
 		return
 	}
 

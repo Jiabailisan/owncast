@@ -487,7 +487,8 @@ func (m *Manifest) validateNetwork() error {
 		return errors.New(
 			"manifest declares network.fetch but no network.allowedHosts; " +
 				"list the hostnames you'll reach (globs OK, e.g. \"api.discord.com\", " +
-				"\"*.weather.com\") or [\"*\"] for any host")
+				"\"*.weather.com\") or [\"*\"] for any host",
+		)
 	}
 	for i, host := range m.Network.AllowedHosts {
 		if strings.TrimSpace(host) == "" {
@@ -508,7 +509,8 @@ func (m *Manifest) validateActions() error {
 				"the \"ui.modify\" permission; plugins that contribute viewer " +
 				"action buttons must opt in to ui.modify so it's visible to " +
 				"anyone reviewing the manifest that the plugin places UI " +
-				"inside Owncast's chrome")
+				"inside Owncast's chrome",
+		)
 	}
 	pluginPrefix := "/plugins/" + m.Slug + "/"
 	hasHTTPServe := m.hasPermission(PermHttpServe)
@@ -569,7 +571,8 @@ func (m *Manifest) validateStyles() error {
 				"the \"ui.modify\" permission; plugins that inject CSS " +
 				"into the viewer's global scope must opt in to ui.modify " +
 				"so it's visible to anyone reviewing the manifest that the " +
-				"plugin restyles Owncast's UI")
+				"plugin restyles Owncast's UI",
+		)
 	}
 	// http.serve is not required: the host reads each file from the plugin's
 	// assets/ directory and inlines the bytes into customStyles on /api/config.
@@ -598,7 +601,8 @@ func (m *Manifest) validateScripts() error {
 				"the \"ui.modify\" permission; plugins that inject " +
 				"JavaScript into the viewer page must opt in to ui.modify " +
 				"so it's visible to anyone reviewing the manifest that the " +
-				"plugin runs code inside Owncast's chrome")
+				"plugin runs code inside Owncast's chrome",
+		)
 	}
 	// http.serve is not required: the host reads each file from the plugin's
 	// assets/ directory and inlines the bytes into /customjavascript.
@@ -628,7 +632,8 @@ func (m *Manifest) validateExtraPageContent() error {
 				"declare the \"ui.modify\" permission; plugins that inject " +
 				"HTML into the viewer page must opt in to ui.modify so " +
 				"it's visible to anyone reviewing the manifest that the " +
-				"plugin paints inside Owncast's chrome")
+				"plugin paints inside Owncast's chrome",
+		)
 	}
 	if m.ExtraPageContent.Content != "" {
 		if strings.TrimSpace(m.ExtraPageContent.Slug) != "" {
@@ -659,7 +664,8 @@ func (m *Manifest) validateTabs() error {
 				"the \"ui.modify\" permission; plugins that add tabs " +
 				"to the viewer page must opt in to ui.modify so it's " +
 				"visible to anyone reviewing the manifest that the " +
-				"plugin paints inside Owncast's chrome")
+				"plugin paints inside Owncast's chrome",
+		)
 	}
 	seenTitles := make(map[string]bool, len(m.Tabs))
 	for _, tab := range m.OrderedTabs() {

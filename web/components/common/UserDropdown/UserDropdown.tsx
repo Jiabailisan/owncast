@@ -132,6 +132,9 @@ export const UserDropdown: FC<UserDropdownProps> = ({
     // close popup (if any) to prevent multiple popup windows.
     closeChatPopup();
     const w = window.open('/embed/chat/readwrite', '_blank', 'popup');
+    // A popup blocker returns null; without this check the next line throws and
+    // leaves the chat state inconsistent.
+    if (!w) return;
     w.addEventListener('beforeunload', closeChatPopup);
     setPopupWindow(w);
     setChatState(ChatState.POPPED_OUT);

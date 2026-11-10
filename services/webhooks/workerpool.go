@@ -3,9 +3,11 @@ package webhooks
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"runtime"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -86,9 +88,17 @@ func (s *Service) SetGetStatus(fn func() models.Status) {
 	s.getStatus = fn
 }
 
+const (
+	// webhookRequestTimeout bounds one delivery attempt.
+	webhookRequestTimeout = 10 * time.Second
+	// webhookQueueDepth keeps enqueueing non-blocking for the chat event loop.
+	webhookQueueDepth = 256
+)
+
 // Start launches the worker goroutines that drain the queue.
 func (s *Service) Start() {
-	s.queue = make(chan Job)
+	// Buffered so enqueueing cannot block the caller (the chat event loop).
+	s.queue = make(chan Job, webhookQueueDepth)
 	for i := 1; i <= s.workerPoolSize; i++ {
 		go s.worker(i)
 	}
@@ -96,7 +106,15 @@ func (s *Service) Start() {
 
 func (s *Service) addToQueue(webhook models.Webhook, payload WebhookEvent, wg *sync.WaitGroup) {
 	log.Tracef("Queued Event %s for Webhook %s", payload.Type, webhook.URL)
-	s.queue <- Job{wg, payload, webhook}
+	select {
+	case s.queue <- Job{wg, payload, webhook}:
+	default:
+		// Queue is full: drop the delivery rather than blocking the producer.
+		log.Warnln("webhook queue full; dropping event", payload.Type, "for", webhook.URL)
+		if wg != nil {
+			wg.Done()
+		}
+	}
 }
 
 func (s *Service) worker(workerID int) {
@@ -122,6 +140,11 @@ func (s *Service) sendWebhook(job Job) error {
 	}
 
 	req, err := http.NewRequest("POST", job.webhook.URL, bytes.NewReader(jsonText))
+	if err != nil {
+		// Without this check a malformed stored URL leaves req nil and the
+		// Header.Set below panics inside a worker goroutine.
+		return fmt.Errorf("invalid webhook url %q: %w", job.webhook.URL, err)
+	}
 	signature, err := s.generateSignature(jsonText, job)
 	if err != nil {
 		return err
@@ -130,7 +153,8 @@ func (s *Service) sendWebhook(job Job) error {
 	req.Header.Set("owncast-signature", signature)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	// A webhook destination that never answers must not pin a worker forever.
+	client := &http.Client{Timeout: webhookRequestTimeout}
 
 	resp, err := client.Do(req)
 	if err != nil {

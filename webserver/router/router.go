@@ -137,8 +137,12 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", ip, port),
 		ReadHeaderTimeout: 4 * time.Second,
-		Handler:           compress(m),
-		Protocols:         protocols,
+		// Bound the whole request read and idle keep-alives: without these a
+		// slow or stalled client holds a connection (and its buffers) forever.
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 120 * time.Second,
+		Handler:     compress(m),
+		Protocols:   protocols,
 	}
 
 	if ip != "0.0.0.0" {

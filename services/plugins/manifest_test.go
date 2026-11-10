@@ -1082,7 +1082,8 @@ func TestRequireSubscriptionPermissions(t *testing.T) {
 		},
 	}
 	for _, event := range fediverseEvents {
-		tests = append(tests,
+		tests = append(
+			tests,
 			testCase{
 				name: "missing permission for " + event,
 				subscriptions: Subscriptions{

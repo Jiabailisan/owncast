@@ -89,19 +89,22 @@ func (ds *Datastore) Save(e models.ConfigEntry) error {
 	if err != nil {
 		return err
 	}
+	// A transaction that is returned without rollback holds the pool's only
+	// connection, which would block every later query until a restart.
+	defer func() { _ = tx.Rollback() }()
 	var stmt *sql.Stmt
 	stmt, err = tx.Prepare("INSERT INTO datastore (key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 	_, err = stmt.Exec(e.Key, dataGob.Bytes())
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
 
 	if err = tx.Commit(); err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	ds.SetCachedValue(e.Key, dataGob.Bytes())

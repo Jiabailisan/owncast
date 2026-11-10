@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/owncast/owncast/models"
@@ -32,7 +34,13 @@ func (a *Admin) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newWebhookID, err := a.webhookRepository.InsertWebhook(request.URL, request.Events, request.WebhookSecret)
+	parsedURL, urlErr := url.Parse(strings.TrimSpace(request.URL))
+	if urlErr != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		webutils.BadRequestHandler(w, errors.New("webhook url must be an absolute http(s) url"))
+		return
+	}
+
+	newWebhookID, err := a.webhookRepository.InsertWebhook(parsedURL.String(), request.Events, request.WebhookSecret)
 	if err != nil {
 		webutils.InternalErrorHandler(w, err)
 		return

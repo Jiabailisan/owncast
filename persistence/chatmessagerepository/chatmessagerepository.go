@@ -459,6 +459,9 @@ func (r *SqlChatMessageRepository) SetMessageVisibilityForMessageIDs(messageIDs 
 	if err != nil {
 		return err
 	}
+	// Roll back on every early return: the pool has a single connection, so a
+	// leaked transaction blocks all later queries until the process restarts.
+	defer func() { _ = tx.Rollback() }()
 
 	// nolint:gosec
 	stmt, err := tx.Prepare("UPDATE messages SET hidden_at=? WHERE id IN (?" + strings.Repeat(",?", len(messageIDs)-1) + ")")

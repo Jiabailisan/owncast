@@ -225,13 +225,12 @@ func (c *Client) startChatRejectionTimeout() {
 	}
 
 	c.inTimeout = true
-	c.timeoutTimer = time.NewTimer(10 * time.Second)
-	go func(c *Client) {
-		for range c.timeoutTimer.C {
-			c.inTimeout = false
-			c.timeoutTimer = nil
-		}
-	}(c)
+	// time.AfterFunc fires once; a "for range timer.C" loop would block forever
+	// after the first fire and leak one goroutine per flood.
+	c.timeoutTimer = time.AfterFunc(10*time.Second, func() {
+		c.inTimeout = false
+		c.timeoutTimer = nil
+	})
 
 	c.sendAction("You are temporarily blocked from sending chat messages due to perceived flooding.")
 }
