@@ -115,6 +115,17 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
     }, IDLE_HIDE_MS);
   }, [playing]);
 
+  // A hidden bar cannot show a menu: without this the volume popover stayed
+  // expanded across a hide/show cycle, because the bar faded out under the
+  // pointer and no mouseleave reached the volume group.
+  useEffect(() => {
+    if (!visible) {
+      setVolumeVisible(false);
+      setSettingsOpen(false);
+      setTransportOpen(false);
+    }
+  }, [visible]);
+
   const reveal = useCallback(() => {
     setVisible(true);
     if (playing) scheduleHide();
