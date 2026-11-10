@@ -228,6 +228,9 @@ export interface WebRTCStatsPanelSample {
   videoCodec: string | null;
   audioCodec: string | null;
   transport: IceTransport | null;
+  // Estimated playout latency: jitter-buffer delay + half the candidate RTT +
+  // per-frame processing delay. Buffer health remains HLS-specific.
+  liveLatencySeconds: number | null;
   timestamp: number;
   videoBytes: number;
   audioBytes: number;
@@ -309,6 +312,23 @@ export function collectWebRTCStatsPanel(
     framesPerSecond = plausibleFrameRate(video.framesPerSecond);
   }
 
+  const jitterBufferEmitted = Number(video.jitterBufferEmittedCount) || 0;
+  const jitterBufferDelay = Number(video.jitterBufferDelay) || 0;
+  const jitterBufferSeconds =
+    jitterBufferEmitted > 0 ? jitterBufferDelay / jitterBufferEmitted : null;
+  const decodedFrames = Number(video.framesDecoded) || 0;
+  const processingDelay = Number(video.totalProcessingDelay) || 0;
+  const processingSeconds = decodedFrames > 0 ? processingDelay / decodedFrames : 0;
+  const estimatedPlayout = Number(video.estimatedPlayoutTimestamp);
+  let liveLatencySeconds: number | null = null;
+  if (Number.isFinite(estimatedPlayout) && estimatedPlayout > 0) {
+    const delta = (timestamp - estimatedPlayout) / 1000;
+    if (delta >= 0 && delta <= 30) liveLatencySeconds = delta;
+  }
+  if (liveLatencySeconds === null && jitterBufferSeconds !== null) {
+    liveLatencySeconds = jitterBufferSeconds + processingSeconds + (candidateRtt || 0) / 2000;
+  }
+
   const videoCodecId = video.codecId ? String(video.codecId) : '';
   const audioCodecId = audio.codecId ? String(audio.codecId) : '';
   const simplifyCodec = (mime: string | undefined): string | null => {
@@ -334,12 +354,29 @@ export function collectWebRTCStatsPanel(
       videoCodec: simplifyCodec(codecs[videoCodecId]),
       audioCodec: simplifyCodec(codecs[audioCodecId]),
       transport,
+      liveLatencySeconds,
       timestamp,
       videoBytes,
       audioBytes,
     },
     bytes: { timestamp, videoBytes, audioBytes, framesDecoded },
   };
+}
+
+// summarizeSDP returns a compact description of the negotiated media for the
+// Stats panel: H.264 profile-level-id, audio codec and candidate count.
+export function summarizeSDP(sdp: string | null | undefined): string {
+  if (!sdp) return '—';
+  const profileMatch = sdp.match(/profile-level-id=([0-9a-fA-F]{6})/);
+  const codecMatch = sdp.match(/a=rtpmap:\d+ (H264|H265|AV1|VP8|VP9)\//i);
+  const audioMatch = sdp.match(/a=rtpmap:\d+ (OPUS|opus|MP4A|G722)\//i);
+  const candidates = (sdp.match(/a=candidate:/g) || []).length;
+  const parts: string[] = [];
+  if (codecMatch) parts.push(codecMatch[1].toUpperCase());
+  if (profileMatch) parts.push('profile-level-id=' + profileMatch[1].toLowerCase());
+  if (audioMatch) parts.push(audioMatch[1].toUpperCase());
+  if (candidates > 0) parts.push('ICE candidates=' + candidates);
+  return parts.length > 0 ? parts.join(' / ') : '—';
 }
 
 export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRTCStatsBeacon {

@@ -473,6 +473,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         volume: volumeInfo.volume,
         normalizedVolume: volumeInfo.normalizedVolume,
         codecs: 'H.264 / AAC (HLS)',
+        sdp: '—',
         videoBitrateKbps,
         audioBitrateKbps,
         connectionSpeedKbps,

@@ -85,6 +85,7 @@ describe('stats presentation helpers', () => {
       'Current / Optimal Res',
       'Volume / Normalized',
       'Codecs',
+      'SDP',
       'Video Bitrate',
       'Audio Bitrate',
       'Connection Speed',

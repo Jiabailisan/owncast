@@ -58,6 +58,7 @@ export function buildStatsRows(stats: StatsSnapshot): StatsRow[] {
     },
     { label: 'Volume / Normalized', value: stats.volume },
     { label: 'Codecs', value: stats.codecs },
+    { label: 'SDP', value: stats.sdp || NOT_AVAILABLE },
     { label: 'Video Bitrate', value: formatStatsBitrate(stats.videoBitrateKbps) },
     {
       label: 'Audio Bitrate',

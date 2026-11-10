@@ -173,7 +173,15 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   return (
     <>
       {statsOpen && (
-        <StatsPanel stats={stats} sparklines={sparklines} onClose={callbacks.onToggleStats} />
+        <StatsPanel
+          stats={stats}
+          sparklines={sparklines}
+          onClose={callbacks.onToggleStats}
+          qualities={qualities}
+          selectedQuality={selectedQuality}
+          showQuality={showQuality}
+          onQualityChange={callbacks.onQualityChange}
+        />
       )}
       <div
         ref={rootRef}

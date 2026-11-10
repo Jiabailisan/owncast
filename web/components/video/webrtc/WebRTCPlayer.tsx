@@ -26,6 +26,7 @@ import {
   AUTO_QUALITY_SAMPLE_INTERVAL_MS,
   formatWebRTCResolution,
   plausibleFrameRate,
+  summarizeSDP,
   webRTCLiveMode,
 } from './webrtc-stats';
 import { PlayerControls } from '../PlayerControls/PlayerControls';
@@ -462,6 +463,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             ' / ' +
             (panelSample.audioCodec || 'OPUS') +
             ' (WebRTC)',
+          sdp: summarizeSDP(session.pc.remoteDescription?.sdp),
           videoBitrateKbps: panelSample.videoBitrateKbps,
           audioBitrateKbps: panelSample.audioBitrateKbps,
           connectionSpeedKbps: panelSample.connectionSpeedKbps,
@@ -470,7 +472,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           packetsLost: panelSample.packetsLost,
           packetsReceived: panelSample.packetsReceived,
           bufferSeconds: null,
-          liveLatencySeconds: null,
+          liveLatencySeconds: panelSample.liveLatencySeconds,
           liveMode: webRTCLiveMode(panelSample.transport),
           date: new Date().toLocaleString(),
         });
