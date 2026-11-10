@@ -210,8 +210,16 @@ func (e *engine) buildInterceptorRegistry(mediaEngine *webrtc.MediaEngine) (*int
 	// The congestion controller must be registered before the NACK responder so
 	// retransmissions can be limited by the estimated target bitrate.
 	if e.cfg.BandwidthEstimation {
+		// The GCC interceptor ships a leaky-bucket pacer that rate-limits the
+		// send path to the estimated bandwidth. On a LAN (0% loss) the estimate
+		// starts around 1.2 Mbps and ramps slowly, so a 6 Mbps stream is paced
+		// far below its encoded rate: frames arrive late, the viewer's jitter
+		// buffer grows, and frames are dropped as "too late" (stutter) while
+		// partial frames reach the decoder (artifacts). Owncast only throttles
+		// when maxBitratePerViewer is configured, so keep the estimator for
+		// reporting but never pace the media path.
 		ccFactory, err := cc.NewInterceptor(func() (cc.BandwidthEstimator, error) {
-			return gcc.NewSendSideBWE()
+			return gcc.NewSendSideBWE(gcc.SendSideBWEPacer(gcc.NewNoOpPacer()))
 		})
 		if err != nil {
 			return nil, fmt.Errorf("cc interceptor: %w", err)
