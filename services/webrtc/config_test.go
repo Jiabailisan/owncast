@@ -3,6 +3,7 @@ package webrtc
 import (
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,13 +106,30 @@ func TestIceNetworkTypes(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidConfig)
 }
 
+func TestCanonicalH264FmtpLevel(t *testing.T) {
+	main, err := canonicalH264Fmtp("main", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(main, "profile-level-id=4d0033") {
+		t.Fatalf("auto main level should advertise 5.1: %s", main)
+	}
+	main40, err := canonicalH264Fmtp("main", "4.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(main40, "profile-level-id=4d0028") {
+		t.Fatalf("configured level 4.0 not honored: %s", main40)
+	}
+}
+
 func TestCanonicalH264Fmtp(t *testing.T) {
 	for _, profile := range []string{"constrained-baseline", "main", "high"} {
-		fmtp, err := canonicalH264Fmtp(profile)
+		fmtp, err := canonicalH264Fmtp(profile, "auto")
 		require.NoError(t, err)
 		assert.Contains(t, fmtp, "packetization-mode=1")
 	}
-	_, err := canonicalH264Fmtp("ultra")
+	_, err := canonicalH264Fmtp("ultra", "auto")
 	require.ErrorIs(t, err, ErrInvalidConfig)
 }
 

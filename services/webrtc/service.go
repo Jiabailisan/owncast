@@ -211,7 +211,7 @@ func (s *Service) UpdateConfig(cfg models.WebRTCConfig) ([]string, error) {
 // attached to a removed or changed variant are closed.
 func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 	cfg := s.Config()
-	h264Fmtp, err := canonicalH264Fmtp(cfg.H264Profile)
+	h264Fmtp, err := canonicalH264Fmtp(cfg.H264Profile, cfg.H264Level)
 	if err != nil {
 		return err
 	}

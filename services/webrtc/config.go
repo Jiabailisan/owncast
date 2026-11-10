@@ -65,20 +65,45 @@ const (
 	networkTypeTCP6 = "tcp6"
 )
 
-// canonicalH264Fmtp maps an operator-facing H.264 profile label to the SDP
-// fmtp we advertise for the shared track. The encoder argv mapping lives in
-// the transcoder package; this is only the SDP side.
-func canonicalH264Fmtp(profile string) (string, error) {
+// canonicalH264Fmtp maps an operator-facing H.264 profile label and level to
+// the SDP fmtp we advertise for the shared track. The encoder argv mapping
+// lives in the transcoder package; this is only the SDP side. The advertised
+// level must be at least the level of the encoded stream: a 1440p60 stream is
+// level 5.1, and advertising 3.1 makes some browsers fall back to software
+// decoding for an otherwise hardware-decodable stream.
+func canonicalH264Fmtp(profile, level string) (string, error) {
+	levelHex := h264LevelHex(level, profile)
 	switch strings.ToLower(strings.TrimSpace(profile)) {
 	case "", h264ProfileConstrainedBaseline, "constrained_baseline", h264ProfileBaseline:
-		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", nil
+		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e0" + levelHex, nil
 	case h264ProfileMain:
-		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f", nil
+		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d00" + levelHex, nil
 	case h264ProfileHigh:
-		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f", nil
+		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=6400" + levelHex, nil
 	default:
 		return "", fmt.Errorf("%w: unknown h264 profile %q", ErrInvalidConfig, profile)
 	}
+}
+
+// h264LevelHex returns the level_idc byte as two hex digits. The configured
+// level is honored when set; "auto" advertises the level required by a
+// 2560x1440@60 stream (5.1) for Main/High so hardware decoders are selected.
+func h264LevelHex(level, profile string) string {
+	level = strings.TrimSpace(strings.ToLower(level))
+	if level != "" && level != "auto" {
+		var major, minor int
+		if _, err := fmt.Sscanf(level, "%d.%d", &major, &minor); err == nil && major > 0 && major <= 6 && minor >= 0 && minor <= 2 {
+			return fmt.Sprintf("%02x", major*10+minor)
+		}
+		if parsed, ok := parseH264Level(level); ok {
+			return fmt.Sprintf("%02x", parsed)
+		}
+	}
+	if strings.EqualFold(profile, h264ProfileBaseline) {
+		return "1f"
+	}
+
+	return "33"
 }
 
 // h264ProfileIDC returns the profile_idc byte browsers use for this encoder
@@ -220,7 +245,7 @@ func ValidateConfig(cfg models.WebRTCConfig) error {
 	if _, err := iceNetworkTypes(cfg); err != nil {
 		return err
 	}
-	if _, err := canonicalH264Fmtp(cfg.H264Profile); err != nil {
+	if _, err := canonicalH264Fmtp(cfg.H264Profile, cfg.H264Level); err != nil {
 		return err
 	}
 	if err := validateServerConfig(cfg); err != nil {

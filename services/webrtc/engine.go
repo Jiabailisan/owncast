@@ -173,7 +173,7 @@ func (e *engine) setupMuxes(se *webrtc.SettingEngine, loggerFactory pionlogging.
 }
 
 func buildMediaEngine(cfg models.WebRTCConfig) (*webrtc.MediaEngine, error) {
-	h264Fmtp, err := canonicalH264Fmtp(cfg.H264Profile)
+	h264Fmtp, err := canonicalH264Fmtp(cfg.H264Profile, cfg.H264Level)
 	if err != nil {
 		return nil, err
 	}
