@@ -177,14 +177,8 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 	// its HLS variant's video ordinal.
 	opusAudioOrdinal := len(t.variants)
 	for _, output := range t.rtpOutputs {
-		// Copy legs keep a dedicated RTP output (the legacy, known-good path);
-		// only encoded legs share the tee video stream. The source packets are
-		// still copied, not re-encoded.
-		if !output.CopyVideo {
-			videoVariant, ok := t.sharedVideoVariantFor(output)
-			if !ok {
-				continue
-			}
+		videoVariant, ok := t.sharedVideoVariantFor(output)
+		if ok {
 			videoSlaveOptions := []string{
 				teeOptionString("select", teeSelect("v:"+strconv.Itoa(videoVariant))),
 				teeOptionString("f", "rtp"),
@@ -201,24 +195,11 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 		slaves = append(slaves, "["+strings.Join(audioSlaveOptions, ":")+"]"+withRTPPacketSize(output.AudioURL))
 	}
 
+	// The tee packet stream must carry SPS/PPS for copy legs and for HLS
+	// passthrough segments; dump_extra injects the demuxer extradata on
+	// keyframes.
+	flags = append(flags, "-bsf:v", "dump_extra=freq=keyframe")
 	flags = append(flags, "-f", "tee", strings.Join(slaves, "|"))
-
-	// Dedicated copy video legs: keep the legacy RTP output shape for sources
-	// whose copied bitstream browsers are known to accept.
-	for _, output := range t.rtpOutputs {
-		if !output.CopyVideo {
-			continue
-		}
-		flags = append(
-			flags,
-			ffmpegFlagMap, "0:v:0",
-			"-c:v", "copy",
-			"-bsf:v", "dump_extra=freq=keyframe",
-			"-f", "rtp",
-			"-payload_type", strconv.Itoa(output.VideoPayloadType),
-			withRTPPacketSize(output.VideoURL),
-		)
-	}
 
 	return flags
 }
