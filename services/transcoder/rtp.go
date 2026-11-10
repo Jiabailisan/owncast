@@ -96,10 +96,15 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 		)
 	}
 	// In-band SPS/PPS on every IDR is mandatory for browser copy legs and for
-	// mid-stream joins on transcode legs.
+	// mid-stream joins on transcode legs. Copy sources may be AVCC/FLV without
+	// parameter sets, so convert them before dump_extra injects the extradata.
+	bitstreamFilter := "dump_extra=freq=keyframe"
+	if output.CopyVideo {
+		bitstreamFilter = "h264_mp4toannexb,dump_extra=freq=keyframe"
+	}
 	args = append(
 		args,
-		"-bsf:v", "dump_extra=freq=keyframe",
+		"-bsf:v", bitstreamFilter,
 		"-f", "rtp",
 		"-payload_type", strconv.Itoa(output.VideoPayloadType),
 		withRTPPacketSize(output.VideoURL),
