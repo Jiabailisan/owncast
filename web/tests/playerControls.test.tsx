@@ -86,8 +86,6 @@ describe('stats presentation helpers', () => {
       'Volume / Normalized',
       'Codecs',
       'Quality / SDP',
-      'Video Bitrate',
-      'Audio Bitrate',
       'Connection Speed',
       'RTT / Jitter',
       'Packet Loss (video)',
@@ -263,8 +261,6 @@ describe('HLS transport metering helpers', () => {
     });
     const values = Object.fromEntries(rows.map(row => [row.label, row.value]));
     expect(values['Current / Optimal Res']).toBe('1280x720@24fps / 1280x720@24fps');
-    expect(values['Audio Bitrate']).toBe('131 kbps (ingest)');
-    expect(values['Video Bitrate']).toBe('1.09 Mbps');
     expect(values['Connection Speed']).toBe('8.71 Mbps');
     expect(values['Live Mode']).toBe('HLS (hls)');
     expect(values['RTT / Jitter']).toBe('—');

@@ -62,14 +62,6 @@ export function buildStatsRows(stats: StatsSnapshot): StatsRow[] {
       label: 'Quality / SDP',
       value: (stats.qualityName || 'Auto') + ' / ' + (stats.sdp || NOT_AVAILABLE),
     },
-    { label: 'Video Bitrate', value: formatStatsBitrate(stats.videoBitrateKbps) },
-    {
-      label: 'Audio Bitrate',
-      value:
-        stats.audioBitrateKbps === null
-          ? NOT_AVAILABLE
-          : formatStatsBitrate(stats.audioBitrateKbps) + (stats.isWebRTC ? '' : ' (ingest)'),
-    },
     { label: 'Connection Speed', value: formatStatsBitrate(stats.connectionSpeedKbps) },
     { label: 'RTT / Jitter', value: formatRttJitter(stats.rttMs, stats.jitterMs) },
     {
