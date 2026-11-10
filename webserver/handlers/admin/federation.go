@@ -222,7 +222,13 @@ func (a *Admin) SetFederationBlockDomains(w http.ResponseWriter, r *http.Request
 
 	domainStrings := make([]string, 0)
 	for _, domain := range configValues {
-		domainStrings = append(domainStrings, valueAsString(domain.Value))
+		domainValue, ok := valueAsStringOK(domain.Value)
+		if !ok {
+			webutils.BadRequestHandler(w, errors.New("domain values must be strings"))
+
+			return
+		}
+		domainStrings = append(domainStrings, domainValue)
 	}
 
 	if err := a.configRepository.SetBlockedFederatedDomains(domainStrings); err != nil {

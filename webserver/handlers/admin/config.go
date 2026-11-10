@@ -39,7 +39,13 @@ func (a *Admin) SetTags(w http.ResponseWriter, r *http.Request) {
 
 	tagStrings := make([]string, 0)
 	for _, tag := range configValues {
-		tagStrings = append(tagStrings, strings.TrimLeft(valueAsString(tag.Value), "#"))
+		tagValue, ok := valueAsStringOK(tag.Value)
+		if !ok {
+			webutils.BadRequestHandler(w, errors.New("tag values must be strings"))
+
+			return
+		}
+		tagStrings = append(tagStrings, strings.TrimLeft(tagValue, "#"))
 	}
 
 	configRepository := a.configRepository
@@ -68,7 +74,12 @@ func (a *Admin) SetStreamTitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	value := valueAsString(configValue.Value)
+	value, valueOK := valueAsStringOK(configValue.Value)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+
+		return
+	}
 	configRepository := a.configRepository
 
 	if err := configRepository.SetStreamTitle(value); err != nil {
@@ -464,7 +475,12 @@ func (a *Admin) SetFfmpegPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := valueAsString(configValue.Value)
+	path, pathOK := valueAsStringOK(configValue.Value)
+	if !pathOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+
+		return
+	}
 	if err := utils.VerifyFFMpegPath(path); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
@@ -1179,8 +1195,16 @@ func getValuesFromRequest(w http.ResponseWriter, r *http.Request) ([]ConfigValue
 		return values, false
 	}
 
+	if configValue.Value == nil {
+		webutils.BadRequestHandler(w, errors.New("value is required"))
+
+		return values, false
+	}
+
 	object := reflect.ValueOf(configValue.Value)
 	if object.Kind() != reflect.Slice && object.Kind() != reflect.Array {
+		webutils.BadRequestHandler(w, errors.New("value must be an array"))
+
 		return values, false
 	}
 

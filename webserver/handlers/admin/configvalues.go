@@ -1,9 +1,5 @@
 package admin
 
-import (
-	log "github.com/sirupsen/logrus"
-)
-
 // The generated request bodies type every configuration value as interface{},
 // so a malformed body (or a value sent as the wrong JSON type) used to panic the
 // handler with an unchecked type assertion. These helpers return the zero value
@@ -16,15 +12,6 @@ const (
 	schemeHTTP  = "http"
 	schemeHTTPS = "https"
 )
-
-func valueAsString(value interface{}) string {
-	if typed, ok := value.(string); ok {
-		return typed
-	}
-	log.Debugln("configuration value is not a string")
-
-	return ""
-}
 
 // derefStringSlice returns the pointed-to slice, or nil when the field was
 // omitted from the request body.
