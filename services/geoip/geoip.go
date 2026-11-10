@@ -132,7 +132,14 @@ type Client struct {
 	primary   *database
 	secondary *database
 	metadata  *DatabaseMetadata
+
+	// cacheEntries counts the cached lookups so the cache can be bounded.
+	cacheEntries atomic.Int64
 }
+
+// maxCacheEntries bounds the per-IP lookup cache. A long-running server with
+// many distinct viewers would otherwise grow it for the process lifetime.
+const maxCacheEntries = 4096
 
 // NewClient creates a new Client using the default operator-supplied paths and
 // the auto-detected secondary databases.
@@ -185,6 +192,9 @@ func (c *Client) Close() error {
 		}
 		c.secondary = nil
 	}
+	// Forget the metadata too: otherwise openDatabases() would consider the
+	// client initialised and hand out closed readers.
+	c.metadata = nil
 	return firstError
 }
 
@@ -279,23 +289,40 @@ func (c *Client) fetchGeoForIP(ip string) *GeoDetails {
 		return nil
 	}
 
+	// Hold readerMu while reading so a concurrent Close cannot swap the readers
+	// out from under the lookup.
+	c.readerMu.Lock()
+	primary, secondary := c.primary, c.secondary
+	c.readerMu.Unlock()
+
 	var response *GeoDetails
-	if c.primary != nil {
-		response = lookupDatabase(c.primary, ipObject)
+	if primary != nil {
+		response = lookupDatabase(primary, ipObject)
 	}
 
 	switch {
-	case c.primary == nil && c.secondary != nil:
+	case primary == nil && secondary != nil:
 		// No primary database at all: the secondary acts as the effective
 		// primary so a single DB-IP file keeps working on its own.
-		response = lookupDatabase(c.secondary, ipObject)
-	case response != nil && c.secondary != nil:
-		if enrichment := lookupDatabase(c.secondary, ipObject); enrichment != nil {
+		response = lookupDatabase(secondary, ipObject)
+	case response != nil && secondary != nil:
+		if enrichment := lookupDatabase(secondary, ipObject); enrichment != nil {
 			response = mergeGeoDetails(response, enrichment)
 		}
 	}
 
-	c.cache.Store(ip, response)
+	if c.cacheEntries.Load() >= maxCacheEntries {
+		// Cheap bound: dropping the cache is always correct, only slower.
+		c.cache.Range(func(key, _ any) bool {
+			c.cache.Delete(key)
+
+			return true
+		})
+		c.cacheEntries.Store(0)
+	}
+	if _, loaded := c.cache.LoadOrStore(ip, response); !loaded {
+		c.cacheEntries.Add(1)
+	}
 
 	return response
 }

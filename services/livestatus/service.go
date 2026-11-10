@@ -36,10 +36,13 @@ type WebRTCProvider interface {
 	Warnings() []string
 }
 
-// GeoIPProvider reports the state of the optional offline GeoIP database.
+// GeoIPProvider reports the state of the optional offline GeoIP database and
+// resolves viewer locations.
 type GeoIPProvider interface {
 	// GeoIPStatus returns database configuration/type/build date.
 	GeoIPStatus() models.GeoIPStatus
+	// GeoDetails returns the location of an IP address, or nil when unknown.
+	GeoDetails(ip string) *geoip.GeoDetails
 }
 
 // Deps are the read-only providers the snapshot is built from.
@@ -181,11 +184,18 @@ func normalizeViewerPage(page, pageSize int) (int, int) {
 // details) and the WebRTC viewer rows from the delivery service.
 func (s *Service) collectLiveViewers() []models.LiveViewer {
 	viewers := make([]models.LiveViewer, 0, 32)
-	for _, viewer := range s.stream.GetActiveViewers() {
-		viewers = append(viewers, liveViewerFromViewer(viewer))
+	if s.stream != nil {
+		for _, viewer := range s.stream.GetActiveViewers() {
+			viewers = append(viewers, liveViewerFromViewer(viewer))
+		}
 	}
 	if s.webrtc != nil {
-		viewers = append(viewers, s.webrtc.LiveViewers()...)
+		// WebRTC delivery knows the viewer address but not the location, so fill
+		// the geo fields here; without this every WebRTC viewer shows N/A.
+		for _, row := range s.webrtc.LiveViewers() {
+			s.applyViewerLocation(&row)
+			viewers = append(viewers, row)
+		}
 	}
 	return viewers
 }
@@ -264,6 +274,24 @@ func paginateLiveViewers(viewers []models.LiveViewer, page, pageSize int) models
 // liveViewerFromViewer maps one in-memory HLS viewer, including its optional
 // GeoIP details, to the admin LiveViewer row. City/region values are
 // approximate and must never be used for access control.
+// applyViewerLocation fills the geo fields of a viewer row that has none.
+func (s *Service) applyViewerLocation(row *models.LiveViewer) {
+	if row == nil || s.geoIP == nil {
+		return
+	}
+	if row.Country != "" || row.Region != "" || row.City != "" {
+		return
+	}
+	details := s.geoIP.GeoDetails(row.IPAddress)
+	if details == nil {
+		return
+	}
+	row.Country = details.CountryCode
+	row.Region = details.RegionName
+	row.City = details.City
+	row.LocationApprox = true
+}
+
 func liveViewerFromViewer(viewer models.Viewer) models.LiveViewer {
 	row := models.LiveViewer{
 		ClientID:        viewer.ClientID,

@@ -49,17 +49,24 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 // superviseWebRTCProcess runs the WebRTC-only FFmpeg process with a bounded
 // restart policy. Its crash never interrupts HLS; on restart the media legs are
 // marked so the RTP forwarder rebases sequence numbers/timestamps.
+// webRTCBranchName is the ingest-tee branch feeding the WebRTC-only FFmpeg
+// process. It is replaced on every supervised restart.
+const webRTCBranchName = "webrtc"
+
 func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session, rtpOutputs []transcoder.RTPOutput) {
 	backoff := webRTCProcessBackoff
 
 	for attempt := 0; ; attempt++ {
+		// Drop the previous (dead) branch before adding its replacement so the
+		// fan-out never keeps queueing into a process that is gone.
+		tee.RemoveBranch(webRTCBranchName)
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
 		tr.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 		tr.SetPurpose([]string{"webrtc"})
 		tr.SetRTPOnly(true)
 		tr.SetInputFormat(session.InputFormat())
 		tr.SetRTPOutputs(rtpOutputs)
-		tr.SetStdin(tee.AddBranch("webrtc", false, func() {
+		tr.SetStdin(tee.AddBranch(webRTCBranchName, false, func() {
 			// Overflow: stop this process; HLS keeps running.
 			tr.Stop()
 		}))

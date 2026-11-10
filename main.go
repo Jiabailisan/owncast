@@ -589,6 +589,16 @@ func (p geoIPStatusProvider) GeoIPStatus() models.GeoIPStatus {
 	return livestatus.GeoIPStatusFromDatabaseMetadata(p.client.DatabaseMetadata())
 }
 
+// GeoDetails implements livestatus.GeoIPProvider: it resolves the location of a
+// viewer address so WebRTC viewer rows can show a location too.
+func (p geoIPStatusProvider) GeoDetails(ip string) *geoip.GeoDetails {
+	if p.client == nil {
+		return nil
+	}
+
+	return p.client.GetGeoFromIP(ip)
+}
+
 func configureLogging(logDirectory string, enableDebugFeatures bool, enableVerboseLogging bool) {
 	logging.Setup(logDirectory, enableDebugFeatures, enableVerboseLogging)
 	log.SetFormatter(&log.TextFormatter{

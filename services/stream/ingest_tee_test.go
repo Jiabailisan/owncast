@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -102,4 +103,49 @@ func TestIngestTeeCloseReleasesBranches(t *testing.T) {
 	if _, err := io.ReadAll(branch); err != nil {
 		t.Fatalf("closing the tee should EOF the branch, got %v", err)
 	}
+}
+
+// TestIngestTeeRemoveBranchStopsQueueing proves a replaced branch is unlinked:
+// after RemoveBranch the fan-out must not queue into it any more, which is what
+// keeps a supervised WebRTC-process restart from leaking memory and warnings.
+func TestIngestTeeRemoveBranchStopsQueueing(t *testing.T) {
+	source := bytes.NewReader([]byte("0123456789"))
+	tee := newIngestTee(source)
+
+	var overflowed atomic.Int32
+	dead := tee.AddBranch("webrtc", false, func() { overflowed.Add(1) })
+	live := tee.AddBranch("hls", true, nil)
+
+	tee.mu.Lock()
+	before := len(tee.branches)
+	tee.mu.Unlock()
+	if before != 2 {
+		t.Fatalf("expected two branches, got %d", before)
+	}
+
+	tee.RemoveBranch("webrtc")
+
+	tee.mu.Lock()
+	after := len(tee.branches)
+	tee.mu.Unlock()
+	if after != 1 {
+		t.Fatalf("expected the removed branch to be unlinked, got %d", after)
+	}
+
+	// The removed branch ends with an error rather than staying open.
+	if _, err := io.ReadAll(dead); err == nil {
+		t.Fatal("expected the removed branch to end with an error")
+	}
+	if overflowed.Load() != 0 {
+		t.Fatal("removal must not be reported as an overflow")
+	}
+
+	go tee.Run()
+	data := readAllWithTimeout(t, live)
+	if string(data) != "0123456789" {
+		t.Fatalf("remaining branch did not receive the stream: %q", data)
+	}
+
+	// Removing an unknown name is a no-op.
+	tee.RemoveBranch("does-not-exist")
 }

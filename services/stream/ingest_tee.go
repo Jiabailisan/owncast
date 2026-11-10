@@ -39,6 +39,18 @@ type teeBranch struct {
 	failCh   chan struct{}
 }
 
+// errTeeBranchRemoved ends a branch whose process is being replaced.
+var errTeeBranchRemoved = errors.New("ingest tee: branch removed")
+
+// remove ends the branch without reporting an overflow: the branch's process is
+// being replaced rather than failing, so onOverflow must not fire.
+func (b *teeBranch) remove(err error) {
+	b.failOnce.Do(func() {
+		close(b.failCh)
+		_ = b.writer.CloseWithError(err)
+	})
+}
+
 // fail closes the branch with an error and stops its process (if configured).
 func (b *teeBranch) fail(err error) {
 	b.failOnce.Do(func() {
@@ -124,6 +136,31 @@ func (t *ingestTee) AddBranch(name string, critical bool, onOverflow func()) *io
 	go branch.pump()
 	log.Tracef("ingest tee: branch %q added (critical=%v)", name, critical)
 	return reader
+}
+
+// RemoveBranch finishes and unlinks every branch with the given name. A
+// supervised process that restarts calls this before adding its replacement,
+// otherwise dead branches would keep queueing chunks and retain memory for the
+// rest of the stream.
+func (t *ingestTee) RemoveBranch(name string) {
+	t.mu.Lock()
+	kept := t.branches[:0]
+	var removed []*teeBranch
+	for _, branch := range t.branches {
+		if branch.name == name {
+			removed = append(removed, branch)
+
+			continue
+		}
+		kept = append(kept, branch)
+	}
+	t.branches = kept
+	t.mu.Unlock()
+
+	for _, branch := range removed {
+		branch.remove(errTeeBranchRemoved)
+		log.Tracef("ingest tee: branch %q removed", name)
+	}
 }
 
 // Run copies the ingest stream to every branch until it ends or Close is

@@ -14,6 +14,8 @@ type fakeGeoIPProvider struct {
 	status models.GeoIPStatus
 }
 
+func (f fakeGeoIPProvider) GeoDetails(string) *geoip.GeoDetails { return nil }
+
 func (f fakeGeoIPProvider) GeoIPStatus() models.GeoIPStatus {
 	return f.status
 }
