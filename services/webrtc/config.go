@@ -72,14 +72,25 @@ const (
 // level 5.1, and advertising 3.1 makes some browsers fall back to software
 // decoding for an otherwise hardware-decodable stream.
 func canonicalH264Fmtp(profile, level string) (string, error) {
+	profileLevelID, err := canonicalH264ProfileLevelID(profile, level)
+	if err != nil {
+		return "", err
+	}
+
+	return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=" + profileLevelID, nil
+}
+
+// canonicalH264ProfileLevelID returns the full SDP profile-level-id (three
+// bytes) for the configured encoder profile and output level.
+func canonicalH264ProfileLevelID(profile, level string) (string, error) {
 	levelHex := h264LevelHex(level, profile)
 	switch strings.ToLower(strings.TrimSpace(profile)) {
 	case "", h264ProfileConstrainedBaseline, "constrained_baseline", h264ProfileBaseline:
-		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e0" + levelHex, nil
+		return "42e0" + levelHex, nil
 	case h264ProfileMain:
-		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d00" + levelHex, nil
+		return "4d00" + levelHex, nil
 	case h264ProfileHigh:
-		return "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=6400" + levelHex, nil
+		return "6400" + levelHex, nil
 	default:
 		return "", fmt.Errorf("%w: unknown h264 profile %q", ErrInvalidConfig, profile)
 	}

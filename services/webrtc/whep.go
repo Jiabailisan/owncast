@@ -395,13 +395,16 @@ func rewriteAnswerH264Level(answer *webrtc.SessionDescription, cfg models.WebRTC
 	if answer == nil {
 		return
 	}
-	levelHex := h264LevelHex(cfg.H264Level, cfg.H264Profile)
+	profileLevelID, err := canonicalH264ProfileLevelID(cfg.H264Profile, cfg.H264Level)
+	if err != nil {
+		return
+	}
 	answer.SDP = answerH264LevelPattern.ReplaceAllStringFunc(answer.SDP, func(match string) string {
 		index := strings.Index(match, "profile-level-id=")
 		if index < 0 {
 			return match
 		}
-		return match[:index+len("profile-level-id=")+4] + levelHex
+		return match[:index+len("profile-level-id=")] + profileLevelID
 	})
 }
 
