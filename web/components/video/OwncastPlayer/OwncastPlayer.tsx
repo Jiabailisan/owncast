@@ -587,24 +587,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         sdp: '—',
         // The rendition name only: the operator asked for the real quality, not a
         // wrapper around the word auto.
-        qualityName: (() => {
-          if (selectedQuality !== 'auto') {
-            return (
-              qualities.find(item => String(item.index) === selectedQuality)?.name ||
-              selectedQuality
-            );
-          }
-
-          // Resolve here rather than reading state: this builder is created once per
-          // stats session, so a state value captured at setup would stay empty.
-          const level = typeof vhs?.currentLevel === 'number' ? vhs.currentLevel : -1;
-          const activeName =
-            level >= 0
-              ? qualities[level]?.name || vhs?.representations?.()?.[level]?.name || ''
-              : '';
-
-          return activeName ? `Auto (${activeName})` : 'Auto';
-        })(),
+        qualityName:
+          selectedQuality === 'auto'
+            ? 'Auto'
+            : qualities.find(item => String(item.index) === selectedQuality)?.name ||
+              selectedQuality,
         videoBitrateKbps,
         audioBitrateKbps,
         connectionSpeedKbps,
@@ -683,18 +670,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     muted: initiallyMuted,
     html5: {
       vhs: {
-        // Auto means "best quality first, step down only when the link cannot keep
-        // up": start with an optimistic estimate and leave ABR enabled so it falls
-        // back on real measurements. enableLowInitialPlaylist does the opposite and
-        // starts every viewer on the cheapest rendition.
-        enableLowInitialPlaylist: false,
-        startLevel: -1,
-        abrEwmaDefaultEstimate: 8000000,
+        enableLowInitialPlaylist: true,
         experimentalBufferBasedABR: true,
-        // The Network Information API reports a coarse, often pessimistic downlink
-        // (Chrome said ~1.5 Mbps on a gigabit LAN), which overrides the estimate
-        // above and keeps Auto on a low rendition forever.
-        useNetworkInformationApi: false,
+        useNetworkInformationApi: true,
         maxPlaylistRetries: 30,
       },
     },
@@ -754,35 +732,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       }
     };
 
-    // Auto means "best quality first": ask for the top rendition once, without
-    // taking ABR out of the loop the way setting currentLevel would.
-    const preferTopRendition = () => {
-      if (selectedQuality !== 'auto') return;
-
-      try {
-        const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
-        const levels = vhs?.levels ?? [];
-        if (levels.length < 2) return;
-
-        let topLevel = 0;
-        let topBandwidth = -1;
-        levels.forEach((level, index) => {
-          const bandwidth = Number(level?.bitrate ?? level?.attributes?.BANDWIDTH ?? 0);
-          if (bandwidth > topBandwidth) {
-            topBandwidth = bandwidth;
-            topLevel = index;
-          }
-        });
-
-        if (vhs.currentLevel !== topLevel) {
-          // nextLevel is a one-shot switch: ABR stays enabled and may step down.
-          vhs.nextLevel = topLevel;
-        }
-      } catch {
-        // VHS not ready yet.
-      }
-    };
-
     // ABR can switch renditions while playing, so keep the label in step.
     const activeQualityTimer = setInterval(() => {
       if (player.paused()) return;
@@ -791,13 +740,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     player.on('dispose', () => clearInterval(activeQualityTimer));
 
-    // The levels only exist once the manifest is parsed, so ask for the top
-    // rendition there and again when playback starts.
-    player.on('loadedmetadata', preferTopRendition);
-    player.on('canplay', preferTopRendition);
-
     player.on('playing', () => {
-      preferTopRendition();
       updateActiveQuality();
       ping.start();
       setVideoPlaying(true);
