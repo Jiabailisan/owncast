@@ -40,6 +40,9 @@ export type PlayerControlsProps = {
   webrtcAvailable: boolean;
   qualities: PlayerQuality[];
   selectedQuality: string;
+  // Name of the variant actually playing while the selection is "auto", so the
+  // menu can show "Auto (1080p60@6Mbps)" instead of leaving the viewer to guess.
+  activeQualityName?: string;
   latencyEnabled: boolean;
   liveEdge: boolean;
   loading?: boolean;
@@ -65,6 +68,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   webrtcAvailable,
   qualities,
   selectedQuality,
+  activeQualityName = '',
   latencyEnabled,
   liveEdge,
   loading = false,
@@ -415,7 +419,10 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
                   data-player-control="true"
                   onClick={() => selectQuality('auto')}
                 >
-                  <span>Auto</span>
+                  <span>
+                    Auto
+                    {activeQualityName ? ` (${activeQualityName})` : ''}
+                  </span>
                   {selectedQuality === 'auto' && <CheckOutlined />}
                 </button>
                 {qualities.map(quality => (

@@ -407,6 +407,13 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         localSession = session;
         sessionRef.current = session;
 
+        // The server picks the variant when the selection is auto; name it so
+        // the menu and the viewer table show the real rendition.
+        if (session.variantIndex !== null && session.variantIndex !== undefined) {
+          const negotiated = (variants || []).find(item => item.index === session.variantIndex);
+          if (negotiated?.name) qualityLabelRef.current = negotiated.name;
+        }
+
         if (video) {
           video.srcObject = session.stream;
           video.addEventListener('playing', handlePlaying);

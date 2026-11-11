@@ -147,6 +147,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const [qualities, setQualities] = useState<VideoQuality[]>([]);
   // HLS quality is intentionally NOT persisted (reference behavior).
   const [selectedQuality, setSelectedQuality] = useState('auto');
+  // The variant actually playing, so "Auto" can show which rendition the
+  // player settled on.
+  const [activeQualityName, setActiveQualityName] = useState('');
   const [transportErrorVisible, setTransportErrorVisible] = useState(false);
   // Seed from storage so the menu shows the saved state on the first paint,
   // exactly like the WebRTC player; the player itself applies it when ready.
@@ -584,7 +587,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         sdp: '—',
         qualityName:
           selectedQuality === 'auto'
-            ? 'Auto'
+            ? activeRepresentation?.name
+              ? `Auto (${activeRepresentation.name})`
+              : 'Auto'
             : qualities.find(item => String(item.index) === selectedQuality)?.name ||
               selectedQuality,
         videoBitrateKbps,
@@ -699,7 +704,21 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on('seeked', () => setBuffering(false));
     pingTarget.measureLatency = () => measureHlsLatencyMs(player);
 
+    const updateActiveQuality = () => {
+      try {
+        const representations = player.tech(true)?.vhs?.representations?.() ?? [];
+        const active = representations.find(item => item?.enabled?.());
+        const name = active?.name || '';
+        setActiveQualityName(name);
+        // Report the rendition that is actually playing, not the word auto.
+        if (name) pingTarget.quality = name;
+      } catch {
+        // VHS not ready yet.
+      }
+    };
+
     player.on('playing', () => {
+      updateActiveQuality();
       ping.start();
       setVideoPlaying(true);
       setIsPlaying(true);
@@ -804,6 +823,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
               webrtcAvailable={webrtcAvailable}
               qualities={qualityOptions}
               selectedQuality={selectedQuality}
+              activeQualityName={activeQualityName}
               latencyEnabled={latencyEnabled}
               liveEdge={liveEdge}
               stats={stats}

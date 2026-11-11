@@ -609,9 +609,18 @@ func (v *HLSVariant) SetVideoBitrate(bitrate int) {
 
 func (v *HLSVariant) getVideoQualityString(t *Transcoder) []string {
 	if v.isVideoPassthrough {
-		return []string{
-			ffmpegFlagMap, "v:0", fmt.Sprintf("-c:v:%d", v.index), "copy",
+		args := []string{ffmpegFlagMap, "v:0", fmt.Sprintf("-c:v:%d", v.index), "copy"}
+
+		// A copied stream carries no encoder settings, so the HLS muxer has no
+		// bitrate to declare and falls back to a 1 Mbps default. The master playlist
+		// then advertises the most expensive rendition as the cheapest, which makes
+		// players pick it on any constrained link. Setting the codec metadata
+		// bitrate changes nothing about the copied bitstream, only the declaration.
+		if v.videoBitrate > 0 {
+			args = append(args, fmt.Sprintf("-b:v:%d", v.index), fmt.Sprintf("%dk", v.videoBitrate))
 		}
+
+		return args
 	}
 
 	gop := v.framerate * t.currentLatencyLevel.SecondsPerSegment // force an i-frame every segment
