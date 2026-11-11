@@ -43,6 +43,7 @@ import {
   videoAspectRatio,
 } from '../PlayerControls/stats';
 import { LATENCY_STORAGE_KEY } from '../PlayerControls/preferences';
+import ViewerPing from '../viewer-ping';
 import styles from './WebRTCPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
@@ -111,8 +112,26 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const onReadyRef = useRef(onReady);
 
   const [phase, setPhase] = useState<Phase>('idle');
+  // The WebRTC player never pinged the server, so viewers watching over WebRTC
+  // were missing from the native viewer count and the admin viewer lists.
+  const viewerPing = useRef<ViewerPing | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    if (phase !== 'ready') {
+      viewerPing.current?.stop();
+
+      return undefined;
+    }
+
+    if (!viewerPing.current) {
+      viewerPing.current = new ViewerPing();
+    }
+    viewerPing.current.start();
+
+    return () => viewerPing.current?.stop();
+  }, [phase]);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [bigUnmuteVisible, setBigUnmuteVisible] = useState(false);

@@ -5,12 +5,11 @@ import dynamic from 'next/dynamic';
 import { useTranslation } from 'next-export-i18n';
 import { Chart } from '../../components/admin/Chart';
 import { StatisticItem } from '../../components/admin/StatisticItem';
-import { PlaybackClientTable } from '../../components/admin/PlaybackClientTable';
 import { LiveViewerTable } from '../../components/admin/live/LiveViewerTable';
 
 import { ServerStatusContext } from '../../utils/server-status-context';
 
-import { VIEWERS_OVER_TIME, PLAYBACK_CLIENT_DETAILS, fetchData } from '../../utils/apis';
+import { VIEWERS_OVER_TIME, fetchData } from '../../utils/apis';
 
 import { AdminLayout } from '../../components/layouts/AdminLayout';
 import { Localization } from '../../types/localization';
@@ -26,7 +25,6 @@ const UserOutlined = dynamic(() => import('@ant-design/icons/UserOutlined'), {
 });
 
 const FETCH_INTERVAL = 60 * 1000; // 1 min
-const PLAYBACK_FETCH_INTERVAL = 15 * 1000; // 15 sec
 
 export default function ViewersOverTime() {
   const context = useContext(ServerStatusContext);
@@ -50,7 +48,6 @@ export default function ViewersOverTime() {
 
   const [loadingChart, setLoadingChart] = useState(true);
   const [viewerInfo, setViewerInfo] = useState([]);
-  const [playbackClients, setPlaybackClients] = useState([]);
   const [timeWindowStart, setTimeWindowStart] = useState(times[1]);
   const [timeWindowKey, setTimeWindowKey] = useState(1);
 
@@ -65,31 +62,7 @@ export default function ViewersOverTime() {
     }
   };
 
-  const getPlaybackClients = async () => {
-    try {
-      const result = await fetchData(PLAYBACK_CLIENT_DETAILS);
-      setPlaybackClients(result);
-    } catch (error) {
-      console.log('==== error', error);
-    }
-  };
-
   // Playback health describes what viewers are experiencing right now, and
-  // a client's measurements expire a minute after it stops playing, so this
-  // polls faster than the viewer count chart above it.
-  useEffect(() => {
-    if (!online) {
-      setPlaybackClients([]);
-      return () => {};
-    }
-
-    getPlaybackClients();
-    const intervalId = setInterval(getPlaybackClients, PLAYBACK_FETCH_INTERVAL);
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [online]);
-
   useEffect(() => {
     let getStatusIntervalId = null;
 
@@ -193,16 +166,12 @@ export default function ViewersOverTime() {
       {/* Rendered whether or not a stream is live. Offline it is an empty
           table, which is the honest answer to "who is watching" and keeps
           the section from vanishing when a streamer goes looking for it. */}
-      <Typography.Title level={3}>{t(Localization.Admin.PlaybackClients.title)}</Typography.Title>
+      <Typography.Title level={3}>Viewers</Typography.Title>
       <Typography.Paragraph>
-        {t(Localization.Admin.PlaybackClients.description)}
+        Every client watching right now, with the playback health the server measures for it:
+        protocol, bitrate, resolution, frame rate and packet loss.
       </Typography.Paragraph>
-      {/* The live viewers table is the one that lists WebRTC and HLS viewers; the
-          playback client table only shows players that report their own
-          measurements, which the built-in players never do. */}
       <LiveViewerTable enabled={online} />
-
-      <PlaybackClientTable data={playbackClients} />
     </>
   );
 }

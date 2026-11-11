@@ -73,6 +73,14 @@
 .statCard {
   height: 100%;
   min-width: 0;
+
+  // antd paints the inner card body with the content background, which showed as
+  // a square white block under the rounded card. Let the card's own background
+  // show through instead.
+  :global(.ant-card-body) {
+    height: 100%;
+    background: transparent;
+  }
 }
 
 .statTitle {
