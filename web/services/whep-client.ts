@@ -306,7 +306,11 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
 
     // The server picks the rendition when the request did not pin one; it reports
     // the choice back so the UI can name the quality being watched.
-    const reportedVariant = Number(response.headers.get('X-Owncast-Variant'));
+    // headers.get returns null when the header is absent, and Number(null) is 0:
+    // treating that as a variant would silently pin the first rendition.
+    const reportedHeader = response.headers.get('X-Owncast-Variant');
+    const reportedVariant =
+      reportedHeader === null || reportedHeader.trim() === '' ? NaN : Number(reportedHeader);
     const servedVariantIndex = Number.isInteger(reportedVariant) ? reportedVariant : variantIndex;
 
     // Start waiting for the track before applying the answer so an immediate

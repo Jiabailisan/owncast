@@ -77,6 +77,29 @@ describe('whep client', () => {
     jest.clearAllMocks();
   });
 
+  test('uses the variant the server reports when the request did not pin one', async () => {
+    const pc = new FakePeerConnection();
+    const fetchMock = jest.fn(async () =>
+      makeResponse('answer-sdp', {
+        status: 201,
+        headers: {
+          Location: '/webrtc/whep/session/def',
+          'X-Owncast-Variant': '2',
+        },
+      }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const session = await connectWHEP({
+      whepUrl: '/webrtc/whep',
+      variantIndex: null,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      pcFactory: () => asPeerConnection(pc),
+    });
+
+    expect(session.variantIndex).toBe(2);
+  });
+
   test('creates a session: offer POST, Location tracking, stream and ICE Link parsing', async () => {
     const pc = new FakePeerConnection();
     const fetchMock = jest.fn(async () =>
