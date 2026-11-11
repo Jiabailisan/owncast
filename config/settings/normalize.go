@@ -129,9 +129,9 @@ func normalizeWebRTCNetworkDefaults(config *models.WebRTCConfig) {
 	if config.TCPPort < 1024 {
 		config.TCPPort = defaults.TCPPort
 	}
-	// len() rather than == nil: a persisted empty list is just as unset, and
-	// leaving it empty produced "tcpEnabled is true but networkTypes has no
-	// tcp4/tcp6 entry" on a default install, with TCP ICE never working.
+	// len() rather than == nil: a persisted empty list is just as unset. An empty
+	// list left the ICE network types with no entries at all, so no candidate of any
+	// type could be gathered.
 	if len(config.NetworkTypes) == 0 {
 		if config.TCPEnabled {
 			config.NetworkTypes = defaultNetworkTypes()
@@ -139,25 +139,6 @@ func normalizeWebRTCNetworkDefaults(config *models.WebRTCConfig) {
 			config.NetworkTypes = []string{networkTypeUDP4, networkTypeUDP6}
 		}
 	}
-
-	// Keep the two switches consistent. The shipped default enables TCP but a config
-	// written before the network types existed can carry UDP-only types, which made
-	// every default install warn that tcpEnabled does nothing - and it did nothing,
-	// because no TCP candidate could be gathered.
-	if config.TCPEnabled && !hasNetworkType(config.NetworkTypes, networkTypeTCP4) && !hasNetworkType(config.NetworkTypes, networkTypeTCP6) {
-		config.NetworkTypes = append(config.NetworkTypes, networkTypeTCP4, networkTypeTCP6)
-	}
-}
-
-// hasNetworkType reports whether the ICE network type list contains one entry.
-func hasNetworkType(types []string, want string) bool {
-	for _, networkType := range types {
-		if networkType == want {
-			return true
-		}
-	}
-
-	return false
 }
 
 // normalizeWebRTCICEDefaults fills the ICE and TURN defaults.
