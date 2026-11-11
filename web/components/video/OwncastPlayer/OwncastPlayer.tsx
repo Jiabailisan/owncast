@@ -191,6 +191,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   // The variant actually playing, so "Auto" can show which rendition the
   // player settled on.
   const [activeQualityName, setActiveQualityName] = useState('');
+  // The stats builder runs in an effect created once per panel session, so it reads
+  // this ref instead of the state and reports the rendition actually playing.
+  const activeQualityNameRef = useRef('');
   const [transportErrorVisible, setTransportErrorVisible] = useState(false);
   // Seed from storage so the menu shows the saved state on the first paint,
   // exactly like the WebRTC player; the player itself applies it when ready.
@@ -649,7 +652,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         // wrapper around the word auto.
         qualityName:
           selectedQuality === 'auto'
-            ? 'Auto'
+            ? activeQualityNameRef.current
+              ? 'Auto (' + activeQualityNameRef.current + ')'
+              : 'Auto'
             : qualities.find(item => String(item.index) === selectedQuality)?.name ||
               selectedQuality,
         videoBitrateKbps,
@@ -785,6 +790,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     const updateActiveQuality = () => {
       const name = activeRenditionName();
+      activeQualityNameRef.current = name;
       setActiveQualityName(name);
       pingTarget.quality = name || 'auto';
     };

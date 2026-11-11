@@ -117,6 +117,9 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const reporter = useRef<ViewerReporter | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
+  // Buffering is tracked the same way the HLS player tracks it, so a stalled
+  // WebRTC playback shows the same spinner instead of looking frozen.
+  const [buffering, setBuffering] = useState(false);
 
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -155,6 +158,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   // The heartbeat reports the quality by name, not by index: "1080p60@6Mbps" is
   // what an operator recognises in the viewer table.
   const qualityLabelRef = useRef('auto');
+  // The rendition the session is actually served. Kept in a ref as well so the
+  // stats builder, created once per panel session, does not read a stale value.
+  const [activeVariantName, setActiveVariantName] = useState('');
+  const activeVariantNameRef = useRef('');
   useEffect(() => {
     if (selectedVariant === null) {
       qualityLabelRef.current = 'auto';
@@ -393,7 +400,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     let cancelled = false;
     let localSession: WHEPSessionHandle | null = null;
 
+    const handleWaiting = () => setBuffering(true);
+    const handleCanPlay = () => setBuffering(false);
+
     const handlePlaying = () => {
+      setBuffering(false);
       setIsPlaying(true);
       setPhase('ready');
       updateBigUnmute();
@@ -427,13 +438,20 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         // the menu and the viewer table show the real rendition.
         if (session.variantIndex !== null && session.variantIndex !== undefined) {
           const negotiated = (variants || []).find(item => item.index === session.variantIndex);
-          if (negotiated?.name) qualityLabelRef.current = negotiated.name;
+          if (negotiated?.name) {
+            qualityLabelRef.current = negotiated.name;
+            activeVariantNameRef.current = negotiated.name;
+            setActiveVariantName(negotiated.name);
+          }
         }
 
         if (video) {
           video.srcObject = session.stream;
           video.addEventListener('playing', handlePlaying);
           video.addEventListener('pause', handlePause);
+          video.addEventListener('waiting', handleWaiting);
+          video.addEventListener('canplay', handleCanPlay);
+          video.addEventListener('seeked', handleCanPlay);
           video.addEventListener('volumechange', handleVolumeChange);
         }
 
@@ -486,6 +504,9 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       if (video) {
         video.removeEventListener('playing', handlePlaying);
         video.removeEventListener('pause', handlePause);
+        video.removeEventListener('waiting', handleWaiting);
+        video.removeEventListener('canplay', handleCanPlay);
+        video.removeEventListener('seeked', handleCanPlay);
         video.removeEventListener('volumechange', handleVolumeChange);
         video.srcObject = null;
       }
@@ -625,24 +646,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
               );
             }
 
-            // Auto: name the rendition the server actually negotiated, and fall back
-            // to matching the decoded height against the variant names when the
-            // session does not report which one it is.
-            const negotiated = session.variantIndex;
-            const negotiatedVariant =
-              negotiated === null || negotiated === undefined
-                ? undefined
-                : (variants || []).find(v => v.index === negotiated);
-            if (negotiatedVariant?.name) return negotiatedVariant.name;
+            // Same shape as the HLS player so the panel reads the same for both.
+            const active = activeVariantNameRef.current;
+            if (active) return 'Auto (' + active + ')';
 
-            const height = videoRef.current?.videoHeight;
-            const byHeight = height
-              ? (variants || []).find(
-                  v => typeof v.name === 'string' && v.name.includes(String(height)),
-                )
-              : undefined;
-
-            return byHeight?.name || 'Auto';
+            return 'Auto';
           })(),
           videoBitrateKbps: panelSample.videoBitrateKbps,
           audioBitrateKbps: panelSample.audioBitrateKbps,
@@ -893,11 +901,12 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           webrtcAvailable={webrtcAvailable}
           qualities={qualityOptions}
           selectedQuality={selectedQuality}
+          activeQualityName={activeVariantName}
           latencyEnabled={latencyEnabled}
           liveEdge
           // Hides the centre play button while the session is being negotiated; the
           // connecting overlay draws its own status text on top.
-          loading={phase === 'connecting'}
+          loading={phase === 'connecting' || buffering}
           stats={stats}
           sparklines={sparklines}
           statsOpen={statsOpen}

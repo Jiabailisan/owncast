@@ -159,8 +159,10 @@ describe('WebRTCPlayer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByText('Stats for nerds')).toBeInTheDocument();
     expect(screen.getByText('Minimize latency')).toBeInTheDocument();
-    expect(screen.getAllByText('Auto').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('720p')).toBeInTheDocument();
+    // The menu row and the stats label both name the rendition the session is
+    // actually served, matching the HLS player: "Auto (720p)".
+    expect(screen.getByText('Auto (720p)')).toBeInTheDocument();
+    expect(screen.getAllByText('720p').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('360p')).toBeInTheDocument();
   });
 
