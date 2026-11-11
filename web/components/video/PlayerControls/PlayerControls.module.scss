@@ -127,23 +127,31 @@ $blur: var(--owncast-overlay-blur, 12px);
   align-items: center;
   width: 36px;
   height: 34px;
+  overflow: hidden;
   background: none;
   border-radius: 999px;
   outline: none;
-  transition: background-color 0.16s;
+  transition:
+    width 0.18s,
+    background-color 0.16s;
 
-  // The slider floats above the bar instead of growing the pill, so the control
-  // bar never reflows when the pointer crosses the volume control. Expansion is
-  // owned by CSS: the browser tracks hover and focus itself.
+  // The slider lives inside the pill and the pill grows to make room for it.
+  // Expansion is owned by CSS: the browser tracks hover and focus itself, so
+  // there is no React state that can fall out of sync with the pointer.
   &:hover,
   &:has(:focus-visible) {
+    width: 120px;
     background: rgb(255 255 255 / 12%);
 
     .volumePopover {
-      visibility: visible;
+      width: 78px;
+      margin-right: 6px;
       pointer-events: auto;
       opacity: 1;
-      transform: translate(-50%, 0);
+    }
+
+    .iconButton {
+      background: transparent;
     }
   }
 
@@ -157,24 +165,21 @@ $blur: var(--owncast-overlay-blur, 12px);
 }
 
 .volumePopover {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 50%;
   display: flex;
   align-items: center;
-  width: 120px;
-  padding: 6px 12px;
-  visibility: hidden;
+  width: 0;
+  padding: 0;
+  margin-right: 0;
+  overflow: hidden;
   pointer-events: none;
-  background: rgb(0 0 0 / 82%);
-  border: 1px solid rgb(255 255 255 / 12%);
-  border-radius: 999px;
+  background: none;
+  border: 0;
+  border-radius: 0;
   opacity: 0;
-  transform: translate(-50%, 6px);
   transition:
-    opacity 0.16s,
-    transform 0.16s,
-    visibility 0.16s;
+    width 0.18s,
+    margin 0.18s,
+    opacity 0.14s;
 }
 
 .volumeSlider {
