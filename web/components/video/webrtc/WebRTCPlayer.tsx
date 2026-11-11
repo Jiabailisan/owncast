@@ -178,7 +178,23 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     if (!reporter.current) {
       reporter.current = new ViewerReporter(async () => ({
         protocol: 'webrtc' as const,
-        quality: qualityLabelRef.current,
+        // Report the rendition, not the word auto: match the decoded height against
+        // the variant names when the session does not report which one it is.
+        quality: (() => {
+          if (qualityLabelRef.current && qualityLabelRef.current !== 'auto') {
+            return qualityLabelRef.current;
+          }
+
+          const height = videoRef.current?.videoHeight;
+          const matched = height
+            ? (variants || []).find(
+                variant =>
+                  typeof variant.name === 'string' && variant.name.includes(String(height)),
+              )
+            : undefined;
+
+          return matched?.name || qualityLabelRef.current;
+        })(),
         latencyMs: await webrtcLatencyMs(sessionRef.current?.pc ?? null),
         resolution: videoResolution(videoRef.current),
       }));
@@ -609,14 +625,24 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
               );
             }
 
-            // Auto: name the variant the server actually negotiated for this session.
+            // Auto: name the rendition the server actually negotiated, and fall back
+            // to matching the decoded height against the variant names when the
+            // session does not report which one it is.
             const negotiated = session.variantIndex;
-            const negotiatedName =
+            const negotiatedVariant =
               negotiated === null || negotiated === undefined
                 ? undefined
-                : (variants || []).find(v => v.index === negotiated)?.name;
+                : (variants || []).find(v => v.index === negotiated);
+            if (negotiatedVariant?.name) return negotiatedVariant.name;
 
-            return negotiatedName ? `Auto (${negotiatedName})` : 'Auto';
+            const height = videoRef.current?.videoHeight;
+            const byHeight = height
+              ? (variants || []).find(
+                  v => typeof v.name === 'string' && v.name.includes(String(height)),
+                )
+              : undefined;
+
+            return byHeight?.name || 'Auto';
           })(),
           videoBitrateKbps: panelSample.videoBitrateKbps,
           audioBitrateKbps: panelSample.audioBitrateKbps,

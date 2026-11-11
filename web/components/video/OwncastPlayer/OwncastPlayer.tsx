@@ -585,17 +585,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         normalizedVolume: volumeInfo.normalizedVolume,
         codecs: 'H.264 / AAC (HLS)',
         sdp: '—',
+        // The rendition name only: the operator asked for the real quality, not a
+        // wrapper around the word auto.
         qualityName:
           selectedQuality === 'auto'
-            ? activeQualityName
-              ? `Auto (${activeQualityName})`
-              : resolution
-                ? `Auto (${resolution}${
-                    activeRepresentation?.bandwidth
-                      ? ` @ ${(Number(activeRepresentation.bandwidth) / 1000000).toFixed(1)} Mbps`
-                      : ''
-                  })`
-                : 'Auto'
+            ? activeQualityName || 'Auto'
             : qualities.find(item => String(item.index) === selectedQuality)?.name ||
               selectedQuality,
         videoBitrateKbps,
@@ -676,7 +670,13 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     muted: initiallyMuted,
     html5: {
       vhs: {
-        enableLowInitialPlaylist: true,
+        // Auto means "best quality first, step down only when the link cannot keep
+        // up": start with an optimistic estimate and leave ABR enabled so it falls
+        // back on real measurements. enableLowInitialPlaylist does the opposite and
+        // starts every viewer on the cheapest rendition.
+        enableLowInitialPlaylist: false,
+        startLevel: -1,
+        abrEwmaDefaultEstimate: 8000000,
         experimentalBufferBasedABR: true,
         useNetworkInformationApi: true,
         maxPlaylistRetries: 30,
@@ -727,56 +727,15 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       }
     };
 
-    // Auto means "the best this stream offers": hls.js estimates the available
-    // bandwidth conservatively (a LAN viewer was measured at 1.4 Mbps), so its own
-    // ABR never climbs to the top rendition. Pin the highest-bandwidth level while
-    // Auto is selected; picking a specific level in the menu takes over from here.
-    const pinBestLevel = () => {
-      if (selectedQuality !== 'auto') return;
-
-      try {
-        const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
-        const representations = vhs?.representations?.() ?? [];
-        if (representations.length < 2) return;
-
-        let bestLevel = 0;
-        let bestBandwidth = -1;
-        representations.forEach((representation, level) => {
-          const bandwidth = Number(
-            representation?.attributes?.BANDWIDTH ?? representation?.bandwidth ?? 0,
-          );
-          if (bandwidth > bestBandwidth) {
-            bestBandwidth = bandwidth;
-            bestLevel = level;
-          }
-        });
-
-        if (vhs.currentLevel !== bestLevel) {
-          vhs.currentLevel = bestLevel;
-        }
-      } catch {
-        // VHS not ready yet.
-      }
-    };
-
-    pinBestLevel();
-
     // ABR can switch renditions while playing, so keep the label in step.
     const activeQualityTimer = setInterval(() => {
       if (player.paused()) return;
-      pinBestLevel();
       updateActiveQuality();
     }, 5000);
 
     player.on('dispose', () => clearInterval(activeQualityTimer));
 
-    // The manifest is not parsed yet when the player becomes ready, so pin again as
-    // soon as the levels exist and whenever playback starts.
-    player.on('loadedmetadata', pinBestLevel);
-    player.on('canplay', pinBestLevel);
-
     player.on('playing', () => {
-      pinBestLevel();
       updateActiveQuality();
       ping.start();
       setVideoPlaying(true);
