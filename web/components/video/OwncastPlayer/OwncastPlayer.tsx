@@ -82,7 +82,13 @@ const measureHlsLatencyMs = (player): number | null => {
       liveEdgeLatencySeconds: liveEdgeLatency,
     });
 
-    return latency === null ? null : latency * 1000;
+    if (latency !== null) {
+      return latency * 1000;
+    }
+
+    // Without program-date-time stamps the distance to the live edge is the only
+    // measurable value; report it rather than nothing.
+    return liveEdgeLatency === null ? null : liveEdgeLatency * 1000;
   } catch {
     return null;
   }
