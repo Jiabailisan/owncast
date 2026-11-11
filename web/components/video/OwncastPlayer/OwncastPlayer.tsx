@@ -48,14 +48,51 @@ const PLAYER_VOLUME = 'owncast_volume';
 // The heartbeat reports the quality the player settled on and the decoded
 // resolution alongside the viewer count; both are read from this holder so the
 // module-level reporter always sees the latest values.
+// VhsRepresentation is the subset of a VHS representation the quality menu needs.
+type VhsRepresentation = {
+  id?: string;
+  enabled?: (value?: boolean) => boolean | void;
+};
+
+// VhsHandler is the subset of the video.js VHS tech wrapper used here. It is not
+// an hls.js instance: it exposes representations() and playlistController_.
+type VhsHandler = {
+  representations?: () => VhsRepresentation[];
+  playlists?: { media?: () => { uri?: string } | null };
+  playlistController_?: { fastQualityChange_?: () => void };
+};
+
+// variantIndexFromRepresentation extracts the configured variant index from a
+// representation id such as "0-0/stream.m3u8" or "1-1/stream.m3u8".
+const variantIndexFromRepresentation = (representation: VhsRepresentation): number | null => {
+  const id = representation?.id;
+  if (!id) return null;
+
+  const directory = id.split('/')[0];
+  const index = Number(directory.split('-')[0]);
+
+  return Number.isInteger(index) ? index : null;
+};
+
+// activeVariantIndex reports the variant VHS is actually playing, read from the
+// media playlist currently in use, so labels describe playback rather than the
+// menu selection.
+const activeVariantIndex = (vhs: VhsHandler | undefined): number | null => {
+  const uri = String(vhs?.playlists?.media?.()?.uri ?? '');
+  const match = /(?:^|\/)(\d+)\/stream\.m3u8/.exec(uri);
+
+  return match ? Number(match[1]) : null;
+};
+
 const pingTarget = {
   quality: 'auto',
+  readQuality: null as (() => string) | null,
   video: null as HTMLVideoElement | null,
   measureLatency: null as (() => number | null) | null,
 };
 const ping = new ViewerReporter(() => ({
   protocol: 'hls' as const,
-  quality: pingTarget.quality,
+  quality: pingTarget.readQuality ? pingTarget.readQuality() : pingTarget.quality,
   // Measured per heartbeat: the playlist arrives after playback starts, so a
   // value captured once at 'playing' would stay null forever.
   latencyMs: pingTarget.measureLatency ? pingTarget.measureLatency() : null,
@@ -267,63 +304,36 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
   };
 
-  // applyQuality pins a hls.js level. Toggling representation.enabled() only
-  // changes which levels ABR may pick, and while auto level selection is on hls.js
-  // keeps its own choice, so the first click on a quality appeared to do nothing
-  // and it took a second click to move. Setting currentLevel is the documented way
-  // to force a level (-1 hands control back to ABR), and hls.js switches at the
-  // next fragment.
+  // applyQuality drives the VHS tech wrapper. In this video.js build
+  // player.tech().vhs is NOT an hls.js instance: it exposes representations(),
+  // playlists and playlistController_.fastQualityChange_(), but no levels or
+  // currentLevel. Selecting a rendition therefore means enabling only that
+  // representation (VHS's ABR only considers enabled ones) and then asking the
+  // controller to switch immediately instead of waiting for the next selection
+  // round, which is what made a single click appear to do nothing.
   const applyQuality = (qualityId: string) => {
     try {
-      const tech = playerRef.current?.tech?.({ IWillNotUseThisInPlugins: true });
-      const vhs = tech?.vhs;
-      const levels = vhs?.levels;
-      // Temporary diagnostic: the quality switch cannot be exercised from a
-      // headless probe without visibility into the hls.js instance.
-      try {
-        const handler = vhs as unknown as Record<string, unknown> & {
-          representations?: () => Array<Record<string, unknown>>;
-          playlistController_?: Record<string, unknown>;
-          selectPlaylist?: unknown;
-        };
-        const controller = handler?.playlistController_ ?? {};
-        (window as unknown as Record<string, unknown>).__owncastQualityDebug = {
-          qualityId,
-          hasTech: Boolean(tech),
-          hasVhs: Boolean(vhs),
-          hasLevels: Array.isArray(levels),
-          reps: (handler?.representations?.() ?? []).map(rep => ({
-            id: rep.id,
-            bandwidth: rep.bandwidth,
-            width: rep.width,
-            height: rep.height,
-            enabled: typeof rep.enabled === 'function' ? rep.enabled() : null,
-          })),
-          controllerKeys: Object.keys(controller).filter(
-            key => key.includes('select') || key.includes('quality') || key.includes('Quality'),
-          ),
-          hasFastQualityChange: typeof controller.fastQualityChange_ === 'function',
-          hasSelectPlaylist: typeof handler?.selectPlaylist === 'function',
-        };
-      } catch {
-        // Diagnostics must never break playback.
-      }
-      if (!vhs || !Array.isArray(levels) || levels.length === 0) return false;
+      const vhs = playerRef.current?.tech?.({ IWillNotUseThisInPlugins: true })?.vhs as
+        VhsHandler | undefined;
+      const representations = vhs?.representations?.() ?? [];
+      if (representations.length === 0) return false;
 
-      if (qualityId === 'auto') {
-        vhs.currentLevel = -1;
-        return true;
-      }
+      const wanted = qualityId === 'auto' ? null : Number(qualityId);
+      if (wanted !== null && !Number.isInteger(wanted)) return false;
 
-      // Levels follow the master playlist, whose order is the configured variant
-      // order, so match the variant directory in the level URI first and fall back
-      // to the index.
-      const wanted = String(qualityId);
-      let level = levels.findIndex(item => String(item?.uri || '').split('/')[0] === wanted);
-      if (level < 0) level = Number(qualityId);
-      if (!Number.isInteger(level) || level < 0 || level >= levels.length) return false;
+      representations.forEach(representation => {
+        const shouldEnable =
+          wanted === null || variantIndexFromRepresentation(representation) === wanted;
+        // enabled() without an argument is a getter; call it only when the value
+        // actually has to change, because VHS re-runs selection on every write.
+        const current = representation.enabled?.();
+        if (current === shouldEnable) return;
+        representation.enabled?.(shouldEnable);
+      });
 
-      vhs.currentLevel = level;
+      // Switch now rather than after the next segment boundary.
+      vhs?.playlistController_?.fastQualityChange_?.();
+
       return true;
     } catch {
       return false;
@@ -754,33 +764,33 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on('seeked', () => setBuffering(false));
     pingTarget.measureLatency = () => measureHlsLatencyMs(player);
 
-    // renditionNameAt resolves a VHS level to the configured variant name. hls.js
-    // lists the levels in master-playlist order, which is the configured variant
-    // order, so the level index is the variant index.
-    const renditionNameAt = (level: number): string => {
-      if (level < 0) return '';
+    // renditionName resolves the configured variant name for a variant index.
+    const renditionName = (variantIndex: number | null): string => {
+      if (variantIndex === null) return '';
 
-      const byConfig = qualitiesRef.current[level]?.name;
-      if (byConfig) return byConfig;
+      return qualitiesRef.current[variantIndex]?.name || '';
+    };
 
-      const representations =
-        player.tech({ IWillNotUseThisInPlugins: true })?.vhs?.representations?.() ?? [];
+    // activeRenditionName reads the playlist VHS is actually playing, so the menu,
+    // the stats panel and the heartbeat describe playback rather than the selection.
+    const activeRenditionName = (): string => {
+      try {
+        const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs as VhsHandler | undefined;
 
-      return representations[level]?.name || '';
+        return renditionName(activeVariantIndex(vhs));
+      } catch {
+        return '';
+      }
     };
 
     const updateActiveQuality = () => {
-      try {
-        const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
-        const level = typeof vhs?.currentLevel === 'number' ? vhs.currentLevel : -1;
-        const name = renditionNameAt(level);
-        setActiveQualityName(name);
-        // Report the rendition that is actually playing, not the word auto.
-        if (name) pingTarget.quality = name;
-      } catch {
-        // VHS not ready yet.
-      }
+      const name = activeRenditionName();
+      setActiveQualityName(name);
+      pingTarget.quality = name || 'auto';
     };
+
+    // The heartbeat reports the active rendition per sample, not the last selection.
+    pingTarget.readQuality = activeRenditionName;
 
     // ABR can switch renditions while playing, so keep the label in step.
     const activeQualityTimer = setInterval(() => {
