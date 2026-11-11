@@ -18,12 +18,12 @@ import {
 } from '../../../utils/format';
 import { MOBILE_BREAKPOINT_QUERY, useMediaQuery } from '../../../hooks/useMediaQuery';
 import { Translation } from '../../ui/Translation/Translation';
+import { VIEWER_REFRESH_MS } from '../../../utils/viewer-report';
 import styles from './live.module.scss';
 
 const { Text } = Typography;
 
 const PAGE_SIZE = 25;
-const VIEWERS_REFRESH_MS = 10000;
 
 // Placeholders that must never be joined into the location string. GeoIP reports
 // "N/A" for viewers without a public location (viewers on the server's own
@@ -149,7 +149,7 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
     const timer = setInterval(() => {
       if (document.visibilityState === 'hidden') return;
       setRefreshToken(token => token + 1);
-    }, VIEWERS_REFRESH_MS);
+    }, VIEWER_REFRESH_MS);
     return () => clearInterval(timer);
   }, [enabled]);
 

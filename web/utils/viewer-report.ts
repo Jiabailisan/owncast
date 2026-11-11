@@ -3,7 +3,9 @@
 // player settled on, the latency it is experiencing and the display name of the
 // viewer. Everything is optional; a player that reports nothing still counts.
 const ENDPOINT = '/api/ping';
-const INTERVAL_MS = 5000;
+// The heartbeat runs at the same cadence the admin viewer table refreshes, so a
+// row never shows values older than one refresh cycle.
+export const VIEWER_REFRESH_MS = 10000;
 
 const DISPLAY_NAME_KEY = 'displayName';
 const ACCESS_TOKEN_KEY = 'accessToken';
@@ -44,7 +46,7 @@ export class ViewerReporter {
   start() {
     this.stop();
     this.send();
-    this.timer = setInterval(() => this.send(), INTERVAL_MS);
+    this.timer = setInterval(() => this.send(), VIEWER_REFRESH_MS);
   }
 
   stop() {

@@ -157,7 +157,10 @@
 
 .outboundTable {
   min-width: 0;
-  overflow-x: auto;
+
+  // No overflow here: with overflow-x auto the browser also makes overflow-y auto,
+  // which put a second scrollbar inside the card. The table grows with its rows and
+  // the page keeps the only scrollbar.
 }
 
 .outboundEncoder {
