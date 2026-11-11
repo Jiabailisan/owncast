@@ -7,6 +7,7 @@ package livestatus
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -398,6 +399,16 @@ func liveViewerFromViewer(viewer models.Viewer) models.LiveViewer {
 	// name, and the built-in players report both with their heartbeat.
 	row.Username = viewer.DisplayName
 	row.Quality = viewer.ReportedQuality
+	// A player that reports the variant index instead of its name still gets a
+	// readable quality: the server knows the variant it is serving.
+	if viewer.VariantName != "" {
+		if _, err := strconv.Atoi(row.Quality); err == nil {
+			row.Quality = viewer.VariantName
+		}
+	}
+	if row.Quality == "" {
+		row.Quality = viewer.VariantName
+	}
 	row.LatencyMs = viewer.ReportedLatency
 
 	return row

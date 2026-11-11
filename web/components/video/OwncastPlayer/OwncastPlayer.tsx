@@ -51,12 +51,14 @@ const PLAYER_VOLUME = 'owncast_volume';
 const pingTarget = {
   quality: 'auto',
   video: null as HTMLVideoElement | null,
-  latencyMs: null as number | null,
+  measureLatency: null as (() => number | null) | null,
 };
 const ping = new ViewerReporter(() => ({
   protocol: 'hls' as const,
   quality: pingTarget.quality,
-  latencyMs: pingTarget.latencyMs,
+  // Measured per heartbeat: the playlist arrives after playback starts, so a
+  // value captured once at 'playing' would stay null forever.
+  latencyMs: pingTarget.measureLatency ? pingTarget.measureLatency() : null,
   resolution: videoResolution(pingTarget.video),
 }));
 
@@ -677,8 +679,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on('waiting', () => setBuffering(true));
     player.on('canplay', () => setBuffering(false));
     player.on('seeked', () => setBuffering(false));
+    pingTarget.measureLatency = () => measureHlsLatencyMs(player);
+
     player.on('playing', () => {
-      pingTarget.latencyMs = measureHlsLatencyMs(player);
       ping.start();
       setVideoPlaying(true);
       setIsPlaying(true);
