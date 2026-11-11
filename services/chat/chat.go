@@ -113,6 +113,27 @@ func (s *Service) FindClientByID(clientID uint) (*Client, bool) {
 	return client, found
 }
 
+// ResolveLocation returns the client location, resolving it on demand for a
+// client that connected before GeoIP could answer (for example one created by an
+// older build or while the database was still loading).
+func (s *Service) ResolveLocation(client *Client) *geoip.GeoDetails {
+	if client == nil {
+		return nil
+	}
+
+	if client.Geo != nil {
+		return client.Geo
+	}
+
+	if s.geoipClient == nil || client.IPAddress == "" {
+		return nil
+	}
+
+	client.Geo = s.geoipClient.GetGeoFromIP(client.IPAddress)
+
+	return client.Geo
+}
+
 // GetClients will return all the current chat clients connected.
 func (s *Service) GetClients() []*Client {
 	clients := []*Client{}

@@ -77,8 +77,9 @@ func (h *Handler) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 			ConnectedAt:  c.ConnectedAt,
 		}
 		// The full details, not just the country code: the client renders city,
-		// region and country, and needs "Local" for LAN viewers.
-		client.Geo = c.Geo
+		// region and country, and needs "Local" for LAN viewers. ResolveLocation
+		// also fills in a location the client did not get at connect time.
+		client.Geo = h.chat.ResolveLocation(c)
 
 		clients[i] = client
 	}
