@@ -20,7 +20,7 @@ const mockUserData = {
       userAgent:
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
       connectedAt: '2022-07-20T16:45:07.796685618-07:00',
-      geo: 'N/A',
+      geo: { countryCode: 'JP', regionName: 'Hokkaido', city: 'Sapporo' },
     },
   ],
   messages: [
