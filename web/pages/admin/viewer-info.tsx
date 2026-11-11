@@ -6,6 +6,7 @@ import { useTranslation } from 'next-export-i18n';
 import { Chart } from '../../components/admin/Chart';
 import { StatisticItem } from '../../components/admin/StatisticItem';
 import { PlaybackClientTable } from '../../components/admin/PlaybackClientTable';
+import { LiveViewerTable } from '../../components/admin/live/LiveViewerTable';
 
 import { ServerStatusContext } from '../../utils/server-status-context';
 
@@ -196,6 +197,11 @@ export default function ViewersOverTime() {
       <Typography.Paragraph>
         {t(Localization.Admin.PlaybackClients.description)}
       </Typography.Paragraph>
+      {/* The live viewers table is the one that lists WebRTC and HLS viewers; the
+          playback client table only shows players that report their own
+          measurements, which the built-in players never do. */}
+      <LiveViewerTable enabled={online} />
+
       <PlaybackClientTable data={playbackClients} />
     </>
   );

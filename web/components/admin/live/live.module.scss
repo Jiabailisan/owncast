@@ -178,6 +178,10 @@
 .viewerCards {
   display: grid;
   gap: 10px;
+
+  // Cards size to their own content. Stretching them to the tallest card in the
+  // row left a white block under the shorter ones at narrow widths.
+  align-items: start;
   grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
 }
 
