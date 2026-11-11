@@ -69,7 +69,7 @@ const measureHlsLatencyMs = (player): number | null => {
   if (!player) return null;
 
   try {
-    const vhs = player.tech(true)?.vhs;
+    const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
     const playhead = Number(player.currentTime()) || 0;
     let liveEdgeLatency: number | null = null;
     const liveCurrent = Number(player.liveTracker?.liveCurrentTime?.()) || 0;
@@ -706,7 +706,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     const updateActiveQuality = () => {
       try {
-        const vhs = player.tech(true)?.vhs;
+        const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
         const representations = vhs?.representations?.() ?? [];
         const level = typeof vhs?.currentLevel === 'number' ? vhs.currentLevel : -1;
         const active = representations[level] ?? representations.find(item => item?.enabled?.());
@@ -729,7 +729,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       if (selectedQuality !== 'auto') return;
 
       try {
-        const vhs = player.tech(true)?.vhs;
+        const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
         const representations = vhs?.representations?.() ?? [];
         if (representations.length < 2) return;
 
