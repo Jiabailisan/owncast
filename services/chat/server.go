@@ -189,6 +189,11 @@ func (s *Service) Addclient(conn *websocket.Conn, user *models.User, accessToken
 	// has a location instead of missing it for the first seconds of a session.
 	if s.geoipClient != nil {
 		client.Geo = s.geoipClient.GetGeoFromIP(ipAddress)
+		if client.Geo == nil {
+			log.Warnln("chat: no location resolved for client address", ipAddress)
+		}
+	} else {
+		log.Warnln("chat: geoip client is not wired; client locations are unavailable")
 	}
 
 	return client
