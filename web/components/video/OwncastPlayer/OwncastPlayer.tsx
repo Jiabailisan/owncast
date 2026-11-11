@@ -727,7 +727,20 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       const vhs = player.tech(true)?.vhs;
       const representations = vhs?.representations?.() ?? [];
       if (representations.length > 1 && selectedQuality === 'auto') {
-        vhs.startLevel = representations.length - 1;
+        // Highest bandwidth, not last index: the master playlist lists the
+        // passthrough first and it is the most expensive rendition.
+        let bestLevel = 0;
+        let bestBandwidth = -1;
+        representations.forEach((representation, level) => {
+          const bandwidth = Number(
+            representation?.attributes?.BANDWIDTH ?? representation?.bandwidth ?? 0,
+          );
+          if (bandwidth > bestBandwidth) {
+            bestBandwidth = bandwidth;
+            bestLevel = level;
+          }
+        });
+        vhs.startLevel = bestLevel;
       }
     } catch {
       // VHS not ready yet.
