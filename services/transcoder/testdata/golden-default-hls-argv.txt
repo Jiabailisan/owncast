@@ -16,8 +16,10 @@ v:0
 libx264
 -b:v:0
 1008k
+-minrate:v:0
+100k
 -maxrate:v:0
-1088k
+3008k
 -g:v:0
 72
 -keyint_min:v:0
@@ -27,7 +29,7 @@ libx264
 -x264-params:v:0
 scenecut=0:open_gop=0
 -bufsize:v:0
-1088k
+3008k
 -profile:v:0
 high
 -map

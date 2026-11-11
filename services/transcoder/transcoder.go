@@ -148,7 +148,18 @@ func (v *HLSVariant) getAllocatedVideoBitrate() int {
 
 // getMaxVideoBitrate returns the maximum video bitrate we allow the encoder to support.
 func (v *HLSVariant) getMaxVideoBitrate() int {
-	return int(float64(v.getAllocatedVideoBitrate()) * 1.08)
+	return v.getAllocatedVideoBitrate() + bitrateToleranceKbps
+}
+
+// getMinVideoBitrate is the floor of the VBR window: a static scene may not
+// collapse below it, which keeps the stream from looking starved.
+func (v *HLSVariant) getMinVideoBitrate() int {
+	minBitrate := v.getAllocatedVideoBitrate() - bitrateToleranceKbps
+	if minBitrate < 100 {
+		return 100
+	}
+
+	return minBitrate
 }
 
 // getBufferSize returns how often it checks the bitrate of encoded segments to see if it's too high/low.
@@ -610,6 +621,7 @@ func (v *HLSVariant) getVideoQualityString(t *Transcoder) []string {
 		ffmpegFlagMap, "v:0",
 		fmt.Sprintf("-c:v:%d", v.index), t.codec.Name(), // Video codec used for this variant
 		fmt.Sprintf("-b:v:%d", v.index), fmt.Sprintf("%dk", v.getAllocatedVideoBitrate()), // The average bitrate for this variant allowing space for audio
+		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.getMinVideoBitrate()), // Floor of the VBR window
 		fmt.Sprintf("-maxrate:v:%d", v.index), fmt.Sprintf("%dk", v.getMaxVideoBitrate()), // The max bitrate allowed for this variant
 		fmt.Sprintf("-g:v:%d", v.index), fmt.Sprintf("%d", gop), // Suggested interval where i-frames are encoded into the segments
 		fmt.Sprintf("-keyint_min:v:%d", v.index), fmt.Sprintf("%d", gop), // minimum i-keyframe interval

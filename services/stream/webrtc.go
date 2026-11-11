@@ -146,7 +146,18 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 // The function is a linear plan assembly: one branch per ineligible/disabled
 // leg plus error handling for each step.
 //
+// webrtcLegScale returns the scale expression a transcode leg must apply. A copy
+// leg forwards the source untouched, so it never scales.
+//
 //nolint:cyclop // linear per-variant plan assembly
+func webrtcLegScale(variant models.StreamOutputVariant, decision webrtc.LegDecision) string {
+	if decision.Copy {
+		return ""
+	}
+
+	return transcoder.ScaleExpression(variant.ScaledWidth, variant.ScaledHeight)
+}
+
 func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant) []transcoder.RTPOutput {
 	if s.webRTC == nil {
 		return nil
@@ -258,15 +269,19 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 			VideoPayloadType: webrtc.PayloadTypeVideo,
 			AudioPayloadType: webrtc.PayloadTypeAudio,
 			VideoBitrateKbps: decision.VideoBitrateKbps,
-			GOPFrames:        decision.GOPFrames,
-			CopyVideo:        decision.Copy,
-			H264Profile:      decision.H264Profile,
-			VideoCodec:       videoCodec,
-			CPUUsageLevel:    variant.CPUUsageLevel,
-			OpusBitrateKbps:  webrtcConfig.OpusBitrateKbps,
-			OpusFrameMs:      webrtcConfig.OpusFrameMs,
-			OpusFEC:          webrtcConfig.OpusFEC,
-			OpusDTX:          webrtcConfig.OpusDTX,
+			// The isolated WebRTC process decodes the raw source, so a transcode
+			// leg must be told the variant's size explicitly or it keeps the
+			// source resolution (a 1440p source stayed 1440p at 6 Mbps).
+			Scale:           webrtcLegScale(variant, decision),
+			GOPFrames:       decision.GOPFrames,
+			CopyVideo:       decision.Copy,
+			H264Profile:     decision.H264Profile,
+			VideoCodec:      videoCodec,
+			CPUUsageLevel:   variant.CPUUsageLevel,
+			OpusBitrateKbps: webrtcConfig.OpusBitrateKbps,
+			OpusFrameMs:     webrtcConfig.OpusFrameMs,
+			OpusFEC:         webrtcConfig.OpusFEC,
+			OpusDTX:         webrtcConfig.OpusDTX,
 		})
 	}
 	s.setWebRTCWarnings(warnings)

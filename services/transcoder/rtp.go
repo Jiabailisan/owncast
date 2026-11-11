@@ -24,9 +24,13 @@ type RTPOutput struct {
 
 	// Video encoding settings.
 	VideoBitrateKbps int
-	GOPFrames        int
-	CopyVideo        bool
-	H264Profile      string
+	// Scale is the "W:H" expression a transcode leg must scale to. Empty when
+	// the leg keeps the source resolution (copy legs, or a variant without
+	// scaled dimensions).
+	Scale       string
+	GOPFrames   int
+	CopyVideo   bool
+	H264Profile string
 
 	// Audio encoding settings (WebRTC audio is always Opus). OpusFEC/OpusDTX
 	// are recorded for the settings metadata but currently have no FFmpeg
@@ -60,6 +64,40 @@ const (
 	ffmpegTuneZeroLatency = "zerolatency"
 )
 
+// bitrateToleranceKbps is how far a VBR encode may drift from its target.
+// The ceiling keeps the declared bitrate honest for players and CDNs, the floor
+// stops a static scene from collapsing to a starved bitrate.
+const bitrateToleranceKbps = 2000
+
+// bitrateBounds returns the target plus its min/max window.
+func bitrateBounds(targetKbps int) (target, minKbps, maxKbps int) {
+	if targetKbps <= 0 {
+		return targetKbps, targetKbps, targetKbps
+	}
+
+	minKbps = targetKbps - bitrateToleranceKbps
+	if minKbps < 100 {
+		minKbps = 100
+	}
+
+	return targetKbps, minKbps, targetKbps + bitrateToleranceKbps
+}
+
+// ScaleExpression renders the ffmpeg scale expression for a variant, keeping the
+// aspect ratio when only one dimension is configured. Empty means no scaling.
+func ScaleExpression(width, height int) string {
+	switch {
+	case width > 0 && height > 0:
+		return strconv.Itoa(width) + ":" + strconv.Itoa(height)
+	case width > 0:
+		return strconv.Itoa(width) + ":-2"
+	case height > 0:
+		return "-2:" + strconv.Itoa(height)
+	}
+
+	return ""
+}
+
 // rtpVideoOutputFlags renders the video RTP output for one leg.
 func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 	args := make([]string, 0, 24)
@@ -82,6 +120,12 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 		if filters := legCodec.ExtraFilters(); filters != "" {
 			args = append(args, "-filter:v", filters)
 		}
+		if output.Scale != "" {
+			args = append(args, "-filter:v", "scale="+output.Scale)
+		}
+
+		targetKbps, minKbps, maxKbps := bitrateBounds(output.VideoBitrateKbps)
+
 		args = append(
 			args,
 			"-profile:v", normalizeH264Profile(output.H264Profile),
@@ -89,9 +133,10 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 			"-g", strconv.Itoa(output.GOPFrames),
 			"-keyint_min", strconv.Itoa(output.GOPFrames),
 			"-sc_threshold", "0",
-			"-b:v", strconv.Itoa(output.VideoBitrateKbps)+"k",
-			"-maxrate", strconv.Itoa(output.VideoBitrateKbps)+"k",
-			"-bufsize", strconv.Itoa(output.VideoBitrateKbps)+"k",
+			"-b:v", strconv.Itoa(targetKbps)+"k",
+			"-minrate", strconv.Itoa(minKbps)+"k",
+			"-maxrate", strconv.Itoa(maxKbps)+"k",
+			"-bufsize", strconv.Itoa(maxKbps)+"k",
 			"-pix_fmt", legCodec.PixelFormat(),
 		)
 	}
