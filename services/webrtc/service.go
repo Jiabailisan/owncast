@@ -314,10 +314,27 @@ func (s *Service) LiveViewers() []models.LiveViewer {
 			}
 			fpsByVariant[snapshot.Variant] = serverMeasuredFPS
 		}
-		rows = append(rows, liveViewerRow(snapshot, serverMeasuredFPS))
+		row := liveViewerRow(snapshot, serverMeasuredFPS)
+		// The session knows which rendition it is being served, so the table can
+		// name it instead of showing the player's vague "auto".
+		row.Quality = s.variantName(snapshot.Variant)
+		rows = append(rows, row)
 	}
 
 	return rows
+}
+
+// variantName returns the configured name of a variant, or an empty string when
+// the variant is unknown.
+func (s *Service) variantName(variantIndex int) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if tracks, ok := s.variants[variantIndex]; ok {
+		return tracks.variant.Name
+	}
+
+	return ""
 }
 
 // liveViewerRow maps one WebRTC viewer snapshot to an admin row. Validated
