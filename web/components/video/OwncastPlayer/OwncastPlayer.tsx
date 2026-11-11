@@ -281,14 +281,29 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       // Temporary diagnostic: the quality switch cannot be exercised from a
       // headless probe without visibility into the hls.js instance.
       try {
+        const handler = vhs as unknown as Record<string, unknown> & {
+          representations?: () => Array<Record<string, unknown>>;
+          playlistController_?: Record<string, unknown>;
+          selectPlaylist?: unknown;
+        };
+        const controller = handler?.playlistController_ ?? {};
         (window as unknown as Record<string, unknown>).__owncastQualityDebug = {
           qualityId,
           hasTech: Boolean(tech),
           hasVhs: Boolean(vhs),
-          levelCount: Array.isArray(levels) ? levels.length : null,
-          currentLevel: vhs?.currentLevel ?? null,
-          autoLevelEnabled: vhs?.autoLevelEnabled ?? null,
-          uris: Array.isArray(levels) ? levels.map((item: { uri?: string }) => item?.uri) : null,
+          hasLevels: Array.isArray(levels),
+          reps: (handler?.representations?.() ?? []).map(rep => ({
+            id: rep.id,
+            bandwidth: rep.bandwidth,
+            width: rep.width,
+            height: rep.height,
+            enabled: typeof rep.enabled === 'function' ? rep.enabled() : null,
+          })),
+          controllerKeys: Object.keys(controller).filter(
+            key => key.includes('select') || key.includes('quality') || key.includes('Quality'),
+          ),
+          hasFastQualityChange: typeof controller.fastQualityChange_ === 'function',
+          hasSelectPlaylist: typeof handler?.selectPlaylist === 'function',
         };
       } catch {
         // Diagnostics must never break playback.
