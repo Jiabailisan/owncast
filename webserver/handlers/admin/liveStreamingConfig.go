@@ -539,14 +539,24 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(pending) != 0 {
-			// restart-service settings: restart only the WebRTC service now.
-			if restartErr := a.restartWebRTCService(); restartErr != nil {
-				log.Warnln("webrtc service restart failed:", restartErr)
-				a.restoreWebRTCConfig(previousConfig)
-				writeLiveConfigConflict(w, "unable to restart the WebRTC service with the new configuration: "+restartErr.Error())
-				return
+			// Restart-service settings rebuild the ICE engine, which closes every media
+			// leg. Nothing recreates the legs for a stream that is already running, so a
+			// restart while live would leave WebRTC delivery unavailable (or, before the
+			// variant set was cleared on Stop, serving a stream that never delivers a
+			// frame). The new configuration is stored and takes effect with the next
+			// stream; the running one keeps delivering with the old engine.
+			if a.stream != nil && a.stream.IsStreamBusy() {
+				log.Infoln("webrtc: settings require a restart; deferred until the next stream while one is live:", pending)
+			} else {
+				if restartErr := a.restartWebRTCService(); restartErr != nil {
+					log.Warnln("webrtc service restart failed:", restartErr)
+					a.restoreWebRTCConfig(previousConfig)
+					writeLiveConfigConflict(w, "unable to restart the WebRTC service with the new configuration: "+restartErr.Error())
+					return
+				}
+
+				pending = []string{}
 			}
-			pending = []string{}
 		}
 		pendingFields = pending
 	}
@@ -558,6 +568,10 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 	state := a.webrtcConfigState(updated, pendingFields)
 	state[responseKeySuccess] = true
 	state[responseKeyMessage] = "WebRTC configuration updated"
+	if len(pendingFields) > 0 {
+		state[responseKeyMessage] = "WebRTC configuration saved. These settings restart the " +
+			"WebRTC engine, which would interrupt the running stream, so they apply when it restarts."
+	}
 	writeLiveConfigJSON(w, state)
 }
 
