@@ -157,6 +157,18 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
     {
       title: (
         <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.username}
+          defaultText="Viewer"
+        />
+      ),
+      dataIndex: 'username',
+      key: 'username',
+      render: (username: string | undefined) =>
+        username ? <Text strong>{username}</Text> : na('This viewer has no chat identity.', null),
+    },
+    {
+      title: (
+        <Translation
           translationKey={Localization.Admin.LiveStreaming.Viewers.ip}
           defaultText="IP"
         />
@@ -193,6 +205,18 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       dataIndex: 'protocol',
       key: 'protocol',
       render: (_protocol: LiveViewer['protocol'], viewer) => renderViewerProtocol(viewer),
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.quality}
+          defaultText="Quality"
+        />
+      ),
+      dataIndex: 'quality',
+      key: 'quality',
+      render: (quality: string | undefined) =>
+        quality ? quality : na('The player did not report which quality it is playing.', null),
     },
     {
       title: (
@@ -242,6 +266,23 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
           value === null ? null : formatMetricNumber(value, 1),
           'No FPS measurement is available for this viewer yet.',
         ),
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.latency}
+          defaultText="Latency"
+        />
+      ),
+      dataIndex: 'latencyMs',
+      key: 'latencyMs',
+      render: (latencyMs: number | null) => {
+        if (latencyMs === null || latencyMs === undefined) {
+          return na('The player did not report a latency measurement.', null);
+        }
+
+        return `${formatMetricNumber(latencyMs / 1000, 2)} s`;
+      },
     },
     {
       title: (

@@ -202,6 +202,10 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 	if s.stream != nil {
 		for _, viewer := range s.stream.GetActiveViewers() {
 			if _, isWebRTC := webrtcAddresses[viewer.IPAddress]; isWebRTC {
+				// The same person also appears as a WebRTC row; keep that row (it has
+				// the measured quality) but take the reported details from here.
+				mergeReportedIntoRows(viewers, viewer)
+
 				continue
 			}
 
@@ -210,6 +214,28 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 	}
 
 	return viewers
+}
+
+// mergeReportedIntoRows copies player-reported details onto the WebRTC row for
+// the same address, so one person stays one row with everything they reported.
+func mergeReportedIntoRows(rows []models.LiveViewer, viewer models.Viewer) {
+	for index := range rows {
+		if rows[index].IPAddress != viewer.IPAddress {
+			continue
+		}
+
+		if viewer.DisplayName != "" {
+			rows[index].Username = viewer.DisplayName
+		}
+		if viewer.ReportedQuality != "" {
+			rows[index].Quality = viewer.ReportedQuality
+		}
+		if viewer.ReportedLatency != nil {
+			rows[index].LatencyMs = viewer.ReportedLatency
+		}
+
+		return
+	}
 }
 
 // filterLiveViewers applies the optional protocol and free-text filters.
@@ -325,6 +351,13 @@ func liveViewerFromViewer(viewer models.Viewer) models.LiveViewer {
 	row.BitrateKbps = viewer.BitrateKbps
 	row.Resolution = viewer.Resolution
 	row.FPS = viewer.FPS
+
+	// Player-reported details: the server cannot measure latency or the display
+	// name, and the built-in players report both with their heartbeat.
+	row.Username = viewer.DisplayName
+	row.Quality = viewer.ReportedQuality
+	row.LatencyMs = viewer.ReportedLatency
+
 	return row
 }
 

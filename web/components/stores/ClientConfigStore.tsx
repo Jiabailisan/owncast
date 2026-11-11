@@ -66,6 +66,7 @@ const getInitialStatus = (): { status: ServerStatus; success: boolean } => {
 };
 
 const ACCESS_TOKEN_KEY = 'accessToken';
+const DISPLAY_NAME_KEY = 'displayName';
 
 let serverStatusRefreshPoll: ReturnType<typeof setInterval>;
 let hasBeenModeratorNotified = false;
@@ -264,6 +265,9 @@ export const ClientConfigStore: FC = () => {
       });
       setAccessToken(newAccessToken);
       setLocalStorage(ACCESS_TOKEN_KEY, newAccessToken);
+      // The player heartbeat reports the display name along with the playback
+      // details; it has no other way to reach the chat state.
+      setLocalStorage(DISPLAY_NAME_KEY, newDisplayName);
       await updateClientConfig();
     } catch (e) {
       sendEvent([AppStateEvent.Fail]);
@@ -273,6 +277,7 @@ export const ClientConfigStore: FC = () => {
 
   const resetAndReAuth = () => {
     setLocalStorage(ACCESS_TOKEN_KEY, '');
+    setLocalStorage(DISPLAY_NAME_KEY, '');
     setAccessToken(null);
     ws?.shutdown();
     handleUserRegistration();

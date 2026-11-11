@@ -1,0 +1,107 @@
+// Player heartbeat. Beyond keeping the viewer count fresh it carries the
+// playback details the server cannot measure itself: protocol, the quality the
+// player settled on, the latency it is experiencing and the display name of the
+// viewer. Everything is optional; a player that reports nothing still counts.
+const ENDPOINT = '/api/ping';
+const INTERVAL_MS = 5000;
+
+const DISPLAY_NAME_KEY = 'displayName';
+
+export type ViewerReport = {
+  protocol: 'hls' | 'webrtc';
+  name?: string | null;
+  quality?: string | null;
+  latencyMs?: number | null;
+  resolution?: string | null;
+  fps?: number | null;
+  bitrateKbps?: number | null;
+};
+
+const readDisplayName = (): string | null => {
+  try {
+    return window.localStorage.getItem(DISPLAY_NAME_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const appendNumber = (params: URLSearchParams, key: string, value?: number | null) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    params.set(key, String(Math.round(value)));
+  }
+};
+
+export class ViewerReporter {
+  private timer: ReturnType<typeof setInterval> | null = null;
+
+  private readonly collect: () => ViewerReport | Promise<ViewerReport>;
+
+  constructor(collect: () => ViewerReport | Promise<ViewerReport>) {
+    this.collect = collect;
+  }
+
+  start() {
+    this.stop();
+    this.send();
+    this.timer = setInterval(() => this.send(), INTERVAL_MS);
+  }
+
+  stop() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  private async send() {
+    let report: ViewerReport;
+    try {
+      report = await this.collect();
+    } catch {
+      return;
+    }
+
+    const params = new URLSearchParams({ protocol: report.protocol });
+    const name = report.name ?? readDisplayName();
+    if (name) params.set('name', name);
+    if (report.quality) params.set('quality', report.quality);
+    if (report.resolution) params.set('resolution', report.resolution);
+    appendNumber(params, 'latency', report.latencyMs);
+    appendNumber(params, 'fps', report.fps);
+    appendNumber(params, 'bitrate', report.bitrateKbps);
+
+    // A failed heartbeat must never surface to the viewer: the next tick retries.
+    if (typeof fetch !== 'function') return;
+    fetch(`${ENDPOINT}?${params.toString()}`).catch(() => {});
+  }
+}
+
+// videoResolution reports the decoded size, or null before the first frame.
+export const videoResolution = (video: HTMLVideoElement | null): string | null => {
+  if (!video || !video.videoWidth || !video.videoHeight) return null;
+
+  return `${video.videoWidth}x${video.videoHeight}`;
+};
+
+// webrtcLatencyMs estimates end-to-end latency from the receiver's jitter buffer
+// statistics. Returns null until the first statistics sample is available.
+export const webrtcLatencyMs = async (pc: RTCPeerConnection | null): Promise<number | null> => {
+  if (!pc) return null;
+
+  try {
+    const stats = await pc.getStats();
+    let latency: number | null = null;
+    stats.forEach(report => {
+      if (report.type !== 'inbound-rtp' || report.kind !== 'video') return;
+      const delay = Number(report.jitterBufferDelay);
+      const count = Number(report.jitterBufferEmittedCount);
+      if (Number.isFinite(delay) && Number.isFinite(count) && count > 0) {
+        latency = (delay / count) * 1000;
+      }
+    });
+
+    return latency;
+  } catch {
+    return null;
+  }
+};

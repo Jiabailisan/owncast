@@ -300,6 +300,9 @@ export const Localization = {
       },
       Viewers: {
         title: 'Admin.LiveStreaming.Viewers.title',
+        username: 'Admin.LiveStreaming.Viewers.username',
+        quality: 'Admin.LiveStreaming.Viewers.quality',
+        latency: 'Admin.LiveStreaming.Viewers.latency',
         ip: 'Admin.LiveStreaming.Viewers.ip',
         location: 'Admin.LiveStreaming.Viewers.location',
         protocol: 'Admin.LiveStreaming.Viewers.protocol',

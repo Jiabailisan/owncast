@@ -145,6 +145,11 @@ type LiveViewer struct {
 	ConnectedAt     time.Time `json:"connectedAt"`
 	DurationSeconds float64   `json:"durationSeconds"`
 	Source          string    `json:"source"`
+
+	// Player-reported fields. Empty when the player sends no heartbeat details.
+	Username  string   `json:"username,omitempty"`
+	Quality   string   `json:"quality,omitempty"`
+	LatencyMs *float64 `json:"latencyMs"`
 }
 
 // LiveViewersPage is a page of the admin viewer table.

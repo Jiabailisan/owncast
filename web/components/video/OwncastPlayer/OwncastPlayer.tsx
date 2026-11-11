@@ -5,7 +5,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import classNames from 'classnames';
 import { ErrorBoundary, getErrorMessage } from 'react-error-boundary';
 import { VideoJS } from '../VideoJS/VideoJS';
-import ViewerPing from '../viewer-ping';
+import { ViewerReporter, videoResolution } from '../../../utils/viewer-report';
 import { VideoPoster } from '../VideoPoster/VideoPoster';
 import { getLocalStorage, setLocalStorage } from '../../../utils/localStorage';
 import { AutoplaySetting, autoplayModeForSetting } from '../../../utils/autoplay';
@@ -45,7 +45,15 @@ import styles from './OwncastPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
 
-const ping = new ViewerPing();
+// The heartbeat reports the quality the player settled on and the decoded
+// resolution alongside the viewer count; both are read from this holder so the
+// module-level reporter always sees the latest values.
+const pingTarget = { quality: 'auto', video: null as HTMLVideoElement | null };
+const ping = new ViewerReporter(() => ({
+  protocol: 'hls' as const,
+  quality: pingTarget.quality,
+  resolution: videoResolution(pingTarget.video),
+}));
 let playbackMetrics = null;
 let latencyCompensator = null;
 let latencyCompensatorEnabled = false;
@@ -220,6 +228,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
   const selectQuality = (qualityId: string) => {
     setSelectedQuality(qualityId);
+    pingTarget.quality = qualityId === 'auto' ? 'auto' : qualityId;
     applyQuality(qualityId);
   };
 
@@ -627,6 +636,8 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     playerRef.current = player;
     setSavedVolume();
     setupUnmuteButton(player, videojs);
+
+    pingTarget.video = (player.el()?.querySelector('video') as HTMLVideoElement | null) ?? null;
 
     player.on('dispose', () => {
       ping.stop();

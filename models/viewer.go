@@ -27,6 +27,14 @@ type Viewer struct {
 	BitrateKbps  *float64 `json:"bitrateKbps,omitempty"`
 	Resolution   string   `json:"resolution,omitempty"`
 	FPS          *float64 `json:"fps,omitempty"`
+
+	// Player-reported playback details. The server cannot measure these, so the
+	// player sends them with its heartbeat. Everything here is optional and stays
+	// empty for a player that reports nothing.
+	Protocol        string   `json:"protocol,omitempty"`
+	DisplayName     string   `json:"displayName,omitempty"`
+	ReportedQuality string   `json:"reportedQuality,omitempty"`
+	ReportedLatency *float64 `json:"reportedLatencyMs,omitempty"`
 }
 
 // GenerateViewerFromRequest will return a chat client from a http request.

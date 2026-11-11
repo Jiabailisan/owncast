@@ -95,11 +95,38 @@ func (s *Service) SetViewerActive(viewer *models.Viewer) {
 	if stored, exists := s.stats.Viewers[viewer.ClientID]; exists {
 		stored.LastSeen = time.Now()
 		mergeViewerQuality(stored, viewer)
+		mergeViewerReport(stored, viewer)
 	} else {
 		s.stats.Viewers[viewer.ClientID] = viewer
 	}
 	s.stats.SessionMaxViewerCount = int(math.Max(float64(len(s.stats.Viewers)), float64(s.stats.SessionMaxViewerCount)))
 	s.stats.OverallMaxViewerCount = int(math.Max(float64(s.stats.SessionMaxViewerCount), float64(s.stats.OverallMaxViewerCount)))
+}
+
+// mergeViewerReport copies the player-reported playback details onto a stored
+// viewer. A player that stops reporting keeps the last known values.
+func mergeViewerReport(stored, reported *models.Viewer) {
+	if reported.Protocol != "" {
+		stored.Protocol = reported.Protocol
+	}
+	if reported.DisplayName != "" {
+		stored.DisplayName = reported.DisplayName
+	}
+	if reported.ReportedQuality != "" {
+		stored.ReportedQuality = reported.ReportedQuality
+	}
+	if reported.ReportedLatency != nil {
+		stored.ReportedLatency = reported.ReportedLatency
+	}
+	if reported.Resolution != "" {
+		stored.Resolution = reported.Resolution
+	}
+	if reported.FPS != nil {
+		stored.FPS = reported.FPS
+	}
+	if reported.BitrateKbps != nil {
+		stored.BitrateKbps = reported.BitrateKbps
+	}
 }
 
 // SetViewerActiveWithVariant marks a viewer as active and records the

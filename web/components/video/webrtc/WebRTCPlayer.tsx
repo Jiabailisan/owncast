@@ -43,7 +43,7 @@ import {
   videoAspectRatio,
 } from '../PlayerControls/stats';
 import { LATENCY_STORAGE_KEY } from '../PlayerControls/preferences';
-import ViewerPing from '../viewer-ping';
+import { ViewerReporter, videoResolution, webrtcLatencyMs } from '../../../utils/viewer-report';
 import styles from './WebRTCPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
@@ -112,26 +112,12 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const onReadyRef = useRef(onReady);
 
   const [phase, setPhase] = useState<Phase>('idle');
-  // The WebRTC player never pinged the server, so viewers watching over WebRTC
-  // were missing from the native viewer count and the admin viewer lists.
-  const viewerPing = useRef<ViewerPing | null>(null);
+  // The heartbeat keeps the viewer count accurate and reports what only the
+  // player can know: the quality it settled on and the latency it experiences.
+  const reporter = useRef<ViewerReporter | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
 
-  useEffect(() => {
-    if (phase !== 'ready') {
-      viewerPing.current?.stop();
-
-      return undefined;
-    }
-
-    if (!viewerPing.current) {
-      viewerPing.current = new ViewerPing();
-    }
-    viewerPing.current.start();
-
-    return () => viewerPing.current?.stop();
-  }, [phase]);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [bigUnmuteVisible, setBigUnmuteVisible] = useState(false);
@@ -165,6 +151,28 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   useEffect(() => {
     selectedVariantRef.current = selectedVariant;
   }, [selectedVariant]);
+
+  // The heartbeat keeps the viewer count accurate and reports what only the
+  // player can know: the quality it settled on and the latency it experiences.
+  useEffect(() => {
+    if (phase !== 'ready') {
+      reporter.current?.stop();
+
+      return undefined;
+    }
+
+    if (!reporter.current) {
+      reporter.current = new ViewerReporter(async () => ({
+        protocol: 'webrtc' as const,
+        quality: selectedVariantRef.current === null ? 'auto' : String(selectedVariantRef.current),
+        latencyMs: await webrtcLatencyMs(sessionRef.current?.pc ?? null),
+        resolution: videoResolution(videoRef.current),
+      }));
+    }
+    reporter.current.start();
+
+    return () => reporter.current?.stop();
+  }, [phase]);
 
   useEffect(() => {
     onFallbackRef.current = onFallback;
