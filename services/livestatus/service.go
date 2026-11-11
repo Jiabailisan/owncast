@@ -184,19 +184,31 @@ func normalizeViewerPage(page, pageSize int) (int, int) {
 // details) and the WebRTC viewer rows from the delivery service.
 func (s *Service) collectLiveViewers() []models.LiveViewer {
 	viewers := make([]models.LiveViewer, 0, 32)
-	if s.stream != nil {
-		for _, viewer := range s.stream.GetActiveViewers() {
-			viewers = append(viewers, liveViewerFromViewer(viewer))
-		}
-	}
+
+	// WebRTC sessions are collected first so the native viewer list can skip
+	// their addresses: a WebRTC viewer also pings /api/ping, which registers a
+	// second, HLS-labelled entry for the same person.
+	webrtcAddresses := map[string]struct{}{}
 	if s.webrtc != nil {
 		// WebRTC delivery knows the viewer address but not the location, so fill
 		// the geo fields here; without this every WebRTC viewer shows N/A.
 		for _, row := range s.webrtc.LiveViewers() {
 			s.applyViewerLocation(&row)
+			webrtcAddresses[row.IPAddress] = struct{}{}
 			viewers = append(viewers, row)
 		}
 	}
+
+	if s.stream != nil {
+		for _, viewer := range s.stream.GetActiveViewers() {
+			if _, isWebRTC := webrtcAddresses[viewer.IPAddress]; isWebRTC {
+				continue
+			}
+
+			viewers = append(viewers, liveViewerFromViewer(viewer))
+		}
+	}
+
 	return viewers
 }
 

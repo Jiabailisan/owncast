@@ -3,11 +3,9 @@ import { Alert, Button, Select, Skeleton, Space, Typography } from 'antd';
 import { format } from 'date-fns';
 
 import { useLiveStatusPolling } from '../../../../hooks/useLiveStatusPolling';
-import { isLiveState } from '../../../../interfaces/live-status.model';
 import { Localization } from '../../../../types/localization';
 import { Translation } from '../../../ui/Translation/Translation';
 import { FfmpegPanel } from '../../live/FfmpegPanel';
-import { LiveViewerTable } from '../../live/LiveViewerTable';
 import { OutboundStreamsTable } from '../../live/OutboundStreamsTable';
 import { StreamStatusCards } from '../../live/StreamStatusCards';
 import styles from './live-streaming-sections.module.scss';
@@ -158,13 +156,8 @@ export const LiveStreamStatusSection: FC = () => {
         </>
       )}
 
-      <Title level={4} className={styles.sectionHeading}>
-        <Translation
-          translationKey={Localization.Admin.LiveStreaming.Status.viewersSection}
-          defaultText="Viewers"
-        />
-      </Title>
-      <LiveViewerTable enabled={isLiveState(status.state)} />
+      {/* The viewer table lives on the Viewers page; showing it twice made
+          operators wonder which one was authoritative. */}
 
       <Title level={4} className={styles.sectionHeading}>
         <Translation
