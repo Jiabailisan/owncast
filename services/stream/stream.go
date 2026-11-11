@@ -244,6 +244,14 @@ func (s *Service) StreamConnected(broadcast *models.CurrentBroadcast) {
 // and thumbnail pipeline (engine work), so a remote engine can drive just
 // these reactions through StreamConnected.
 func (s *Service) applyStreamOnline() {
+	// Cache the warm-up window here: IsStreamConnected is called for every HLS
+	// segment request and used to read the latency level from the datastore.
+	waitSeconds := s.configRepository.GetStreamLatencyLevel().SecondsPerSegment * 3
+	if waitSeconds < 7 {
+		waitSeconds = 7
+	}
+	s.onlineWaitNanos.Store(int64(time.Duration(waitSeconds) * time.Second))
+
 	now := utils.NullTime{Time: time.Now(), Valid: true}
 	s.stats.StreamConnected = true
 	s.stats.LastDisconnectTime = nil

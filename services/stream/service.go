@@ -47,6 +47,12 @@ type Service struct {
 	// and then closed by the teardown that is still running.
 	tearingDown atomic.Bool
 
+	// onlineWaitNanos is the warm-up window IsStreamConnected applies after a
+	// stream goes live. It is derived from the configured latency level once per
+	// go-live instead of decoding that level from the datastore on every HLS
+	// segment request.
+	onlineWaitNanos atomic.Int64
+
 	// storage is the active HLS storage provider (local filesystem or S3).
 	storage models.StorageProvider
 

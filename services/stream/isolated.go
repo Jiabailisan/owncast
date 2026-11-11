@@ -72,7 +72,14 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		}))
 
 		completed := make(chan error, 1)
-		tr.TranscoderCompleted = func(err error) { completed <- err }
+		tr.TranscoderCompleted = func(err error) {
+			// The channel is buffered for one report; a second one used to block the
+			// caller goroutine forever.
+			select {
+			case completed <- err:
+			default:
+			}
+		}
 		s.setWebRTCTranscoder(tr)
 		go tr.Start(false)
 

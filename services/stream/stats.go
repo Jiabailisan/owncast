@@ -52,11 +52,15 @@ func (s *Service) IsStreamConnected() bool {
 	}
 
 	// Kind of a hack. It takes a handful of seconds between an RTMP
-	// connection and when HLS data is available. Account for that with
-	// an artificial buffer of a few segments.
-	timeSinceLastConnected := time.Since(s.stats.LastConnectTime.Time).Seconds()
-	waitTime := math.Max(float64(s.configRepository.GetStreamLatencyLevel().SecondsPerSegment)*3.0, 7)
-	if timeSinceLastConnected < waitTime {
+	// connection and when HLS data is available. Account for that with an artificial
+	// buffer of a few segments, cached at go-live so this hot path does not decode
+	// the latency level from the datastore on every call.
+	waitTime := time.Duration(s.onlineWaitNanos.Load())
+	if waitTime <= 0 {
+		waitTime = 7 * time.Second
+	}
+
+	if time.Since(s.stats.LastConnectTime.Time) < waitTime {
 		return false
 	}
 

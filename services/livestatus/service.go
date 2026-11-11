@@ -192,9 +192,18 @@ func (s *Service) Viewers(page, pageSize int, sortBy, order, protocol, query str
 }
 
 // normalizeViewerPage clamps the pagination parameters to the API bounds.
+// maxViewerPage bounds the page number. page and pageSize both come from the query
+// string, and (page-1)*pageSize overflowed for a large page, which turned the
+// slice bounds negative and panicked the handler.
+const maxViewerPage = 1_000_000
+
 func normalizeViewerPage(page, pageSize int) (int, int) {
 	if page < 1 {
 		page = 1
+	}
+
+	if page > maxViewerPage {
+		page = maxViewerPage
 	}
 	if pageSize < 1 {
 		pageSize = 25
@@ -375,6 +384,26 @@ func sortLiveViewers(viewers []models.LiveViewer, sortBy string, ascending bool)
 			}
 			return viewers[a].Protocol > viewers[b].Protocol
 		})
+	case "bitrate":
+		// The table offers a sorter on this column; without a branch it fell through
+		// to connection time, so clicking the header changed nothing visible. Rows
+		// without a measurement sort last in both directions.
+		sort.SliceStable(viewers, func(a, b int) bool {
+			left, right := viewers[a].BitrateKbps, viewers[b].BitrateKbps
+
+			switch {
+			case left == nil && right == nil:
+				return false
+			case left == nil:
+				return false
+			case right == nil:
+				return true
+			case ascending:
+				return *left < *right
+			default:
+				return *left > *right
+			}
+		})
 	default: // connectedAt
 		sort.SliceStable(viewers, func(a, b int) bool {
 			if ascending {
@@ -388,9 +417,17 @@ func sortLiveViewers(viewers []models.LiveViewer, sortBy string, ascending bool)
 // paginateLiveViewers returns the requested page of the viewer rows.
 func paginateLiveViewers(viewers []models.LiveViewer, page, pageSize int) models.LiveViewersPage {
 	total := len(viewers)
-	start := (page - 1) * pageSize
-	if start > total {
+
+	// Clamp in 64-bit space: both arguments are caller supplied, so the
+	// multiplication can overflow and produce negative bounds.
+	start64 := (int64(page) - 1) * int64(pageSize)
+	start := int(start64)
+	if start64 >= int64(total) {
 		start = total
+	}
+
+	if start < 0 {
+		start = 0
 	}
 	end := start + pageSize
 	if end > total {

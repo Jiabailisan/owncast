@@ -353,7 +353,15 @@ func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	// tracked, leaking them against closed sockets.
 	leg.videoForwarder.start(&leg.wg)
 	leg.audioForwarder.start(&leg.wg)
-	s.replaceLeg(variantIndex, leg)
+
+	// Stop may have run between the Enabled() check and here; publishing the leg
+	// then would leave two UDP sockets and two forwarder goroutines that nothing
+	// ever closes.
+	if !s.publishLeg(variantIndex, leg) {
+		_ = leg.Close()
+
+		return nil, ErrDisabled
+	}
 
 	log.Infof("webrtc: media leg for variant %d open (video %s, audio %s)",
 		variantIndex, leg.VideoURL(), leg.AudioURL())
@@ -375,8 +383,16 @@ func (s *Service) CloseMediaLeg(variantIndex int) error {
 	return leg.Close()
 }
 
-func (s *Service) replaceLeg(variantIndex int, leg *MediaLeg) {
+// publishLeg registers a leg unless the service has stopped. It reports whether
+// the leg was published; the caller must close it when it was not.
+func (s *Service) publishLeg(variantIndex int, leg *MediaLeg) bool {
 	s.mu.Lock()
+	if !s.started {
+		s.mu.Unlock()
+
+		return false
+	}
+
 	previous := s.legs[variantIndex]
 	s.legs[variantIndex] = leg
 	s.mu.Unlock()
@@ -384,6 +400,8 @@ func (s *Service) replaceLeg(variantIndex int, leg *MediaLeg) {
 	if previous != nil {
 		_ = previous.Close()
 	}
+
+	return true
 }
 
 // VariantIndex returns the variant this leg feeds.

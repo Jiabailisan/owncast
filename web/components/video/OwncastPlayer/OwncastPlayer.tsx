@@ -267,17 +267,33 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
   };
 
+  // applyQuality pins a hls.js level. Toggling representation.enabled() only
+  // changes which levels ABR may pick, and while auto level selection is on hls.js
+  // keeps its own choice, so the first click on a quality appeared to do nothing
+  // and it took a second click to move. Setting currentLevel is the documented way
+  // to force a level (-1 hands control back to ABR), and hls.js switches at the
+  // next fragment.
   const applyQuality = (qualityId: string) => {
     try {
       const tech = playerRef.current?.tech?.({ IWillNotUseThisInPlugins: true });
-      const representations = tech?.vhs?.representations?.();
-      if (!Array.isArray(representations) || representations.length === 0) return false;
+      const vhs = tech?.vhs;
+      const levels = vhs?.levels;
+      if (!vhs || !Array.isArray(levels) || levels.length === 0) return false;
+
       if (qualityId === 'auto') {
-        representations.forEach(rep => rep.enabled(true));
-      } else {
-        const index = Number(qualityId);
-        representations.forEach((rep, repIndex) => rep.enabled(repIndex === index));
+        vhs.currentLevel = -1;
+        return true;
       }
+
+      // Levels follow the master playlist, whose order is the configured variant
+      // order, so match the variant directory in the level URI first and fall back
+      // to the index.
+      const wanted = String(qualityId);
+      let level = levels.findIndex(item => String(item?.uri || '').split('/')[0] === wanted);
+      if (level < 0) level = Number(qualityId);
+      if (!Number.isInteger(level) || level < 0 || level >= levels.length) return false;
+
+      vhs.currentLevel = level;
       return true;
     } catch {
       return false;

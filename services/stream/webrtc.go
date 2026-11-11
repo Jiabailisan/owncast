@@ -146,6 +146,52 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 // The function is a linear plan assembly: one branch per ineligible/disabled
 // leg plus error handling for each step.
 //
+// appendLegDiagnostics records the warnings and ineligibility reasons a leg
+// decision carries, for the admin status panel and the log.
+func appendLegDiagnostics(decision webrtc.LegDecision, warnings *[]models.StatusWarning) {
+	for _, warning := range decision.Warnings {
+		*warnings = append(*warnings, models.StatusWarning{Code: "webrtc_leg", Message: warning})
+		log.Warnln("webrtc leg warning:", warning)
+	}
+
+	for _, reason := range decision.IneligibilityReasons {
+		*warnings = append(*warnings, models.StatusWarning{Code: "webrtc_copy_ineligible", Message: reason})
+		log.Infoln("webrtc copy ineligible:", reason)
+	}
+}
+
+// rtmpCopyFallback delivers a copy leg for an RTMP source when the operator asked
+// for passthrough. RTMP cannot carry the strict copy-eligibility metadata, so the
+// leg is delivered with an honest warning instead of being silently downgraded;
+// the forwarder caches SPS/PPS per IDR so mid-stream joins can decode it.
+func rtmpCopyFallback(
+	session ingest.Session,
+	variant models.StreamOutputVariant,
+	decision webrtc.LegDecision,
+	source webrtc.SourceInfo,
+	webrtcConfig models.WebRTCConfig,
+	warnings *[]models.StatusWarning,
+	index int,
+) webrtc.LegDecision {
+	if session.Protocol() != ingest.ProtocolRTMP || decision.Copy || !variantWantsCopy(variant) {
+		return decision
+	}
+
+	*warnings = append(*warnings, models.StatusWarning{
+		Code:    "webrtc_copy_unverified",
+		Message: "RTMP copy leg is delivered without B-frame/profile verification",
+	})
+	log.Warnln("webrtc: delivering unverified RTMP copy leg for variant", index)
+
+	return webrtc.LegDecision{
+		Enabled:     true,
+		Mode:        models.OutputModeCopy,
+		Copy:        true,
+		H264Profile: webrtcConfig.H264Profile,
+		Source:      source,
+	}
+}
+
 // webrtcLegScale returns the scale expression a transcode leg must apply. A copy
 // leg forwards the source untouched, so it never scales.
 //
@@ -191,34 +237,13 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 				H264Profile:      webrtcConfig.H264Profile,
 			}
 		}
-		for _, warning := range decision.Warnings {
-			warnings = append(warnings, models.StatusWarning{Code: "webrtc_leg", Message: warning})
-			log.Warnln("webrtc leg warning:", warning)
-		}
-		for _, reason := range decision.IneligibilityReasons {
-			warnings = append(warnings, models.StatusWarning{Code: "webrtc_copy_ineligible", Message: reason})
-			log.Infoln("webrtc copy ineligible:", reason)
-		}
+		appendLegDiagnostics(decision, &warnings)
 		// RTMP cannot provide the strict copy-eligibility metadata. When the
 		// operator asked for passthrough (explicit copy or inheritance from a
 		// passthrough HLS variant), deliver the copy leg with an honest
 		// warning. The WebRTC forwarder supplies cached SPS/PPS per IDR, so
 		// viewers joining mid-stream can decode it.
-		if session.Protocol() == ingest.ProtocolRTMP && !decision.Copy && variantWantsCopy(variant) {
-			warnings = append(warnings, models.StatusWarning{
-				Code:    "webrtc_copy_unverified",
-				Message: "RTMP copy leg is delivered without B-frame/profile verification",
-			})
-			log.Warnln("webrtc: delivering unverified RTMP copy leg for variant", index)
-			decision = webrtc.LegDecision{
-				Enabled:     true,
-				Mode:        models.OutputModeCopy,
-				Copy:        true,
-				H264Profile: webrtcConfig.H264Profile,
-				Source:      source,
-			}
-		}
-
+		decision = rtmpCopyFallback(session, variant, decision, source, webrtcConfig, &warnings, index)
 		if !decision.Enabled {
 			// Disable the leg in the published variant set but keep the slice
 			// position so WHEP variant indices stay stable.
