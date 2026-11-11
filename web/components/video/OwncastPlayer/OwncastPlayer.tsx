@@ -324,18 +324,32 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       const wanted = qualityId === 'auto' ? null : Number(qualityId);
       if (wanted !== null && !Number.isInteger(wanted)) return false;
 
-      representations.forEach(representation => {
+      // Remember the previous flags: narrowing them without a successful switch would
+      // leave ABR restricted to one rendition while playback never moved, which is what
+      // made an early click look ignored.
+      const previous = representations.map(representation => representation.enabled?.() !== false);
+
+      representations.forEach((representation, index) => {
         const shouldEnable =
           wanted === null || variantIndexFromRepresentation(representation) === wanted;
-        // enabled() without an argument is a getter; call it only when the value
-        // actually has to change, because VHS re-runs selection on every write.
-        const current = representation.enabled?.();
-        if (current === shouldEnable) return;
+        // enabled() without an argument is a getter; only write when it changes,
+        // because VHS re-runs selection on every write.
+        if (previous[index] === shouldEnable) return;
         representation.enabled?.(shouldEnable);
       });
 
       // Switch now rather than after the next segment boundary.
-      vhs?.playlistController_?.fastQualityChange_?.();
+      try {
+        vhs?.playlistController_?.fastQualityChange_?.();
+      } catch {
+        representations.forEach((representation, index) => {
+          if (representation.enabled?.() !== previous[index]) {
+            representation.enabled?.(previous[index]);
+          }
+        });
+
+        return false;
+      }
 
       return true;
     } catch {
@@ -345,7 +359,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
   const selectQuality = (qualityId: string) => {
     setSelectedQuality(qualityId);
-    pingTarget.quality = qualities.find(item => String(item.index) === qualityId)?.name ?? 'auto';
     applyQuality(qualityId);
   };
 

@@ -421,14 +421,16 @@ func paginateLiveViewers(viewers []models.LiveViewer, page, pageSize int) models
 	// Clamp in 64-bit space: both arguments are caller supplied, so the
 	// multiplication can overflow and produce negative bounds.
 	start64 := (int64(page) - 1) * int64(pageSize)
-	start := int(start64)
-	if start64 >= int64(total) {
-		start = total
+	if start64 < 0 {
+		start64 = 0
 	}
 
-	if start < 0 {
-		start = 0
+	if start64 > int64(total) {
+		start64 = int64(total)
 	}
+
+	// Narrow only after clamping, so a huge page cannot overflow the conversion.
+	start := int(start64)
 	end := start + pageSize
 	if end > total {
 		end = total

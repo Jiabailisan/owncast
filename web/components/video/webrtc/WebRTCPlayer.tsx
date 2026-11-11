@@ -390,6 +390,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
     if (!online || !whepUrl) {
       sessionRef.current = null;
+      activeVariantNameRef.current = '';
+      setActiveVariantName('');
       if (video) video.srcObject = null;
       setPhase('idle');
       setIsPlaying(false);
@@ -410,6 +412,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       updateBigUnmute();
     };
     const handlePause = () => {
+      // A pause during a stall would otherwise leave the spinner up forever.
+      setBuffering(false);
       setIsPlaying(false);
       updateBigUnmute();
     };
@@ -515,6 +519,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         localSession.close();
       }
       sessionRef.current = null;
+      activeVariantNameRef.current = '';
+      setActiveVariantName('');
     };
     // The effect intentionally re-runs only for connection-relevant inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
