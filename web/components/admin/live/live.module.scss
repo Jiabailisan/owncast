@@ -186,6 +186,12 @@
   padding: 8px 0;
 }
 
+.viewerCardsPagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
 .viewerCards {
   display: grid;
   gap: 10px;

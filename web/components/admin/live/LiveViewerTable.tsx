@@ -1,5 +1,16 @@
 import { FC, useEffect, useRef, useState } from 'react';
-import { Alert, Card, Input, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import {
+  Alert,
+  Card,
+  Input,
+  Pagination,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
 import type { ColumnsType } from 'antd/lib/table';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -532,7 +543,30 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       )}
 
       {isMobile ? (
-        mobileCards
+        <>
+          {mobileCards}
+          {/* The card list needs the same empty state and pager the table has,
+              otherwise viewers past the first page are unreachable on mobile. */}
+          {data && data.viewers.length === 0 && (
+            <Text type="secondary" className={styles.viewerEmpty}>
+              <Translation
+                translationKey={Localization.Admin.LiveStreaming.Viewers.empty}
+                defaultText="No viewers are connected right now."
+              />
+            </Text>
+          )}
+          {data && data.total > (data.pageSize || PAGE_SIZE) && (
+            <Pagination
+              className={styles.viewerCardsPagination}
+              size="small"
+              current={data.page || query.page}
+              pageSize={data.pageSize || PAGE_SIZE}
+              total={data.total}
+              showSizeChanger={false}
+              onChange={page => setQuery(current => ({ ...current, page }))}
+            />
+          )}
+        </>
       ) : (
         <Table<LiveViewer>
           size="small"

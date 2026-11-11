@@ -138,7 +138,7 @@ func webrtcPersistedMetadata() []Field {
 			"Reserved and not enforced: every viewer shares one leg per rendition, so there is no per-viewer rate to cap.", ApplyLive),
 		intField("minBitratePerViewerKbps", groupWebRTCMedia, 0, 0, 100000, "kbps",
 			"Reserved and not enforced: every viewer shares one leg per rendition, so there is no per-viewer rate floor.", ApplyLive),
-		intField("rtpReorderBufferMs", groupWebRTCMedia, 0, 0, 2000, "ms",
+		intField("rtpReorderBufferMs", groupWebRTCMedia, 0, 0, 100, "ms",
 			"Forwarder RTP reorder buffer. 0 disables reordering.", ApplyRestartService),
 	}
 	return fields

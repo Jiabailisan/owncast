@@ -27,7 +27,10 @@ const (
 	customPlayerErrorRateLimit = 10
 	webrtcStatsRateLimit       = 240
 	requestWindowDuration      = time.Minute
-	maxCustomPlayerErrorLength = 512
+	// appearanceRateLimitSweepThreshold bounds the rate-limit map: past this many
+	// tracked clients, expired windows are evicted on the next request.
+	appearanceRateLimitSweepThreshold = 256
+	maxCustomPlayerErrorLength        = 512
 )
 
 // requestWindow is a fixed one-minute request counter for one rate-limit key.
@@ -61,6 +64,17 @@ func (s *appearanceState) allow(key string, limit int, now time.Time) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// The map is keyed by client IP on endpoints anyone can hit, so entries for
+	// addresses that never return would otherwise accumulate for the life of the
+	// process. Drop expired windows once the map grows past a trivial size.
+	if len(s.windows) >= appearanceRateLimitSweepThreshold {
+		for existingKey, existingWindow := range s.windows {
+			if now.Sub(existingWindow.windowStart) >= requestWindowDuration {
+				delete(s.windows, existingKey)
+			}
+		}
+	}
 
 	window := s.windows[key]
 	if window.windowStart.IsZero() || now.Sub(window.windowStart) >= requestWindowDuration {

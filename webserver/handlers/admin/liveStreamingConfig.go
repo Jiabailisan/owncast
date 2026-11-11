@@ -772,7 +772,13 @@ func probeTCPPort(bindAddress string, port int) bool {
 // RunConfigPreflight probes the configured FFmpeg build and ports.
 func (a *Admin) RunConfigPreflight(w http.ResponseWriter, r *http.Request) {
 	request := preflightRequest{Target: preflightTargetAll}
-	if body, ok := readConfigBody(w, r); ok && len(strings.TrimSpace(string(body))) != 0 {
+	body, ok := readConfigBody(w, r)
+	if !ok {
+		// readConfigBody already wrote the 400; carrying on wrote a second response
+		// onto the same request.
+		return
+	}
+	if len(strings.TrimSpace(string(body))) != 0 {
 		if err := json.Unmarshal(body, &request); err != nil {
 			writeLiveConfigBadRequest(w, "unable to parse preflight request: "+err.Error())
 			return

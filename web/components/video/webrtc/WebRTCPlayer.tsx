@@ -765,19 +765,23 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const togglePip = useCallback(() => {
     const video = videoRef.current as
       | (HTMLVideoElement & {
+          webkitPresentationMode?: string;
           webkitSupportsPresentationMode?: (mode: string) => boolean;
           webkitSetPresentationMode?: (mode: string) => void;
         })
       | null;
     if (!video) return;
     // Safari uses the WebKit presentation-mode API instead of the standard
-    // requestPictureInPicture API.
+    // requestPictureInPicture API. The toggle has to look at the current mode:
+    // asking whether picture-in-picture is *supported* is always true, so the
+    // button could only ever enter it.
+    if (video.webkitPresentationMode === 'picture-in-picture') {
+      video.webkitSetPresentationMode?.('inline');
+      return;
+    }
+
     if (video.webkitSupportsPresentationMode?.('picture-in-picture')) {
-      video.webkitSetPresentationMode?.(
-        video.webkitSupportsPresentationMode('picture-in-picture')
-          ? 'picture-in-picture'
-          : 'inline',
-      );
+      video.webkitSetPresentationMode?.('picture-in-picture');
       return;
     }
     if (!document.pictureInPictureEnabled) return;
