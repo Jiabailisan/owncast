@@ -51,6 +51,16 @@ type Deps struct {
 	WebRTC WebRTCProvider
 	Config ConfigProvider
 	GeoIP  GeoIPProvider
+	// Names resolves the display name of the chat user watching from an address.
+	// Chat names change (the operator can rename a user), so the viewer table reads
+	// the current one instead of trusting whatever the player reported earlier.
+	Names NameProvider
+}
+
+// NameProvider resolves the display name of the chat user watching from an
+// address. Names are mutable, so it is consulted when the table is built.
+type NameProvider interface {
+	DisplayNameForIP(ipAddress string) string
 }
 
 // Service builds live-status snapshots.
@@ -59,6 +69,7 @@ type Service struct {
 	webrtc WebRTCProvider
 	config ConfigProvider
 	geoIP  GeoIPProvider
+	names  NameProvider
 }
 
 // New constructs the read-only live status service.
@@ -68,6 +79,7 @@ func New(deps Deps) *Service {
 		webrtc: deps.WebRTC,
 		config: deps.Config,
 		geoIP:  deps.GeoIP,
+		names:  deps.Names,
 	}
 }
 
@@ -213,7 +225,23 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 		}
 	}
 
+	s.applyDisplayNames(viewers)
+
 	return viewers
+}
+
+// applyDisplayNames replaces the reported name with the current chat name when
+// the address has a connected chat user: a rename must show up immediately.
+func (s *Service) applyDisplayNames(viewers []models.LiveViewer) {
+	if s.names == nil {
+		return
+	}
+
+	for index := range viewers {
+		if name := s.names.DisplayNameForIP(viewers[index].IPAddress); name != "" {
+			viewers[index].Username = name
+		}
+	}
 }
 
 // mergeReportedIntoRows copies player-reported details onto the WebRTC row for

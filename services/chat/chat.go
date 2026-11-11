@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/owncast/owncast/services/geoip"
 
@@ -132,6 +133,33 @@ func (s *Service) ResolveLocation(client *Client) *geoip.GeoDetails {
 	client.Geo = s.geoipClient.GetGeoFromIP(client.IPAddress)
 
 	return client.Geo
+}
+
+// DisplayNameForIP returns the display name of the chat user connected from an
+// address, preferring the most recent connection. Empty when nobody matches.
+func (s *Service) DisplayNameForIP(ipAddress string) string {
+	if s == nil || ipAddress == "" {
+		return ""
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	name := ""
+	var newest time.Time
+
+	for _, client := range s.clients {
+		if client.User == nil || client.IPAddress != ipAddress {
+			continue
+		}
+
+		if client.ConnectedAt.After(newest) {
+			newest = client.ConnectedAt
+			name = client.User.DisplayName
+		}
+	}
+
+	return name
 }
 
 // GetClients will return all the current chat clients connected.

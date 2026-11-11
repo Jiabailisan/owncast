@@ -385,6 +385,7 @@ func main() {
 		WebRTC: webRTCSvc,
 		Config: configRepository,
 		GeoIP:  geoIPStatusProvider{client: geoIPClient},
+		Names:  chatSvc,
 	})
 
 	// Background sweep that marks federated peer servers offline when
