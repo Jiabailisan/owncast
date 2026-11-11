@@ -154,6 +154,14 @@ func (s *Service) DisplayNameForToken(accessToken string) string {
 		return client.User.DisplayName
 	}
 
+	// Fall back to the stored user: a viewer keeps watching while its chat
+	// websocket reconnects, and the name must not disappear in that window.
+	if s.userRepository != nil {
+		if user := s.userRepository.GetUserByToken(accessToken); user != nil {
+			return user.DisplayName
+		}
+	}
+
 	return ""
 }
 
