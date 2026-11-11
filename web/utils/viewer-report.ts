@@ -9,6 +9,8 @@ export const VIEWER_REFRESH_MS = 10000;
 
 const DISPLAY_NAME_KEY = 'displayName';
 const ACCESS_TOKEN_KEY = 'accessToken';
+// Sent as a request header so the access token never lands in a server log.
+export const TOKEN_HEADER = 'X-Owncast-Access-Token';
 
 export type ViewerReport = {
   protocol: 'hls' | 'webrtc';
@@ -37,6 +39,8 @@ const appendNumber = (params: URLSearchParams, key: string, value?: number | nul
 export class ViewerReporter {
   private timer: ReturnType<typeof setInterval> | null = null;
 
+  private generation = 0;
+
   private readonly collect: () => ViewerReport | Promise<ViewerReport>;
 
   constructor(collect: () => ViewerReport | Promise<ViewerReport>) {
@@ -45,11 +49,14 @@ export class ViewerReporter {
 
   start() {
     this.stop();
+    this.generation += 1;
     this.send();
     this.timer = setInterval(() => this.send(), VIEWER_REFRESH_MS);
   }
 
   stop() {
+    this.generation += 1;
+
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -57,6 +64,7 @@ export class ViewerReporter {
   }
 
   private async send() {
+    const generation = this.generation;
     let report: ViewerReport;
     try {
       report = await this.collect();
@@ -64,15 +72,14 @@ export class ViewerReporter {
       return;
     }
 
+    // The player may have been disposed while collect() was awaiting (the WebRTC
+    // collector awaits getStats); do not report for a session that is gone.
+    if (generation !== this.generation) return;
+
     const params = new URLSearchParams({ protocol: report.protocol });
     const name = report.name ?? readStorage(DISPLAY_NAME_KEY);
     if (name) params.set('name', name);
 
-    // The token lets the server read the current display name of the chat user
-    // this player belongs to, so a rename shows up and a chat-only client on the
-    // same address is never mistaken for the viewer.
-    const token = readStorage(ACCESS_TOKEN_KEY);
-    if (token) params.set('token', token);
     if (report.quality) params.set('quality', report.quality);
     if (report.resolution) params.set('resolution', report.resolution);
     appendNumber(params, 'latency', report.latencyMs);
@@ -81,7 +88,13 @@ export class ViewerReporter {
 
     // A failed heartbeat must never surface to the viewer: the next tick retries.
     if (typeof fetch !== 'function') return;
-    fetch(`${ENDPOINT}?${params.toString()}`).catch(() => {});
+
+    // The token goes in a header, not the query, so it stays out of access logs.
+    const token = readStorage(ACCESS_TOKEN_KEY);
+    const headers: Record<string, string> = {};
+    if (token) headers[TOKEN_HEADER] = token;
+
+    fetch(`${ENDPOINT}?${params.toString()}`, { headers, keepalive: true }).catch(() => {});
   }
 }
 

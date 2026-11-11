@@ -148,13 +148,16 @@ func (v *HLSVariant) getAllocatedVideoBitrate() int {
 
 // getMaxVideoBitrate returns the maximum video bitrate we allow the encoder to support.
 func (v *HLSVariant) getMaxVideoBitrate() int {
-	return v.getAllocatedVideoBitrate() + bitrateToleranceKbps
+	allocated := v.getAllocatedVideoBitrate()
+
+	return allocated + bitrateDeltaKbps(allocated)
 }
 
 // getMinVideoBitrate is the floor of the VBR window: a static scene may not
 // collapse below it, which keeps the stream from looking starved.
 func (v *HLSVariant) getMinVideoBitrate() int {
-	minBitrate := v.getAllocatedVideoBitrate() - bitrateToleranceKbps
+	allocated := v.getAllocatedVideoBitrate()
+	minBitrate := allocated - bitrateDeltaKbps(allocated)
 	if minBitrate < 100 {
 		return 100
 	}
@@ -475,6 +478,12 @@ func getVariantFromConfigQuality(quality models.StreamOutputVariant, index int) 
 	if quality.VideoBitrate == 0 {
 		quality.VideoBitrate = 1200
 	}
+
+	// A passthrough variant is not encoded, but the master playlist still has to
+	// declare what it costs. Leaving the bitrate at zero declared the most
+	// expensive rendition as the cheapest one, so players on a constrained link
+	// picked it first. This only affects the declaration, never the copied data.
+	variant.SetVideoBitrate(quality.VideoBitrate)
 
 	// If the video is being passed through then
 	// don't continue to set options on the variant.

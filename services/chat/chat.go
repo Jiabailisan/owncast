@@ -165,6 +165,48 @@ func (s *Service) DisplayNameForToken(accessToken string) string {
 	return ""
 }
 
+// DisplayNamesForTokens resolves several access tokens in one pass. The viewer
+// table asks for a whole page at a time and used to take the client lock once per
+// row, competing with the chat fan-out.
+func (s *Service) DisplayNamesForTokens(accessTokens []string) map[string]string {
+	resolved := make(map[string]string, len(accessTokens))
+	if s == nil || len(accessTokens) == 0 {
+		return resolved
+	}
+
+	wanted := make(map[string]struct{}, len(accessTokens))
+	for _, token := range accessTokens {
+		if token != "" {
+			wanted[token] = struct{}{}
+		}
+	}
+
+	s.mu.RLock()
+	for _, client := range s.clients {
+		if client.User == nil {
+			continue
+		}
+
+		if _, ok := wanted[client.accessToken]; ok {
+			resolved[client.accessToken] = client.User.DisplayName
+		}
+	}
+	s.mu.RUnlock()
+
+	// Anything still unresolved falls back to the stored user, outside the lock.
+	for token := range wanted {
+		if resolved[token] != "" {
+			continue
+		}
+
+		if name := s.DisplayNameForToken(token); name != "" {
+			resolved[token] = name
+		}
+	}
+
+	return resolved
+}
+
 // GetClients will return all the current chat clients connected.
 func (s *Service) GetClients() []*Client {
 	clients := []*Client{}

@@ -1,6 +1,10 @@
 package webrtc
 
-import "github.com/pion/rtp"
+import (
+	"sync/atomic"
+
+	"github.com/pion/rtp"
+)
 
 const (
 	// maxSequenceGap is the largest in-run sequence leap still treated as
@@ -18,14 +22,16 @@ const (
 // browser's jitter buffer and retransmission state for every connected viewer;
 // the shared tracks survive restarts, so the forwarder hides them.
 //
-// It is a pure, single-goroutine value type: one instance per forwarder read
-// loop, no locks, fully table-testable.
+// It is a value type with one instance per forwarder read loop. The restart
+// marker is the only field touched from another goroutine (the supervisor) and
+// it is atomic; everything else is single-goroutine and lock-free.
 type normalizer struct {
 	clockRate     uint32
 	expectedDelta uint32
 
 	initialized bool
-	restart     bool
+	// restart is written by the supervisor goroutine and read by the read loop.
+	restart atomic.Bool
 
 	lastInSeq  uint16
 	lastInTS   uint32
@@ -49,7 +55,7 @@ func newNormalizer(clockRate, expectedDelta uint32) *normalizer {
 // markRestart tells the normalizer that the next packet belongs to a new
 // producer run even if its counters happen to look contiguous.
 func (n *normalizer) markRestart() {
-	n.restart = true
+	n.restart.Store(true)
 }
 
 // apply rewrites the packet counters in place and reports whether the packet
@@ -62,7 +68,7 @@ func (n *normalizer) apply(pkt *rtp.Packet) bool {
 	case !n.initialized:
 		n.startRun(origSeq, origTS)
 		n.initialized = true
-	case n.restart || n.isDiscontinuity(origSeq, origTS):
+	case n.restart.Load() || n.isDiscontinuity(origSeq, origTS):
 		n.startRun(origSeq, origTS)
 		rebased = true
 	default:
@@ -75,7 +81,7 @@ func (n *normalizer) apply(pkt *rtp.Packet) bool {
 		}
 	}
 
-	n.restart = false
+	n.restart.Store(false)
 	if rebased {
 		pkt.SequenceNumber = n.outBaseSeq
 		pkt.Timestamp = n.outBaseTS

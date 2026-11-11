@@ -27,8 +27,9 @@ func GenerateClientIDFromRequest(req *http.Request) string {
 //
 //  1. CF-Connecting-IP - set by Cloudflare, which strips any client value, so it
 //     is the real visitor on the tunnel path.
-//  2. The LAST X-Forwarded-For hop - appended by the nearest proxy. Taking the
-//     last hop instead of the first stops a client from choosing its own address.
+//  2. The rightmost X-Forwarded-For hop that is not one of our own proxies. Walking
+//     from the right stops a client from choosing its own address: anything it
+//     appended sits to the left of the hops our proxies added.
 //  3. The peer address.
 //
 // Headers are only trusted when the peer is loopback/private, i.e. when a proxy
@@ -51,25 +52,47 @@ func GetIPAddressFromRequest(req *http.Request) string {
 		}
 
 		if forwarded := req.Header.Get("X-Forwarded-For"); forwarded != "" {
-			hops := strings.Split(forwarded, ",")
-
-			// The FIRST hop is the original client: a Cloudflare tunnel in front of a
-			// local proxy appends its own hops, so the last one is a CDN edge address
-			// rather than the viewer. Falling back to the last hop keeps the old
-			// behaviour when the first entry is not an address.
-			first := strings.TrimSpace(hops[0])
-			if net.ParseIP(first) != nil {
-				return first
-			}
-
-			last := strings.TrimSpace(hops[len(hops)-1])
-			if net.ParseIP(last) != nil {
-				return last
+			if hop := clientHopFromChain(forwarded); hop != "" {
+				return hop
 			}
 		}
 	}
 
 	return peer
+}
+
+// clientHopFromChain walks X-Forwarded-For from right to left and returns the
+// first hop that is not one of our own proxies. Walking from the left instead
+// returns whatever the client put in the header: with the usual
+// $proxy_add_x_forwarded_for configuration a client-supplied value stays at the
+// head of the list, so any viewer could claim any address (and dodge an IP ban).
+func clientHopFromChain(forwarded string) string {
+	hops := strings.Split(forwarded, ",")
+
+	for index := len(hops) - 1; index >= 0; index-- {
+		hop := strings.TrimSpace(hops[index])
+		if net.ParseIP(hop) == nil {
+			continue
+		}
+
+		// Skip the proxies we already know; the first address past them is the
+		// client that reached the outermost proxy.
+		if isTrustedProxyPeer(hop) {
+			continue
+		}
+
+		return hop
+	}
+
+	// Every hop was one of our own proxies: report the leftmost address we have.
+	for index := 0; index < len(hops); index++ {
+		hop := strings.TrimSpace(hops[index])
+		if net.ParseIP(hop) != nil {
+			return hop
+		}
+	}
+
+	return ""
 }
 
 // hostOnly strips the port from a RemoteAddr value.

@@ -1,5 +1,5 @@
 /* eslint-disable max-classes-per-file */
-import React, { CSSProperties, FC, useContext, useEffect, useState } from 'react';
+import React, { CSSProperties, FC, useContext, useEffect, useRef, useState } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { useHotkeys } from 'react-hotkeys-hook';
 import classNames from 'classnames';
@@ -145,6 +145,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const [volume, setVolume] = useState(1);
   const [liveEdge, setLiveEdge] = useState(true);
   const [qualities, setQualities] = useState<VideoQuality[]>([]);
+  // handlePlayerReady is captured once (its effect depends on the source only), so
+  // it would otherwise read the empty quality list from first render forever. The
+  // ref carries the current list into that closure.
+  const qualitiesRef = useRef<VideoQuality[]>([]);
   // HLS quality is intentionally NOT persisted (reference behavior).
   const [selectedQuality, setSelectedQuality] = useState('auto');
   // The variant actually playing, so "Auto" can show which rendition the
@@ -710,7 +714,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     const renditionNameAt = (level: number): string => {
       if (level < 0) return '';
 
-      const byConfig = qualities[level]?.name;
+      const byConfig = qualitiesRef.current[level]?.name;
       if (byConfig) return byConfig;
 
       const representations =
@@ -769,6 +773,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     try {
       const fetchedQualities = await VideoSettingsService.getVideoQualities();
+      qualitiesRef.current = fetchedQualities;
       setQualities(fetchedQualities);
     } catch (err) {
       console.warn('Unable to load HLS qualities', err);

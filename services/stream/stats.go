@@ -43,6 +43,14 @@ func (s *Service) IsStreamConnected() bool {
 		return false
 	}
 
+	// The go-live and go-offline transitions set StreamConnected and
+	// LastConnectTime separately, so a reader can observe the connected flag with a
+	// nil timestamp. Dereferencing it there panicked the whole process, because this
+	// runs outside net/http's recover scope on the RTMP accept path.
+	if s.stats.LastConnectTime == nil {
+		return false
+	}
+
 	// Kind of a hack. It takes a handful of seconds between an RTMP
 	// connection and when HLS data is available. Account for that with
 	// an artificial buffer of a few segments.
@@ -87,7 +95,9 @@ func (s *Service) SetViewerActive(viewer *models.Viewer) {
 
 		s.statsMu.Lock()
 		defer s.statsMu.Unlock()
-		if stored, ok := s.stats.Viewers[clientID]; ok {
+		// A failed lookup (database reload, transient error) must not erase a
+		// location that was already resolved.
+		if stored, ok := s.stats.Viewers[clientID]; ok && geo != nil {
 			stored.Geo = geo
 		}
 	}(viewer.ClientID, viewer.IPAddress)

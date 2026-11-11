@@ -162,6 +162,10 @@ export interface LiveViewer {
   connectedAt: string;
   durationSeconds: number;
   source: LiveViewerMetricSource;
+  // Player-reported fields. Empty when the player sends no heartbeat details.
+  username?: string;
+  quality?: string;
+  latencyMs?: number | null;
 }
 
 export type LiveViewersSort = 'duration' | 'bitrate' | 'protocol' | 'connectedAt';

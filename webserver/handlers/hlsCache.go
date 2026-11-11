@@ -36,6 +36,13 @@ func (c *hlsHotCache) snapshot(source hlsConfigSource) (s3Enabled bool, segmentS
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// An unconfigured Handler (tests, or a half-built router) has no repository;
+	// dereferencing it here used to decide on the TTL alone, so the same call
+	// panicked or not depending on when it last ran.
+	if source == nil {
+		return c.s3Enabled, c.segmentSecond
+	}
+
 	if time.Since(c.refreshed) >= hlsCacheTTL {
 		c.s3Enabled = source.GetS3Config().Enabled
 		c.segmentSecond = source.GetStreamLatencyLevel().SecondsPerSegment

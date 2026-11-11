@@ -9,6 +9,7 @@ package stream
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/owncast/owncast/config"
@@ -38,6 +39,13 @@ type Service struct {
 	// chat-client removal).
 	stats   *models.Stats
 	statsMu sync.RWMutex
+
+	// tearingDown is set for the whole duration of the go-offline sequence.
+	// IsStreamConnected flips to false at the start of that sequence, while the
+	// teardown still has to close the session, the WebRTC legs and the ingest tee; a
+	// publisher that reconnects in that window must wait instead of being accepted
+	// and then closed by the teardown that is still running.
+	tearingDown atomic.Bool
 
 	// storage is the active HLS storage provider (local filesystem or S3).
 	storage models.StorageProvider

@@ -8,6 +8,9 @@ import (
 	"github.com/owncast/owncast/models"
 )
 
+// accessTokenHeader carries the chat access token a player reports with.
+const accessTokenHeader = "X-Owncast-Access-Token"
+
 // Ping is fired by a client to show they are still an active viewer. It also
 // carries the playback details the server cannot measure itself (protocol,
 // quality, latency, display name) as optional query parameters, so a player can
@@ -29,7 +32,13 @@ func applyViewerReport(viewer *models.Viewer, r *http.Request) {
 		viewer.Protocol = protocol
 	}
 
-	viewer.ReportedToken = truncateReportString(query.Get("token"), 128)
+	// The player sends its access token as a header so it never reaches an access
+	// log; the query parameter stays accepted for older clients.
+	accessToken := r.Header.Get(accessTokenHeader)
+	if accessToken == "" {
+		accessToken = query.Get("token")
+	}
+	viewer.ReportedToken = truncateReportString(accessToken, 128)
 	viewer.DisplayName = truncateReportString(query.Get("name"), 64)
 	viewer.ReportedQuality = truncateReportString(query.Get("quality"), 32)
 
@@ -54,8 +63,12 @@ func applyViewerReport(viewer *models.Viewer, r *http.Request) {
 // player cannot store unbounded text in the viewer table.
 func truncateReportString(value string, limit int) string {
 	trimmed := strings.TrimSpace(value)
-	if len(trimmed) > limit {
-		return trimmed[:limit]
+
+	// Count runes, not bytes: slicing a display name mid-rune produced invalid
+	// UTF-8 and the admin panel showed replacement characters.
+	runes := []rune(trimmed)
+	if len(runes) > limit {
+		return string(runes[:limit])
 	}
 
 	return trimmed

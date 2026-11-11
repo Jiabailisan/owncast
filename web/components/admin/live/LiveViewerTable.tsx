@@ -356,7 +356,9 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
         return (
           <Card key={viewer.clientID} size="small" className={styles.viewerCard}>
             <div className={styles.viewerCardHeader}>
-              <Text strong>{viewer.ipAddress || 'N/A'}</Text>
+              {/* The card title is the viewer's name when it has one, otherwise the
+                  address; the address row below only exists when the title is a name. */}
+              <Text strong>{viewer.username || viewer.ipAddress || 'N/A'}</Text>
               <Space size={4} wrap>
                 {renderViewerProtocol(viewer)}
                 <Tag color={viewer.source === 'client' ? 'blue' : 'default'}>
@@ -371,6 +373,17 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
                 </Tag>
               </Space>
             </div>
+            {viewer.username ? (
+              <div className={styles.viewerCardRow}>
+                <Text type="secondary">
+                  <Translation
+                    translationKey={Localization.Admin.LiveStreaming.Viewers.ip}
+                    defaultText="IP"
+                  />
+                </Text>
+                <span>{viewer.ipAddress || 'N/A'}</span>
+              </div>
+            ) : null}
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
                 <Translation
@@ -379,6 +392,28 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
                 />
               </Text>
               <span>{locationText}</span>
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.quality}
+                  defaultText="Quality"
+                />
+              </Text>
+              <span>{viewer.quality || 'N/A'}</span>
+            </div>
+            <div className={styles.viewerCardRow}>
+              <Text type="secondary">
+                <Translation
+                  translationKey={Localization.Admin.LiveStreaming.Viewers.latency}
+                  defaultText="Latency"
+                />
+              </Text>
+              <span>
+                {viewer.latencyMs === null || viewer.latencyMs === undefined
+                  ? 'N/A'
+                  : `${formatMetricNumber(viewer.latencyMs / 1000, 2)} s`}
+              </span>
             </div>
             <div className={styles.viewerCardRow}>
               <Text type="secondary">
@@ -504,7 +539,8 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
           rowKey="clientID"
           columns={columns}
           dataSource={data?.viewers || []}
-          loading={!data && !error}
+          // A disabled table never fetches, so "no data yet" would spin forever.
+          loading={enabled && !data && !error}
           pagination={{
             current: data?.page || query.page,
             pageSize: data?.pageSize || PAGE_SIZE,

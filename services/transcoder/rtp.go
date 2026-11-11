@@ -64,23 +64,24 @@ const (
 	ffmpegTuneZeroLatency = "zerolatency"
 )
 
-// bitrateToleranceKbps is how far a VBR encode may drift from its target.
-// The ceiling keeps the declared bitrate honest for players and CDNs, the floor
-// stops a static scene from collapsing to a starved bitrate.
-const bitrateToleranceKbps = 2000
+// bitrateWindowKbps is how far a VBR encode may drift from its target. It is
+// capped at half the target so a low-bitrate rendition cannot declare a peak
+// several times its average: at 400 kbps a flat 2000 kbps window declared a 2.2
+// Mbps peak for a 400 kbps stream, and the master playlist advertised it.
+const bitrateWindowKbps = 2000
 
-// bitrateBounds returns the target plus its min/max window.
-func bitrateBounds(targetKbps int) (target, minKbps, maxKbps int) {
+// bitrateDeltaKbps is the half-width of the window for one target.
+func bitrateDeltaKbps(targetKbps int) int {
 	if targetKbps <= 0 {
-		return targetKbps, targetKbps, targetKbps
+		return 0
 	}
 
-	minKbps = targetKbps - bitrateToleranceKbps
-	if minKbps < 100 {
-		minKbps = 100
+	delta := targetKbps / 2
+	if delta > bitrateWindowKbps {
+		delta = bitrateWindowKbps
 	}
 
-	return targetKbps, minKbps, targetKbps + bitrateToleranceKbps
+	return delta
 }
 
 // ScaleExpression renders the ffmpeg scale expression for a variant, keeping the
@@ -117,14 +118,33 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 		// tune at all). A wrong tune makes FFmpeg exit at startup, which used to
 		// take the whole shared process (HLS + publisher) down with it.
 		args = append(args, rtpEncoderTuning(legCodec, output.CPUUsageLevel)...)
-		if filters := legCodec.ExtraFilters(); filters != "" {
-			args = append(args, "-filter:v", filters)
-		}
+		// One filtergraph, scale first: FFmpeg keeps only the last -filter:v for a
+		// stream, so emitting two silently dropped the hardware upload filters and
+		// made VAAPI/QSV legs fail to start (taking the shared HLS process with them).
+		// The HLS path joins them the same way, in the same order.
+		filters := make([]string, 0, 2)
 		if output.Scale != "" {
-			args = append(args, "-filter:v", "scale="+output.Scale)
+			scaler := legCodec.Scaler()
+			if scaler == "" {
+				scaler = "scale"
+			}
+
+			filters = append(filters, scaler+"="+output.Scale)
+		}
+		if extra := legCodec.ExtraFilters(); extra != "" {
+			filters = append(filters, extra)
+		}
+		if len(filters) > 0 {
+			args = append(args, "-filter:v", strings.Join(filters, ","))
 		}
 
-		targetKbps, minKbps, maxKbps := bitrateBounds(output.VideoBitrateKbps)
+		// Unlike HLS, the WebRTC leg gets no rate feedback from the browser (GCC runs
+		// on the sender side, not back into FFmpeg), so a wide VBR window turns into
+		// burst loss and jitter-buffer growth instead of recovered quality. Keep the
+		// leg pinned to its target.
+		targetKbps := output.VideoBitrateKbps
+		minKbps := targetKbps
+		maxKbps := targetKbps
 
 		args = append(
 			args,

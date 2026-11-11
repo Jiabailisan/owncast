@@ -208,7 +208,10 @@ func main() {
 	geoIPClient := geoip.NewClient()
 	// One client for the whole process: the database is memory mapped, so a client
 	// per service mapped the same file several times.
-	defer func() { _ = geoIPClient.Close() }()
+	// Deliberately not closed: this process exits through log.Fatalln with no
+	// graceful shutdown, so a defer here would never run, and unmapping the file
+	// while a lookup goroutine is reading it would crash instead of exiting.
+
 	geoIPMetadata := geoIPClient.DatabaseMetadata()
 	if geoIPMetadata.Configured {
 		log.Infoln("geoip:", geoIPClient.String())
@@ -270,7 +273,7 @@ func main() {
 		StreamKeys:       streamKeys,
 		Sessions:         sessions,
 		IsOnline: func() bool {
-			return streamSvc != nil && streamSvc.IsStreamConnected()
+			return streamSvc != nil && streamSvc.IsStreamBusy()
 		},
 	})
 

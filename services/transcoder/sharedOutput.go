@@ -245,6 +245,22 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 	return flags
 }
 
+// audioBitrateKbpsFor returns the audio bitrate a variant declares, in kbps.
+// Passthrough variants copy the source audio, so 128 is assumed.
+func audioBitrateKbpsFor(variant HLSVariant) int {
+	if variant.isAudioPassthrough || variant.audioBitrate == "" {
+		return 128
+	}
+
+	value := strings.TrimSuffix(variant.audioBitrate, "k")
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 128
+	}
+
+	return parsed
+}
+
 // writeMasterPlaylist writes the HLS master playlist for the tee output. With
 // one HLS muxer per variant, ffmpeg only writes variant playlists, so the
 // master is assembled here from the configured variants.
@@ -256,14 +272,40 @@ func (t *Transcoder) writeMasterPlaylist() {
 	builder.WriteString("#EXTM3U\n")
 	builder.WriteString("#EXT-X-VERSION:3\n")
 	builder.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
+	// A passthrough variant carries the source, which is at least as expensive as
+	// the most expensive rendition derived from it; declaring it any lower made
+	// ABR choose it as the "cheapest" option.
+	passthroughFloorKbps := 0
 	for _, variant := range t.variants {
-		bandwidth := (variant.videoBitrate + 128) * 1000
-		if bandwidth < 1000*1000 {
-			bandwidth = 1000 * 1000
+		if maxKbps := variant.getMaxVideoBitrate(); maxKbps > passthroughFloorKbps {
+			passthroughFloorKbps = maxKbps
 		}
+	}
+
+	for _, variant := range t.variants {
+		// HLS requires BANDWIDTH to be the peak, and players pick with it, so the
+		// declared value follows the encoder ceiling rather than the average.
+		peakKbps := variant.getMaxVideoBitrate()
+		peakKbps += audioBitrateKbpsFor(variant)
+		if peakKbps < 1000 {
+			peakKbps = 1000
+		}
+
+		averageKbps := variant.getAllocatedVideoBitrate() + audioBitrateKbpsFor(variant)
+		if averageKbps < 1000 {
+			averageKbps = 1000
+		}
+
+		if variant.isVideoPassthrough {
+			if passthroughFloorKbps > 0 {
+				peakKbps = passthroughFloorKbps + audioBitrateKbpsFor(variant)
+			}
+			averageKbps = peakKbps
+		}
+
 		attributes := []string{
-			"BANDWIDTH=" + strconv.Itoa(bandwidth),
-			"AVERAGE-BANDWIDTH=" + strconv.Itoa(bandwidth),
+			"BANDWIDTH=" + strconv.Itoa(peakKbps*1000),
+			"AVERAGE-BANDWIDTH=" + strconv.Itoa(averageKbps*1000),
 		}
 		if variant.videoSize.Width > 0 && variant.videoSize.Height > 0 {
 			attributes = append(attributes, fmt.Sprintf("RESOLUTION=%dx%d", variant.videoSize.Width, variant.videoSize.Height))

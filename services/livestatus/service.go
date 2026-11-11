@@ -62,6 +62,9 @@ type Deps struct {
 // Names are mutable, so it is consulted when the table is built.
 type NameProvider interface {
 	DisplayNameForToken(accessToken string) string
+	// DisplayNamesForTokens resolves a whole page in one pass, so the viewer table
+	// does not take the chat lock once per row.
+	DisplayNamesForTokens(accessTokens []string) map[string]string
 }
 
 // Service builds live-status snapshots.
@@ -135,7 +138,16 @@ func (s *Service) Status() models.LiveStatus {
 	if s.webrtc != nil {
 		webrtcViewers = s.webrtc.ViewerCount()
 	}
-	hlsViewers := len(s.stream.GetActiveViewers())
+	// The native viewer map already contains WebRTC viewers: the browser pings
+	// /api/ping for both transports. Counting every entry as HLS and then adding
+	// the WebRTC sessions on top reported each WebRTC viewer twice, so the cards
+	// disagreed with the table.
+	hlsViewers := 0
+	for _, viewer := range s.stream.GetActiveViewers() {
+		if !strings.EqualFold(viewer.Protocol, "webrtc") {
+			hlsViewers++
+		}
+	}
 	status.Viewers = models.LiveViewerCounts{
 		Total:  hlsViewers + webrtcViewers,
 		WebRTC: webrtcViewers,
@@ -218,19 +230,32 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 
 	if s.stream != nil {
 		for _, viewer := range s.stream.GetActiveViewers() {
-			if viewer.ReportedToken != "" {
-				tokens[viewer.IPAddress] = viewer.ReportedToken
-			}
+			// A WebRTC player reports protocol=webrtc, which is what identifies it as
+			// the same person as a WebRTC session row. Matching on the address instead
+			// merged everyone behind one NAT into a single row.
+			if strings.EqualFold(viewer.Protocol, "webrtc") {
+				if viewer.ReportedToken != "" {
+					tokens[viewer.IPAddress] = viewer.ReportedToken
+				}
 
-			if _, isWebRTC := webrtcAddresses[viewer.IPAddress]; isWebRTC {
-				// The same person also appears as a WebRTC row; keep that row (it has
-				// the measured quality) but take the reported details from here.
+				// Keep the session row (it carries the measured quality) and fold the
+				// reported details into it.
 				mergeReportedIntoRows(viewers, viewer)
 
 				continue
 			}
 
-			viewers = append(viewers, liveViewerFromViewer(viewer))
+			if viewer.ReportedToken != "" {
+				tokens[viewer.ClientID] = viewer.ReportedToken
+			}
+
+			row := liveViewerFromViewer(viewer)
+
+			// HLS viewers are keyed by their own client id, so two people sharing an
+			// address stay two rows.
+			tokens["client:"+viewer.ClientID] = viewer.ReportedToken
+
+			viewers = append(viewers, row)
 		}
 	}
 
@@ -247,13 +272,28 @@ func (s *Service) applyDisplayNames(viewers []models.LiveViewer, tokens map[stri
 		return
 	}
 
+	// One lookup for the whole page instead of one per row: the table refreshes
+	// every ten seconds and each call takes the chat lock.
+	wanted := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		if token != "" {
+			wanted = append(wanted, token)
+		}
+	}
+
+	if len(wanted) == 0 {
+		return
+	}
+
+	resolved := s.names.DisplayNamesForTokens(wanted)
+
 	for index := range viewers {
 		token := tokens[viewers[index].IPAddress]
 		if token == "" {
-			continue
+			token = tokens["client:"+viewers[index].ClientID]
 		}
 
-		if name := s.names.DisplayNameForToken(token); name != "" {
+		if name := resolved[token]; name != "" {
 			viewers[index].Username = name
 		}
 	}

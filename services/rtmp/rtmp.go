@@ -120,18 +120,20 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 		}
 	}
 
-	// Preserve the historical single-publisher behavior: check the shared
-	// arbiter before authenticating so a second publisher cannot overtake an
-	// existing stream.
-	if !s.waitForPreviousSession() {
-		log.Errorln("stream already running; can not overtake an existing stream from", nc.RemoteAddr().String())
+	// Authenticate first: waiting before authentication let any anonymous
+	// connection park a goroutine for the whole takeover window while a stream is
+	// live.
+	keyID, accessGranted := s.streamKeys.ValidateRTMPPath(c.URL.Path)
+	if !accessGranted {
+		log.Errorln("invalid streaming key; rejecting incoming stream from", nc.RemoteAddr().String())
 		_ = nc.Close()
 		return
 	}
 
-	keyID, accessGranted := s.streamKeys.ValidateRTMPPath(c.URL.Path)
-	if !accessGranted {
-		log.Errorln("invalid streaming key; rejecting incoming stream from", nc.RemoteAddr().String())
+	// Preserve the historical single-publisher behavior: a second publisher cannot
+	// overtake an existing stream.
+	if !s.waitForPreviousSession() {
+		log.Errorln("stream already running; can not overtake an existing stream from", nc.RemoteAddr().String())
 		_ = nc.Close()
 		return
 	}

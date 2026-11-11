@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useTranslation } from 'next-export-i18n';
 import { Chart } from '../../components/admin/Chart';
 import { StatisticItem } from '../../components/admin/StatisticItem';
+import { Translation } from '../../components/ui/Translation/Translation';
 import { LiveViewerTable } from '../../components/admin/live/LiveViewerTable';
 
 import { ServerStatusContext } from '../../utils/server-status-context';
@@ -166,10 +167,17 @@ export default function ViewersOverTime() {
       {/* Rendered whether or not a stream is live. Offline it is an empty
           table, which is the honest answer to "who is watching" and keeps
           the section from vanishing when a streamer goes looking for it. */}
-      <Typography.Title level={3}>Viewers</Typography.Title>
+      <Typography.Title level={3}>
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.title}
+          defaultText="Viewers"
+        />
+      </Typography.Title>
       <Typography.Paragraph>
-        Every client watching right now, with the playback health the server measures for it:
-        protocol, bitrate, resolution, frame rate and packet loss.
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Status.viewersSection}
+          defaultText="Every client watching right now, with the playback health the server measures for it."
+        />
       </Typography.Paragraph>
       <LiveViewerTable enabled={online} />
     </>

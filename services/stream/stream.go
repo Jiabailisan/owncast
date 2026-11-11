@@ -285,8 +285,19 @@ func (s *Service) applyStreamOnline() {
 // broadcast settings. Implements StreamEvents; the local engine calls it when
 // the transcoder exits, a remote engine when its stream goes offline.
 func (s *Service) StreamDisconnected(_ error) {
+	// Published to the ingest accept path for the whole teardown, so a publisher
+	// that reconnects immediately waits for this session to be fully gone.
+	s.tearingDown.Store(true)
+	defer s.tearingDown.Store(false)
+
 	s.applyStreamOffline()
 	s.currentBroadcast = nil
+}
+
+// IsStreamBusy reports whether a stream is live or still being torn down. The
+// ingest listeners use it to decide whether a new publisher has to wait.
+func (s *Service) IsStreamBusy() bool {
+	return s.tearingDown.Load() || s.IsStreamConnected()
 }
 
 // applyStreamOffline handles the always-on cleanup when a live stream ends.
