@@ -770,7 +770,13 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     player.on('dispose', () => clearInterval(activeQualityTimer));
 
+    // The manifest is not parsed yet when the player becomes ready, so pin again as
+    // soon as the levels exist and whenever playback starts.
+    player.on('loadedmetadata', pinBestLevel);
+    player.on('canplay', pinBestLevel);
+
     player.on('playing', () => {
+      pinBestLevel();
       updateActiveQuality();
       ping.start();
       setVideoPlaying(true);
