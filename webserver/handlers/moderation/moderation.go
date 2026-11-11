@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/owncast/owncast/services/geoip"
+
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/models"
@@ -42,11 +44,11 @@ func New(deps Deps) *Handler {
 // GetUserDetails returns the details of a chat user for moderators.
 func (h *Handler) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 	type connectedClient struct {
-		ConnectedAt  time.Time `json:"connectedAt"`
-		UserAgent    string    `json:"userAgent"`
-		Geo          string    `json:"geo,omitempty"`
-		Id           uint      `json:"id"`
-		MessageCount int       `json:"messageCount"`
+		ConnectedAt  time.Time         `json:"connectedAt"`
+		UserAgent    string            `json:"userAgent"`
+		Geo          *geoip.GeoDetails `json:"geo,omitempty"`
+		Id           uint              `json:"id"`
+		MessageCount int               `json:"messageCount"`
 	}
 
 	type response struct {
@@ -74,9 +76,9 @@ func (h *Handler) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 			UserAgent:    c.UserAgent,
 			ConnectedAt:  c.ConnectedAt,
 		}
-		if c.Geo != nil {
-			client.Geo = c.Geo.CountryCode
-		}
+		// The full details, not just the country code: the client renders city,
+		// region and country, and needs "Local" for LAN viewers.
+		client.Geo = c.Geo
 
 		clients[i] = client
 	}
