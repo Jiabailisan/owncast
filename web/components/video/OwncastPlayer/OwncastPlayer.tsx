@@ -590,7 +590,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
             ? activeQualityName
               ? `Auto (${activeQualityName})`
               : resolution
-                ? `Auto (${resolution})`
+                ? `Auto (${resolution}${
+                    activeRepresentation?.bandwidth
+                      ? ` @ ${(Number(activeRepresentation.bandwidth) / 1000000).toFixed(1)} Mbps`
+                      : ''
+                  })`
                 : 'Auto'
             : qualities.find(item => String(item.index) === selectedQuality)?.name ||
               selectedQuality,

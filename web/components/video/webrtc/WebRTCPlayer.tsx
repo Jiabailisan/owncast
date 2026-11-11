@@ -601,11 +601,23 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             (panelSample.audioCodec || 'OPUS') +
             ' (WebRTC)',
           sdp: summarizeSDP(session.pc.remoteDescription?.sdp),
-          qualityName:
-            selectedVariant === null
-              ? 'Auto'
-              : (variants || []).find(v => v.index === selectedVariant)?.name ||
-                String(selectedVariant),
+          qualityName: (() => {
+            if (selectedVariant !== null) {
+              return (
+                (variants || []).find(v => v.index === selectedVariant)?.name ||
+                String(selectedVariant)
+              );
+            }
+
+            // Auto: name the variant the server actually negotiated for this session.
+            const negotiated = session.variantIndex;
+            const negotiatedName =
+              negotiated === null || negotiated === undefined
+                ? undefined
+                : (variants || []).find(v => v.index === negotiated)?.name;
+
+            return negotiatedName ? `Auto (${negotiatedName})` : 'Auto';
+          })(),
           videoBitrateKbps: panelSample.videoBitrateKbps,
           audioBitrateKbps: panelSample.audioBitrateKbps,
           connectionSpeedKbps: panelSample.connectionSpeedKbps,
