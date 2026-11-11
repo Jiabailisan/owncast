@@ -184,10 +184,12 @@ func (s *Service) Addclient(conn *websocket.Conn, user *models.User, accessToken
 		s.sendWelcomeMessageToClient(client)
 	}
 
-	// Asynchronously, optionally, fetch GeoIP data.
-	go func(client *Client) {
+	// Resolve the viewer location before the client is published: the lookup is an
+	// in-memory database read, and doing it here means the admin client list always
+	// has a location instead of missing it for the first seconds of a session.
+	if s.geoipClient != nil {
 		client.Geo = s.geoipClient.GetGeoFromIP(ipAddress)
-	}(client)
+	}
 
 	return client
 }

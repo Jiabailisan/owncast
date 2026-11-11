@@ -28,11 +28,17 @@ export interface UserDetails {
   messages: Message[];
 }
 
+export interface ClientGeo {
+  countryCode?: string;
+  regionName?: string;
+  city?: string;
+}
+
 export interface Client {
   messageCount: number;
   userAgent: string;
   connectedAt: Date;
-  geo: string;
+  geo?: ClientGeo | null;
   id: number;
 }
 
@@ -69,14 +75,29 @@ const ValueRow = ({ label, value }: { label: string; value: string }) => (
   </Row>
 );
 
+// clientLocationText renders the GeoIP details the server attaches to each
+// connected client, dropping the N/A and Unknown placeholders so a LAN viewer
+// reads as "Local" and an unknown one shows no row at all.
+export function clientLocationText(geo?: ClientGeo | null): string | null {
+  if (!geo) return null;
+
+  const placeholders = new Set(['n/a', 'unknown', '']);
+  const parts = [geo.city, geo.regionName, geo.countryCode]
+    .map(part => (part || '').trim())
+    .filter(part => !placeholders.has(part.toLowerCase()));
+
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
 const ConnectedClient = ({ client }: { client: Client }) => {
   const { messageCount, connectedAt, geo } = client;
   const connectedAtDate = format(new Date(connectedAt), 'PP pp');
+  const location = clientLocationText(geo);
 
   return (
     <div>
       <ValueRow label="Messages Sent" value={messageCount.toString()} />
-      {geo !== 'N/A' && <ValueRow label="Geo" value={geo} />}
+      {location && <ValueRow label="Location" value={location} />}
       <ValueRow label="Connected At" value={connectedAtDate} />
     </div>
   );
