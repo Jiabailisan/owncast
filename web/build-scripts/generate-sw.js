@@ -40,6 +40,9 @@ async function run() {
     swDest: path.join(outDir, 'sw.js'),
     skipWaiting: true,
     clientsClaim: true,
+    // Drop precaches from previous builds. Without it the browser keeps serving
+    // the old admin chunks from a stale cache after an upgrade.
+    cleanupOutdatedCaches: true,
     // Manifest URLs are generated relative to out/, make them absolute.
     modifyURLPrefix: { '': '/' },
     // _next/static files are already content-hashed, no revision busting.
