@@ -7,7 +7,7 @@ import { TransportPreference } from './types';
 // Persistence keys match the reference player: transport, volume and the
 // latency toggle. Quality is session-only for HLS (not persisted).
 export const TRANSPORT_STORAGE_KEY = 'owncast_transport';
-export const LATENCY_STORAGE_KEY = 'latencyCompensatorEnabled';
+export { LATENCY_COMPENSATION_ENABLED as LATENCY_STORAGE_KEY } from '../settings-menu';
 
 const TRANSPORT_VALUES: TransportPreference[] = ['auto', 'webrtc', 'hls'];
 

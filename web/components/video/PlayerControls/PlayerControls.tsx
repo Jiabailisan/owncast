@@ -41,16 +41,13 @@ export type PlayerControlsProps = {
   qualities: PlayerQuality[];
   selectedQuality: string;
   latencyEnabled: boolean;
-  latencySupported?: boolean;
   liveEdge: boolean;
-  behindLiveSeconds?: number | null;
   loading?: boolean;
   stats: StatsSnapshot;
   sparklines: SparklineState;
   statsOpen: boolean;
   fullscreen?: boolean;
   // Quality rows only exist for the HLS transport in the reference player.
-  showQuality?: boolean;
   // Storybook/tests only: open one of the menus on first render.
   initialMenu?: 'settings' | 'transport' | null;
   callbacks: PlayerControlsCallbacks;
@@ -69,15 +66,12 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   qualities,
   selectedQuality,
   latencyEnabled,
-  latencySupported = true,
   liveEdge,
-  behindLiveSeconds = null,
   loading = false,
   stats,
   sparklines,
   statsOpen,
   fullscreen = false,
-  showQuality = true,
   initialMenu = null,
   callbacks,
 }) => {
@@ -263,7 +257,14 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           }, 0);
         }}
       >
-        {loading && <div className={styles.loadingSpinner} aria-label="Loading" />}
+        {loading && (
+          <div
+            className={styles.loadingSpinner}
+            role="status"
+            aria-live="polite"
+            aria-label="Loading"
+          />
+        )}
         {!playing && !loading && (
           <button
             type="button"
@@ -309,7 +310,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
             className={classNames(styles.liveButton, { [styles.liveEdge]: liveEdge })}
             aria-label={liveEdge ? 'Live' : 'Seek to live'}
             title={liveTitle}
-            data-behind-live={behindLiveSeconds !== null ? 'true' : undefined}
             data-player-control="true"
             onClick={() => {
               if (!liveEdge) callbacks.onGoLive();
@@ -404,7 +404,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
 
         {settingsOpen && (
           <div className={styles.settingsMenu} data-player-control="true">
-            {showQuality && qualities.length > 0 && (
+            {qualities.length > 0 && (
               <>
                 <div className={styles.menuHeading}>QUALITY</div>
                 <button
@@ -472,12 +472,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
                 {latencyEnabled ? 'ON' : 'OFF'}
               </span>
             </button>
-
-            {!latencySupported && (
-              <div className={styles.menuNote}>
-                Minimize latency is not supported for this transport.
-              </div>
-            )}
           </div>
         )}
       </div>

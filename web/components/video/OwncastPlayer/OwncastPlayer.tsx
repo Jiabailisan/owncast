@@ -85,7 +85,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const [muted, setMuted] = useState(initiallyMuted);
   const [volume, setVolume] = useState(1);
   const [liveEdge, setLiveEdge] = useState(true);
-  const [behindLiveSeconds, setBehindLiveSeconds] = useState<number | null>(null);
   const [qualities, setQualities] = useState<VideoQuality[]>([]);
   // HLS quality is intentionally NOT persisted (reference behavior).
   const [selectedQuality, setSelectedQuality] = useState('auto');
@@ -343,7 +342,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         const current = Number(player.currentTime()) || 0;
         const liveCurrent = Number(player.liveTracker.liveCurrentTime?.()) || 0;
         const behind = Math.max(0, liveCurrent - current);
-        setBehindLiveSeconds(behind);
         const atEdge = behind < 8;
         setLiveEdge(atEdge);
       } catch {
@@ -660,8 +658,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on('fullscreenchange', () => setFullscreen(Boolean(player.isFullscreen())));
     syncVolumeState();
 
-    videojs.hookOnce();
-
     playbackMetrics = new PlaybackMetrics(player, videojs);
     playbackMetrics.setClockSkew(clockSkew);
 
@@ -745,10 +741,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
               qualities={qualityOptions}
               selectedQuality={selectedQuality}
               latencyEnabled={latencyEnabled}
-              latencySupported
-              showQuality
               liveEdge={liveEdge}
-              behindLiveSeconds={behindLiveSeconds}
               stats={stats}
               sparklines={sparklines}
               loading={buffering}

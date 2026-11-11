@@ -1,4 +1,4 @@
-import { FC } from 'react';
+import { FC, useEffect, useRef } from 'react';
 
 import { StatsSnapshot, SparklineState } from './types';
 import { buildStatsRows, formatStatsBitrate, sparklinePoints } from './stats';
@@ -54,8 +54,18 @@ const Chart: FC<{ label: string; color: string; values: number[]; current: numbe
 // transport cannot measure it; "Collecting..." shows until the first sample.
 export const StatsPanel: FC<StatsPanelProps> = ({ stats, sparklines, onClose }) => {
   const rows = buildStatsRows(stats);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // Move focus into the dialog so keyboard and screen reader users land in it
+  // instead of behind the overlay.
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
   return (
     <div
+      ref={panelRef}
+      tabIndex={-1}
       className={styles.statsPanel}
       data-player-control="true"
       role="dialog"

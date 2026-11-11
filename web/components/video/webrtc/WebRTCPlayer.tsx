@@ -807,10 +807,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           webrtcAvailable={webrtcAvailable}
           qualities={qualityOptions}
           selectedQuality={selectedQuality}
-          showQuality={qualityOptions.length > 0}
           latencyEnabled={latencyEnabled}
-          latencySupported
           liveEdge
+          // Hides the centre play button while the session is being negotiated; the
+          // connecting overlay draws its own status text on top.
           loading={phase === 'connecting'}
           stats={stats}
           sparklines={sparklines}

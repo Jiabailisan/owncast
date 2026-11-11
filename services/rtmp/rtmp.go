@@ -77,6 +77,32 @@ func (s *Service) listenerClosed() bool {
 	return s.listener == nil
 }
 
+// publisherTakeoverWait bounds how long a new publisher waits for the previous
+// session to finish tearing down. A streamer who reconnects right after a drop
+// arrives while the transcoder legs are still exiting; rejecting that connection
+// made an immediate retry impossible.
+const publisherTakeoverWait = 8 * time.Second
+
+// waitForPreviousSession reports whether no other session is running, waiting for a
+// short while for one that is already shutting down.
+func (s *Service) waitForPreviousSession() bool {
+	if s.sessions.Current() == nil {
+		return true
+	}
+
+	deadline := time.Now().Add(publisherTakeoverWait)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		if s.sessions.Current() == nil {
+			log.Infoln("previous stream finished; accepting the new publisher")
+
+			return true
+		}
+	}
+
+	return false
+}
+
 // handleConn is fired when an inbound RTMP connection takes place.
 func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 	c.LogTagEvent = func(isRead bool, t flvio.Tag) {
@@ -89,7 +115,7 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 	// Preserve the historical single-publisher behavior: check the shared
 	// arbiter before authenticating so a second publisher cannot overtake an
 	// existing stream.
-	if s.sessions.Current() != nil {
+	if !s.waitForPreviousSession() {
 		log.Errorln("stream already running; can not overtake an existing stream from", nc.RemoteAddr().String())
 		_ = nc.Close()
 		return

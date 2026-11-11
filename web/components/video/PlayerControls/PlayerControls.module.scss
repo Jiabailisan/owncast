@@ -146,6 +146,7 @@ $blur: var(--owncast-overlay-blur, 12px);
     .volumePopover {
       width: 78px;
       margin-right: 6px;
+      visibility: visible;
       pointer-events: auto;
       opacity: 1;
     }
@@ -175,10 +176,15 @@ $blur: var(--owncast-overlay-blur, 12px);
   background: none;
   border: 0;
   border-radius: 0;
+
+  // visibility (not just opacity) keeps the collapsed slider out of the tab
+  // order, including in browsers without :has() support.
+  visibility: hidden;
   opacity: 0;
   transition:
     width 0.18s,
     margin 0.18s,
+    visibility 0.14s,
     opacity 0.14s;
 }
 
@@ -230,18 +236,6 @@ $blur: var(--owncast-overlay-blur, 12px);
     0 1px 4px rgb(0 0 0 / 35%);
 }
 
-.transportError {
-  position: absolute;
-  top: 48px;
-  right: 12px;
-  z-index: 4;
-  max-width: 320px;
-  padding: 4px 8px;
-  color: #fff;
-  font-size: 12px;
-  background: rgb(120 20 20 / 82%);
-  border-radius: 4px;
-}
 
 .liveButton {
   display: inline-flex;

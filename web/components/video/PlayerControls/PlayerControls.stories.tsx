@@ -52,9 +52,7 @@ const baseArgs = {
   ],
   selectedQuality: 'auto',
   latencyEnabled: false,
-  latencySupported: true,
   liveEdge: true,
-  behindLiveSeconds: null,
   stats,
   sparklines: {
     video: [1800, 2100, 1900, 2400, 2450],
@@ -101,7 +99,7 @@ export const Paused: Story = {
 };
 
 export const BehindLive: Story = {
-  args: { ...baseArgs, liveEdge: false, behindLiveSeconds: 12 },
+  args: { ...baseArgs, liveEdge: false },
 };
 
 export const SettingsOpen: Story = {
@@ -121,7 +119,6 @@ export const WebRTCActive: Story = {
     ...baseArgs,
     transport: 'webrtc',
     activeTransport: 'webrtc',
-    showQuality: false,
     stats: { ...stats, isWebRTC: true, codecs: 'H.264 / OPUS (WebRTC)', liveMode: 'WebRTC (auto)' },
   },
 };
