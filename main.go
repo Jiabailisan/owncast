@@ -330,6 +330,9 @@ func main() {
 		ConfigProvider: configRepository.GetSRTConfig,
 		StreamKeys:     streamKeys,
 		Sessions:       sessions,
+		IsOnline: func() bool {
+			return streamSvc != nil && streamSvc.IsStreamBusy()
+		},
 		Handler: func(session ingest.Session) error {
 			if streamSvc == nil {
 				return errStreamNotReady

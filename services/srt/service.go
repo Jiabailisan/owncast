@@ -42,6 +42,12 @@ type Deps struct {
 	StreamKeys *ingest.StreamKeyValidator
 	// Sessions is the cross-protocol single-publisher arbiter.
 	Sessions *ingest.Arbiter
+
+	// IsOnline reports whether a stream is live or still being torn down. The
+	// arbiter slot is released when the previous session closes, before the stream
+	// engine finishes its teardown, so without this a publisher that reconnects in
+	// that window is accepted and then killed by the teardown it ran into.
+	IsOnline func() bool
 	// Handler starts the media pipeline for an accepted session. It must
 	// return promptly; a non-nil error closes the session.
 	Handler func(ingest.Session) error

@@ -373,12 +373,19 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     setLocalStorage(LATENCY_COMPENSATION_ENABLED, true);
   };
 
-  const stopLatencyCompensator = () => {
+  // Teardown only: releasing the compensator must not rewrite the stored
+  // preference. The player unmounts when the viewer switches to WebRTC, and that
+  // used to save "false", so the toggle the UI calls persisted came back off.
+  const releaseLatencyCompensator = () => {
     if (latencyCompensator) {
       latencyCompensator.disable();
     }
     latencyCompensator = null;
     latencyCompensatorEnabled = false;
+  };
+
+  const stopLatencyCompensator = () => {
+    releaseLatencyCompensator();
     setLocalStorage(LATENCY_COMPENSATION_ENABLED, false);
   };
 
@@ -877,7 +884,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
   useEffect(
     () => () => {
-      stopLatencyCompensator();
+      releaseLatencyCompensator();
       playbackMetrics?.stop();
     },
     [],

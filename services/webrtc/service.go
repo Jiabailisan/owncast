@@ -45,12 +45,16 @@ type StatusSnapshot struct {
 type Service struct {
 	deps Deps
 
-	mu       sync.RWMutex
-	cfg      models.WebRTCConfig
-	started  bool
-	engine   *engine
-	variants map[int]*variantTracks
-	legs     map[int]*MediaLeg
+	mu      sync.RWMutex
+	cfg     models.WebRTCConfig
+	started bool
+	// appliedCfg is the configuration the running engine was built with. It differs
+	// from cfg while a restart-service change is deferred, which is what makes the
+	// pending state reportable instead of invisible.
+	appliedCfg models.WebRTCConfig
+	engine     *engine
+	variants   map[int]*variantTracks
+	legs       map[int]*MediaLeg
 
 	capacity *capacityGate
 	limiter  *signalingLimiter
@@ -113,8 +117,62 @@ func (s *Service) Start(ctx context.Context) error {
 	s.wg.Add(1)
 	go s.janitor(runCtx)
 	s.started = true
+	s.appliedCfg = cfg
 
 	return nil
+}
+
+// PendingRestartFields reports the restart-service settings that are saved but not
+// running yet. The admin needs this because the saved configuration is applied to
+// the service immediately while the engine keeps the old one until it restarts.
+func (s *Service) PendingRestartFields() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !s.started {
+		return nil
+	}
+
+	return RestartRequiredFields(s.appliedCfg, s.cfg)
+}
+
+// applyDeferredRestartIfIdle applies a deferred restart-service change, but only
+// when no viewer is attached: a stream starting is the only safe moment, because
+// no viewer of that stream exists yet and the media legs are about to be created.
+func (s *Service) applyDeferredRestartIfIdle() {
+	if len(s.PendingRestartFields()) == 0 {
+		return
+	}
+
+	if len(s.sessions.all()) != 0 {
+		return
+	}
+
+	s.applyDeferredRestart()
+}
+
+// deferredRestartTimeout bounds the stop/start cycle that applies deferred settings.
+const deferredRestartTimeout = 20 * time.Second
+
+// applyDeferredRestart rebuilds the engine so settings saved while the previous
+// stream was live take effect for the stream that is starting.
+func (s *Service) applyDeferredRestart() {
+	ctx, cancel := context.WithTimeout(context.Background(), deferredRestartTimeout)
+	defer cancel()
+
+	if err := s.Stop(ctx); err != nil {
+		log.Warnln("webrtc: could not stop the engine to apply deferred settings:", err)
+
+		return
+	}
+
+	if err := s.Start(ctx); err != nil {
+		log.Errorln("webrtc: could not restart the engine to apply deferred settings:", err)
+
+		return
+	}
+
+	log.Infoln("webrtc: applied the settings that were deferred while a stream was live")
 }
 
 // Stop closes every session and leg, releases the mux sockets and waits for the
@@ -222,6 +280,8 @@ func (s *Service) UpdateConfig(cfg models.WebRTCConfig) ([]string, error) {
 // existing viewers stay connected across plan rebuilds. Sessions and media legs
 // attached to a removed or changed variant are closed.
 func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
+	s.applyDeferredRestartIfIdle()
+
 	cfg := s.Config()
 	h264Fmtp, err := canonicalH264Fmtp(cfg.H264Profile, cfg.H264Level)
 	if err != nil {

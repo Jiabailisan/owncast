@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -18,7 +19,11 @@ import (
 // into thumbnail.jpg + preview.gif while a stream is online. One
 // instance per active stream, owned by the stream service.
 type ThumbnailGenerator struct {
+	// mu guards timer and done: Start runs on the stream's goroutine while Stop
+	// can be called from the lifecycle goroutine.
+	mu               sync.Mutex
 	timer            *time.Ticker
+	done             chan struct{}
 	cfg              *config.Config
 	configRepository models.EngineConfig
 }
@@ -30,8 +35,22 @@ func NewThumbnailGenerator(cfg *config.Config, configRepository models.EngineCon
 
 // Stop will stop the periodic generating of a thumbnail from video.
 func (g *ThumbnailGenerator) Stop() {
-	if g.timer != nil {
-		g.timer.Stop()
+	g.mu.Lock()
+	timer := g.timer
+	done := g.done
+	g.timer = nil
+	g.done = nil
+	g.mu.Unlock()
+
+	// A ticker's Stop does not close its channel, so the generator goroutine used
+	// to block in "for range g.timer.C" forever: one goroutine and one ticker
+	// leaked for every stream that ended.
+	if done != nil {
+		close(done)
+	}
+
+	if timer != nil {
+		timer.Stop()
 	}
 }
 
@@ -39,19 +58,31 @@ func (g *ThumbnailGenerator) Stop() {
 func (g *ThumbnailGenerator) Start(chunkPath string, variantIndex int, isVideoPassthrough bool) {
 	// Every 20 seconds create a thumbnail from the most
 	// recent video segment.
-	g.timer = time.NewTicker(20 * time.Second)
+	timer := time.NewTicker(20 * time.Second)
+	done := make(chan struct{})
+
+	g.mu.Lock()
+	g.timer = timer
+	g.done = done
+	g.mu.Unlock()
 
 	go func() {
-		for range g.timer.C {
-			if err := g.fireThumbnailGenerator(chunkPath, variantIndex); err != nil {
-				logMsg := "Unable to generate thumbnail: " + err.Error()
-				if isVideoPassthrough {
-					logMsg += ". Video Passthrough is enabled. You should disable it to fix this, and other, streaming errors. https://owncast.online/troubleshoot"
+		defer log.Debug("thumbnail generator has stopped")
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				if err := g.fireThumbnailGenerator(chunkPath, variantIndex); err != nil {
+					logMsg := "Unable to generate thumbnail: " + err.Error()
+					if isVideoPassthrough {
+						logMsg += ". Video Passthrough is enabled. You should disable it to fix this, and other, streaming errors. https://owncast.online/troubleshoot"
+					}
+					log.Errorln("Unable to generate thumbnail:", logMsg)
 				}
-				log.Errorln("Unable to generate thumbnail:", logMsg)
 			}
 		}
-		log.Debug("thumbnail generator has stopped")
 	}()
 }
 

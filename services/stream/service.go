@@ -40,6 +40,11 @@ type Service struct {
 	stats   *models.Stats
 	statsMu sync.RWMutex
 
+	// processModelMu guards runningProcessModel, the FFmpeg process model the
+	// active stream was started with.
+	processModelMu      sync.RWMutex
+	runningProcessModel string
+
 	// tearingDown is set for the whole duration of the go-offline sequence.
 	// IsStreamConnected flips to false at the start of that sequence, while the
 	// teardown still has to close the session, the WebRTC legs and the ingest tee; a

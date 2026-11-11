@@ -58,9 +58,9 @@ func defaultValueProcessModel() string {
 func (a *Admin) GetOutputConfig(w http.ResponseWriter, _ *http.Request) {
 	processModel := a.configRepository.GetOutputProcessModel()
 	state := newOutputConfigState(processModel, nil)
-	if a.stream != nil && a.stream.GetStatus().Online {
-		// The live stream still runs the previous process model; the saved value
-		// applies at the next stream start, so it stays pending while live.
+	if a.stream != nil && a.stream.GetStatus().Online && a.stream.GetRunningProcessModel() != processModel {
+		// Only when the running stream really uses a different model; reporting it for
+		// every stream showed a permanent "restart pending" warning.
 		state.PendingRestart = newPendingRestart([]string{fieldNameProcessModel})
 	}
 	writeLiveConfigJSON(w, state)

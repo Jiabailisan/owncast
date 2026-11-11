@@ -14,6 +14,15 @@ const publicPipelineHLS = "hls"
 
 // GetStatus returns a snapshot of the current stream state suitable for
 // the public/admin status APIs.
+// GetRunningProcessModel returns the FFmpeg process model the active stream was
+// started with, or an empty string when no stream is running.
+func (s *Service) GetRunningProcessModel() string {
+	s.processModelMu.RLock()
+	defer s.processModelMu.RUnlock()
+
+	return s.runningProcessModel
+}
+
 func (s *Service) GetStatus() models.Status {
 	if s.stats == nil {
 		return models.Status{}

@@ -191,6 +191,11 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	// legs for the variants WebRTC exposes.
 	rtpOutputs := s.configureWebRTC(session, broadcast.OutputSettings)
 	processModel := s.configRepository.GetOutputProcessModel()
+	// Remember what this stream started with: the admin reports a pending
+	// process-model change only when it differs from the running one.
+	s.processModelMu.Lock()
+	s.runningProcessModel = processModel
+	s.processModelMu.Unlock()
 
 	segmentPath := config.HLSStoragePath
 

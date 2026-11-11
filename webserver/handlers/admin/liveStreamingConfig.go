@@ -388,7 +388,15 @@ func (a *Admin) webrtcServiceState(config models.WebRTCConfig) map[string]any {
 func (a *Admin) srtConfigState(config models.SRTConfig, changedRestartFields []string) map[string]any {
 	pending := newPendingRestart(nil)
 	if a.srt != nil && a.srt.Snapshot().PendingRestart {
-		pending = pendingRestart{Pending: true, Fields: changedRestartFields}
+		// The list must never be null: the admin form maps over it, so a null
+		// field list crashed the whole SRT section instead of showing the pending
+		// change.
+		fields := changedRestartFields
+		if fields == nil {
+			fields = []string{}
+		}
+
+		pending = pendingRestart{Pending: true, Fields: fields}
 	}
 	return map[string]any{
 		responseKeyConfig:         srtConfigPublic(config),
@@ -468,8 +476,10 @@ func (a *Admin) GetWebRTCConfig(w http.ResponseWriter, _ *http.Request) {
 	config := a.configRepository.GetWebRTCConfig()
 	pendingFields := []string{}
 	if a.webrtc != nil {
-		applied := a.webrtc.Config()
-		pendingFields = changedRestartFields(applied, config, settings.WebRTCMetadata())
+		// Compare against the configuration the running engine was built with, not
+		// against the saved one: the saved one is updated immediately, so diffing it
+		// against the repository made a deferred restart invisible after a reload.
+		pendingFields = a.webrtc.PendingRestartFields()
 	}
 	writeLiveConfigJSON(w, a.webrtcConfigState(config, pendingFields))
 }

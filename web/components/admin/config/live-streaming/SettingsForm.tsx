@@ -31,10 +31,35 @@ export type SettingsFormProps = {
   onRetry?: () => void;
 };
 
+// stableStringify renders a value with sorted object keys so two structurally equal
+// values compare equal. String() was used before and turned every object into
+// "[object Object]", which made an edited TURN server look unchanged and dropped
+// the edit before it reached the server.
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(',')}}`;
+  }
+
+  return JSON.stringify(value) ?? 'undefined';
+}
+
 function valuesEqual(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((item, index) => String(item) === String(b[index]));
+    return a.length === b.length && a.every((item, index) => valuesEqual(item, b[index]));
   }
+
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    return stableStringify(a) === stableStringify(b);
+  }
+
   return a === b;
 }
 

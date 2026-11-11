@@ -127,6 +127,10 @@ func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 		s.sessionClosed(sess, reason)
 	})
 
+	if s.publisherInProgress(req, fields) {
+		return nil, false
+	}
+
 	if err := s.deps.Sessions.TryAcquire(sess); err != nil {
 		if errors.Is(err, ingest.ErrPublisherActive) {
 			fields["reason"] = reasonPublisherActive
@@ -150,6 +154,22 @@ func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 	fields["version"] = req.Version()
 	s.logger.WithFields(fields).Info("SRT session accepted")
 	return sess, true
+}
+
+// publisherInProgress rejects a caller while a stream is live or still tearing
+// down. Mirroring the RTMP listener matters here because the arbiter slot is released
+// when the previous session closes, before the engine finishes tearing it down: a
+// publisher that reconnects in that window was accepted and then closed by the
+// teardown it ran into.
+func (s *Service) publisherInProgress(req gosrt.ConnRequest, fields log.Fields) bool {
+	if s.deps.IsOnline == nil || !s.deps.IsOnline() {
+		return false
+	}
+
+	fields["reason"] = reasonPublisherActive
+	s.reject(req, wireRejectResource, reasonPublisherActive, fields)
+
+	return true
 }
 
 // reject sends a predefined SRT rejection code to the caller and records the
