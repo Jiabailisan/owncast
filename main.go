@@ -352,6 +352,9 @@ func main() {
 		Datastore:        dataStore,
 		ConfigRepository: configRepository,
 		Config:           cfg,
+		// The shared offline GeoIP client: the stream service resolves viewer
+		// locations for the admin viewer list.
+		GeoIP: geoIPClient,
 	})
 
 	// Stage 7: resolve the stream-status cycle. webhooks/chat/yp each
