@@ -97,7 +97,7 @@ const ConnectedClient = ({ client }: { client: Client }) => {
   return (
     <div>
       <ValueRow label="Messages Sent" value={messageCount.toString()} />
-      {location && <ValueRow label="Location" value={location} />}
+      <ValueRow label="Location" value={location ?? 'Unknown'} />
       <ValueRow label="Connected At" value={connectedAtDate} />
     </div>
   );
