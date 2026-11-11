@@ -48,12 +48,43 @@ const PLAYER_VOLUME = 'owncast_volume';
 // The heartbeat reports the quality the player settled on and the decoded
 // resolution alongside the viewer count; both are read from this holder so the
 // module-level reporter always sees the latest values.
-const pingTarget = { quality: 'auto', video: null as HTMLVideoElement | null };
+const pingTarget = {
+  quality: 'auto',
+  video: null as HTMLVideoElement | null,
+  latencyMs: null as number | null,
+};
 const ping = new ViewerReporter(() => ({
   protocol: 'hls' as const,
   quality: pingTarget.quality,
+  latencyMs: pingTarget.latencyMs,
   resolution: videoResolution(pingTarget.video),
 }));
+
+// measureHlsLatencyMs mirrors the stats panel measurement: the playlist's
+// program-date-time stamps give the real latency, the live tracker only gives the
+// distance to the seekable edge.
+const measureHlsLatencyMs = (player): number | null => {
+  if (!player) return null;
+
+  try {
+    const vhs = player.tech(true)?.vhs;
+    const playhead = Number(player.currentTime()) || 0;
+    let liveEdgeLatency: number | null = null;
+    const liveCurrent = Number(player.liveTracker?.liveCurrentTime?.()) || 0;
+    if (liveCurrent > 0) liveEdgeLatency = Math.max(0, liveCurrent - playhead);
+
+    const latency = hlsLiveLatencySeconds({
+      nowMs: Date.now(),
+      currentTime: playhead,
+      segments: hlsPlaylistSegments(vhs),
+      liveEdgeLatencySeconds: liveEdgeLatency,
+    });
+
+    return latency === null ? null : latency * 1000;
+  } catch {
+    return null;
+  }
+};
 let playbackMetrics = null;
 let latencyCompensator = null;
 let latencyCompensatorEnabled = false;
@@ -228,7 +259,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
   const selectQuality = (qualityId: string) => {
     setSelectedQuality(qualityId);
-    pingTarget.quality = qualityId === 'auto' ? 'auto' : qualityId;
+    pingTarget.quality = qualities.find(item => String(item.index) === qualityId)?.name ?? 'auto';
     applyQuality(qualityId);
   };
 
@@ -647,6 +678,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on('canplay', () => setBuffering(false));
     player.on('seeked', () => setBuffering(false));
     player.on('playing', () => {
+      pingTarget.latencyMs = measureHlsLatencyMs(player);
       ping.start();
       setVideoPlaying(true);
       setIsPlaying(true);

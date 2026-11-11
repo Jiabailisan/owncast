@@ -23,10 +23,10 @@ func TestGetIPAddressFromRequestTrustsHeadersOnlyFromLoopback(t *testing.T) {
 			expected: "203.0.113.195",
 		},
 		{
-			name:     "loopback proxy uses the last hop",
+			name:     "loopback proxy uses the original client hop",
 			peer:     "127.0.0.1:5000",
 			headers:  map[string]string{"X-Forwarded-For": "1.2.3.4, 198.51.100.7"},
-			expected: "198.51.100.7",
+			expected: "1.2.3.4",
 		},
 		{
 			name:     "loopback proxy prefers cloudflare client address",
@@ -35,16 +35,28 @@ func TestGetIPAddressFromRequestTrustsHeadersOnlyFromLoopback(t *testing.T) {
 			expected: "198.51.100.9",
 		},
 		{
+			name:     "loopback proxy uses x-real-ip when there is no chain",
+			peer:     "127.0.0.1:5000",
+			headers:  map[string]string{"X-Real-IP": "198.51.100.21"},
+			expected: "198.51.100.21",
+		},
+		{
 			name:     "lan peer is not a trusted proxy",
 			peer:     "192.168.50.7:5000",
 			headers:  map[string]string{"X-Forwarded-For": "198.51.100.7"},
 			expected: "192.168.50.7",
 		},
 		{
-			name:     "invalid cloudflare value falls back to the last hop",
+			name:     "invalid cloudflare value falls back to the chain",
 			peer:     "127.0.0.1:5000",
 			headers:  map[string]string{"X-Forwarded-For": "1.2.3.4, 198.51.100.11", "CF-Connecting-IP": "not-an-ip"},
-			expected: "198.51.100.11",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "unparsable first hop falls back to the last one",
+			peer:     "127.0.0.1:5000",
+			headers:  map[string]string{"X-Forwarded-For": "unknown, 198.51.100.12"},
+			expected: "198.51.100.12",
 		},
 	}
 

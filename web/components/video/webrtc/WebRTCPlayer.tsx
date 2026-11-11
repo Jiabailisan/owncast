@@ -152,6 +152,20 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     selectedVariantRef.current = selectedVariant;
   }, [selectedVariant]);
 
+  // The heartbeat reports the quality by name, not by index: "1080p60@6Mbps" is
+  // what an operator recognises in the viewer table.
+  const qualityLabelRef = useRef('auto');
+  useEffect(() => {
+    if (selectedVariant === null) {
+      qualityLabelRef.current = 'auto';
+
+      return;
+    }
+
+    const variant = (variants || []).find(item => item.index === selectedVariant);
+    qualityLabelRef.current = variant?.name ?? String(selectedVariant);
+  }, [selectedVariant, variants]);
+
   // The heartbeat keeps the viewer count accurate and reports what only the
   // player can know: the quality it settled on and the latency it experiences.
   useEffect(() => {
@@ -164,7 +178,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     if (!reporter.current) {
       reporter.current = new ViewerReporter(async () => ({
         protocol: 'webrtc' as const,
-        quality: selectedVariantRef.current === null ? 'auto' : String(selectedVariantRef.current),
+        quality: qualityLabelRef.current,
         latencyMs: await webrtcLatencyMs(sessionRef.current?.pc ?? null),
         resolution: videoResolution(videoRef.current),
       }));

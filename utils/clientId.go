@@ -41,8 +41,26 @@ func GetIPAddressFromRequest(req *http.Request) string {
 				return cloudflare
 			}
 		}
+		// X-Real-IP is set by several proxies and, unlike the X-Forwarded-For
+		// chain, cannot carry a client-supplied list.
+		if realIP := strings.TrimSpace(req.Header.Get("X-Real-IP")); realIP != "" {
+			if net.ParseIP(realIP) != nil {
+				return realIP
+			}
+		}
+
 		if forwarded := req.Header.Get("X-Forwarded-For"); forwarded != "" {
 			hops := strings.Split(forwarded, ",")
+
+			// The FIRST hop is the original client: a Cloudflare tunnel in front of a
+			// local proxy appends its own hops, so the last one is a CDN edge address
+			// rather than the viewer. Falling back to the last hop keeps the old
+			// behaviour when the first entry is not an address.
+			first := strings.TrimSpace(hops[0])
+			if net.ParseIP(first) != nil {
+				return first
+			}
+
 			last := strings.TrimSpace(hops[len(hops)-1])
 			if net.ParseIP(last) != nil {
 				return last
