@@ -273,6 +273,11 @@ func mergeReportedIntoRows(rows []models.LiveViewer, viewer models.Viewer) {
 		if viewer.ReportedQuality != "" {
 			rows[index].Quality = viewer.ReportedQuality
 		}
+		if rows[index].Quality == "" || strings.EqualFold(rows[index].Quality, "auto") {
+			if viewer.VariantName != "" {
+				rows[index].Quality = "Auto (" + viewer.VariantName + ")"
+			}
+		}
 		if viewer.ReportedLatency != nil {
 			rows[index].LatencyMs = viewer.ReportedLatency
 		}
@@ -399,6 +404,11 @@ func liveViewerFromViewer(viewer models.Viewer) models.LiveViewer {
 	// name, and the built-in players report both with their heartbeat.
 	row.Username = viewer.DisplayName
 	row.Quality = viewer.ReportedQuality
+	if row.Quality == "" || strings.EqualFold(row.Quality, "auto") {
+		if viewer.VariantName != "" {
+			row.Quality = "Auto (" + viewer.VariantName + ")"
+		}
+	}
 	// A player that reports the variant index instead of its name still gets a
 	// readable quality: the server knows the variant it is serving.
 	if viewer.VariantName != "" {

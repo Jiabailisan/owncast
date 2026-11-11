@@ -587,8 +587,8 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         sdp: '—',
         qualityName:
           selectedQuality === 'auto'
-            ? activeRepresentation?.name
-              ? `Auto (${activeRepresentation.name})`
+            ? activeQualityName
+              ? `Auto (${activeQualityName})`
               : 'Auto'
             : qualities.find(item => String(item.index) === selectedQuality)?.name ||
               selectedQuality,
@@ -706,9 +706,13 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     const updateActiveQuality = () => {
       try {
-        const representations = player.tech(true)?.vhs?.representations?.() ?? [];
-        const active = representations.find(item => item?.enabled?.());
-        const name = active?.name || '';
+        const vhs = player.tech(true)?.vhs;
+        const representations = vhs?.representations?.() ?? [];
+        const level = typeof vhs?.currentLevel === 'number' ? vhs.currentLevel : -1;
+        const active = representations[level] ?? representations.find(item => item?.enabled?.());
+        const index = active?.attributes?.NAME ?? active?.name ?? String(level);
+        const name =
+          active?.name || qualities.find(item => String(item.index) === String(index))?.name || '';
         setActiveQualityName(name);
         // Report the rendition that is actually playing, not the word auto.
         if (name) pingTarget.quality = name;
@@ -716,6 +720,26 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         // VHS not ready yet.
       }
     };
+
+    // Auto means "pick the best this link can take": start at the top rendition
+    // and let ABR step down, instead of crawling up from the cheapest one.
+    try {
+      const vhs = player.tech(true)?.vhs;
+      const representations = vhs?.representations?.() ?? [];
+      if (representations.length > 1 && selectedQuality === 'auto') {
+        vhs.startLevel = representations.length - 1;
+      }
+    } catch {
+      // VHS not ready yet.
+    }
+
+    // ABR can switch renditions while playing, so keep the label in step.
+    const activeQualityTimer = setInterval(() => {
+      if (player.paused()) return;
+      updateActiveQuality();
+    }, 5000);
+
+    player.on('dispose', () => clearInterval(activeQualityTimer));
 
     player.on('playing', () => {
       updateActiveQuality();
