@@ -47,10 +47,14 @@ func (s *Service) acceptLoop(ctx context.Context, listener gosrt.Listener) {
 				return
 			default:
 			}
-			s.logger.WithError(err).Error("SRT accept loop failed")
-			s.mu.Lock()
-			s.lastError = err.Error()
-			s.mu.Unlock()
+			s.logger.WithError(err).Error("SRT accept loop failed; the listener is no longer accepting")
+
+			// The loop is gone, so the listener must stop reporting running and
+			// listening: publishers would otherwise hang until their handshake timed
+			// out while the status page claimed everything was fine.
+			s.setFailure(err)
+			s.clearListener()
+
 			return
 		}
 

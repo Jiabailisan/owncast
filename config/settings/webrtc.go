@@ -84,12 +84,15 @@ func webrtcPersistedMetadata() []Field {
 		stringListField("stunServers", groupWebRTCICE, []string{},
 			"STUN URLs used by the server for candidate discovery, e.g. stun:stun.example.org:3478. TURN URLs are not accepted here.", ApplyRestartService),
 		turnServerListField(),
+		// Embedded TURN is not implemented in this release. The field stays declared so
+		// the persisted model round-trips, and validation rejects enabling it with an
+		// error attached to this field instead of a generic one.
 		boolField("embeddedTurn", groupWebRTCICE, false,
-			"Run the optional embedded TURN server for viewers. Deferred feature; external TURN is preferred.", ApplyRestartService),
+			"Run the optional embedded TURN server for viewers. Not available in this release; configure an external TURN server instead.", ApplyRestartService),
 		intField("embeddedTurnPort", groupWebRTCICE, 3478, 1024, 65535, "port",
-			"UDP port for the embedded TURN server. Must not collide with other UDP listeners.", ApplyRestartService),
+			"UDP port for the embedded TURN server. Reserved while embedded TURN is unavailable.", ApplyRestartService),
 		stringField("embeddedTurnRealm", groupWebRTCICE, "owncast", "realm",
-			"TURN authentication realm used by the embedded TURN server.", ApplyRestartService),
+			"TURN authentication realm used by the embedded TURN server. Reserved while embedded TURN is unavailable.", ApplyRestartService),
 		boolField("iceLite", groupWebRTCICE, false,
 			"Enable ICE lite mode. Incompatible with TURN relaying in most topologies.", ApplyRestartService),
 		intField("iceDisconnectedTimeoutMs", groupWebRTCICE, 5000, 1000, 120000, "ms",

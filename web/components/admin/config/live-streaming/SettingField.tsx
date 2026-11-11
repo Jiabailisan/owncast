@@ -258,7 +258,13 @@ export const SettingField: FC<SettingFieldProps> = ({
               disabled={readOnly}
               aria-label={label}
               onChange={next =>
-                onChange(meta.key, next === null || next === undefined ? undefined : Number(next))
+                // A cleared number restores the field's default. Emitting undefined
+                // used to be dropped by JSON.stringify, so the save "succeeded" and the
+                // old value silently came back.
+                onChange(
+                  meta.key,
+                  next === null || next === undefined ? meta.default : Number(next),
+                )
               }
             />
             {meta.unit && <Text type="secondary">{meta.unit}</Text>}

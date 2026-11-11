@@ -629,6 +629,15 @@ func (s *Service) setFailure(err error) {
 	s.mu.Unlock()
 }
 
+// clearListener releases the listener reference so the status stops reporting a
+// listener that is no longer accepting.
+func (s *Service) clearListener() {
+	s.mu.Lock()
+	s.listener = nil
+	s.listenerDone = nil
+	s.mu.Unlock()
+}
+
 func (s *Service) boundAddress() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

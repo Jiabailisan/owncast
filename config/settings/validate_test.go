@@ -71,7 +71,13 @@ func TestValidateSRTRules(t *testing.T) {
 		{"port collides with web", func(c *models.SRTConfig) { c.Port = 8080 }, nil, "port"},
 
 		{"port collides with webrtc udp", func(c *models.SRTConfig) { c.Port = 8189 }, nil, "port"},
-		{"port inside webrtc range", func(c *models.SRTConfig) { c.Port = 50050 }, nil, "port"},
+		{"port inside webrtc range in range mode", func(c *models.SRTConfig) { c.Port = 50050 }, func(ctx ValidationContext) ValidationContext {
+			webrtc := *ctx.WebRTC
+			webrtc.UDPMode = "range"
+			ctx.WebRTC = &webrtc
+
+			return ctx
+		}, "port"},
 		{"no streamid formats", func(c *models.SRTConfig) { c.StreamIDFormats = []string{} }, nil, "streamIdFormats"},
 		{"unknown streamid format", func(c *models.SRTConfig) { c.StreamIDFormats = []string{"carrier-pigeon"} }, nil, "streamIdFormats"},
 		{"auth rate limit too high", func(c *models.SRTConfig) { c.AuthFailureRateLimit = 1001 }, nil, "authFailureRateLimit"},
@@ -110,6 +116,17 @@ func TestValidateSRTRules(t *testing.T) {
 	}
 }
 
+// TestValidateSRTAllowsWebRTCPortRangeInMuxMode pins the rule that the reserved
+// WebRTC range only conflicts while WebRTC reserves a range.
+func TestValidateSRTAllowsWebRTCPortRangeInMuxMode(t *testing.T) {
+	config := models.DefaultSRTConfig()
+	config.Port = 50050
+
+	if errs := ValidateSRT(config, srtContext()); len(errs) != 0 {
+		t.Fatalf("a port inside the WebRTC range is legal while WebRTC binds a single muxed port, got %+v", errs)
+	}
+}
+
 type webrtcValidationCase struct {
 	name    string
 	mutate  func(*models.WebRTCConfig)
@@ -139,7 +156,11 @@ func TestValidateWebRTCRules(t *testing.T) {
 		{"udp port collision rtmp", func(c *models.WebRTCConfig) { c.UDPPort = 1935 }, nil, "udpPort"},
 		{"udp port collision srt", func(c *models.WebRTCConfig) { c.UDPPort = 8890 }, nil, "udpPort"},
 		{"udp range inverted", func(c *models.WebRTCConfig) { c.UDPPortMin = 50100; c.UDPPortMax = 50000 }, nil, "udpPortMax"},
-		{"srt port inside udp range", func(c *models.WebRTCConfig) { c.UDPPortMin = 8000; c.UDPPortMax = 9000 }, func(ctx ValidationContext) ValidationContext {
+		{"srt port inside udp range", func(c *models.WebRTCConfig) {
+			c.UDPMode = "range"
+			c.UDPPortMin = 8000
+			c.UDPPortMax = 9000
+		}, func(ctx ValidationContext) ValidationContext {
 			srt := models.DefaultSRTConfig()
 			ctx.SRT = &srt
 			return ctx
