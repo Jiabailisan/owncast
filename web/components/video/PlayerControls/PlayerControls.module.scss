@@ -131,25 +131,24 @@ $blur: var(--owncast-overlay-blur, 12px);
   background: none;
   border-radius: 999px;
   outline: none;
-  transition:
-    width 0.18s,
-    background-color 0.16s;
+  transition: background-color 0.16s;
 
   // Expansion is owned by CSS: the browser tracks hover and focus itself, so
   // there is no React state that can fall out of sync with the pointer.
   // Pointer hover, or keyboard focus only. Plain :focus-within also matched the
   // focus a mouse click leaves on the button, which pinned the pill open until
   // something else took focus (the reported "stuck like a tab selection").
+  // The slider floats above the bar instead of growing the pill, so the
+  // control bar never reflows when the pointer crosses the volume control.
   &:hover,
   &:has(:focus-visible) {
-    width: 120px;
     background: rgb(255 255 255 / 12%);
 
     .volumePopover {
-      width: 78px;
-      margin-right: 6px;
+      visibility: visible;
       pointer-events: auto;
       opacity: 1;
+      transform: translate(-50%, 0);
     }
 
     .iconButton {

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/owncast/owncast/services/geoip"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
@@ -35,13 +37,16 @@ type Deps struct {
 	ChatMessageRepository chatmessagerepository.ChatMessageRepository
 	UserRepository        userrepository.UserRepository
 	Events                *dispatcher.Dispatcher
+	// GeoIP is the shared offline database client; nil disables lookups.
+	GeoIP *geoip.Client
 }
 
 // New constructs a chat Service. Call Start to launch the broadcast
 // loop and register the Prometheus counter.
 func New(deps Deps) *Service {
-	s := newServer(deps.Webhooks)
+	s := newServer(deps.Webhooks, deps.GeoIP)
 	s.getStatus = deps.GetStatus
+	s.geoipClient = deps.GeoIP
 	s.datastore = deps.Datastore
 	s.configRepository = deps.ConfigRepository
 	s.authRepository = deps.AuthRepository

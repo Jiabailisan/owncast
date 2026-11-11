@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/geoip"
 )
 
 // setupStats restores stats from the previous session and starts the
@@ -79,7 +80,10 @@ func (s *Service) SetViewerActive(viewer *models.Viewer) {
 	// so it lands on the stored viewer later, under the same lock every
 	// other reader takes.
 	go func(clientID, ipAddress string) {
-		geo := s.geoIPClient.GetGeoFromIP(ipAddress)
+		var geo *geoip.GeoDetails
+		if s.geoIPClient != nil {
+			geo = s.geoIPClient.GetGeoFromIP(ipAddress)
+		}
 
 		s.statsMu.Lock()
 		defer s.statsMu.Unlock()

@@ -90,7 +90,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   // HLS quality is intentionally NOT persisted (reference behavior).
   const [selectedQuality, setSelectedQuality] = useState('auto');
   const [transportErrorVisible, setTransportErrorVisible] = useState(false);
-  const [latencyEnabled, setLatencyEnabled] = useState(false);
+  // Seed from storage so the menu shows the saved state on the first paint,
+  // exactly like the WebRTC player; the player itself applies it when ready.
+  const [latencyEnabled, setLatencyEnabled] = useState(
+    () => getLocalStorage(LATENCY_COMPENSATION_ENABLED) === 'true',
+  );
   // The player box follows the decoded picture so a fixed container height can
   // never letterbox the video (which showed as black bars above and below).
   const [aspectRatio, setAspectRatio] = useState('16 / 9');

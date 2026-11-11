@@ -206,6 +206,9 @@ func main() {
 	// data/GeoLite2-City.mmdb; without it viewer locations render as N/A.
 	// Lookups are in-memory only and never leave this process.
 	geoIPClient := geoip.NewClient()
+	// One client for the whole process: the database is memory mapped, so a client
+	// per service mapped the same file several times.
+	defer func() { _ = geoIPClient.Close() }()
 	geoIPMetadata := geoIPClient.DatabaseMetadata()
 	if geoIPMetadata.Configured {
 		log.Infoln("geoip:", geoIPClient.String())
@@ -290,6 +293,7 @@ func main() {
 		ChatMessageRepository: chatMessageRepository,
 		UserRepository:        userRepository,
 		Events:                eventDispatcher,
+		GeoIP:                 geoIPClient,
 	})
 
 	// Stage 6: cycle-pair consumers. activitypub + stream sit on top of

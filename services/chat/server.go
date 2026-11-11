@@ -91,7 +91,7 @@ type Service struct {
 }
 
 // NewChat will return a new instance of the chat server.
-func newServer(webhooksSvc *webhooks.Service) *Service {
+func newServer(webhooksSvc *webhooks.Service, sharedGeoIP *geoip.Client) *Service {
 	maximumConcurrentConnectionLimit := getMaximumConcurrentConnectionLimit()
 	setSystemConcurrentConnectionLimit(maximumConcurrentConnectionLimit)
 
@@ -101,7 +101,7 @@ func newServer(webhooksSvc *webhooks.Service) *Service {
 		inbound:                  make(chan chatClientEvent),
 		unregister:               make(chan uint),
 		maxSocketConnectionLimit: maximumConcurrentConnectionLimit,
-		geoipClient:              geoip.NewClient(),
+		geoipClient:              sharedGeoIP,
 		webhooks:                 webhooksSvc,
 		userPartedTimers:         map[string]*pendingUserPart{},
 	}

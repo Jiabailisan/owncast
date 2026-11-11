@@ -161,8 +161,23 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    // iOS Safari only implements webkitEnterFullscreen on the video element, which
+    // fires its own events and never sets document.fullscreenElement.
+    const onWebkitBegin = () => setFullscreen(true);
+    const onWebkitEnd = () => setFullscreen(false);
     document.addEventListener('fullscreenchange', onFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    videoRef.current?.addEventListener('webkitbeginfullscreen', onWebkitBegin);
+    videoRef.current?.addEventListener('webkitendfullscreen', onWebkitEnd);
+
+    const video = videoRef.current;
+
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+      video?.removeEventListener('webkitbeginfullscreen', onWebkitBegin);
+      video?.removeEventListener('webkitendfullscreen', onWebkitEnd);
+    };
   }, []);
 
   const updateBigUnmute = useCallback(() => {
@@ -691,6 +706,14 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   });
   useHotkeys('f', toggleFullScreen, { enableOnContentEditable: false });
   useHotkeys('m', toggleMute, { enableOnContentEditable: false });
+  // Same PiP shortcut as the HLS player so the key does not depend on transport.
+  useHotkeys(
+    'i',
+    () => {
+      togglePip();
+    },
+    { enableOnContentEditable: false },
+  );
   useHotkeys(
     '0',
     () => {

@@ -182,13 +182,15 @@ type Deps struct {
 	Datastore        *datastore.Datastore
 	ConfigRepository configrepository.ConfigRepository
 	Config           *config.Config
+	// GeoIP is the shared offline database client; nil disables lookups.
+	GeoIP *geoip.Client
 }
 
 // New constructs an idle stream Service. Call Start(ctx) to bring up the
 // storage backend, transcoder, RTMP listener, and associated lifecycle.
 func New(deps Deps) *Service {
 	s := &Service{
-		geoIPClient:      geoip.NewClient(),
+		geoIPClient:      deps.GeoIP,
 		fileWriter:       transcoder.NewFileWriterReceiverService(deps.Config),
 		sessions:         deps.Sessions,
 		webRTC:           deps.WebRTC,

@@ -82,9 +82,6 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   callbacks,
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  // True while the last interaction came from a pointer, so focus that a
-  // click leaves behind does not pin the control bar.
-  const pointerInteractionRef = useRef(false);
   const pointerInsideRef = useRef(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visible, setVisible] = useState(true);
@@ -104,10 +101,13 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       // the overlay root, whose pointer-events are disabled, so one bar
       // interaction could pin the controls visible forever.
       const root = rootRef.current;
-      // Focus only pins the bar for keyboard users: after a mouse click the
-      // clicked button keeps focus, which used to keep the bar visible forever.
-      const focusedInside =
-        !pointerInteractionRef.current && Boolean(root && root.contains(document.activeElement));
+      // Focus only pins the bar for keyboard users. :focus-visible is exactly
+      // that question, answered by the browser, so a click that leaves focus on a
+      // button no longer pins the bar and no focus is destroyed to compensate.
+      const active = document.activeElement;
+      const focusedInside = Boolean(
+        root && active && root.contains(active) && active.matches(':focus-visible'),
+      );
       const pointerInside = pointerInsideRef.current;
       if (!playing || focusedInside || pointerInside) {
         scheduleHide();
@@ -242,36 +242,25 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           if (playing && !anyMenuOpen) scheduleHide();
         }}
         onFocusCapture={reveal}
-        onPointerDownCapture={() => {
-          pointerInteractionRef.current = true;
-        }}
         onKeyDownCapture={event => {
-          pointerInteractionRef.current = false;
           if (event.key === 'Escape') {
             setSettingsOpen(false);
             setTransportOpen(false);
           }
         }}
-        onBlurCapture={event => {
+        onBlurCapture={() => {
           // Keyboard users could open a menu and Tab away, which left the bar
           // pinned with the menu open because only a pointerdown closed it.
-          // A pointer click also blurs the trigger, but the row it is clicking
-          // has not run its onClick yet: closing here unmounted the row between
-          // pointerdown and click, so the click was lost.
-          if (pointerInteractionRef.current) return;
+          // A pointer click also blurs the trigger before the row runs its
+          // onClick, so the close is deferred to the next task: by then the
+          // click has been handled and the menu can close safely.
+          window.setTimeout(() => {
+            const active = document.activeElement;
+            if (active && rootRef.current?.contains(active)) return;
 
-          const next = event.relatedTarget as Node | null;
-          if (!next || !rootRef.current?.contains(next)) {
             setSettingsOpen(false);
             setTransportOpen(false);
-          }
-        }}
-        // A mouse click leaves focus on the button, which kept the bar visible
-        // forever. detail > 0 means a pointer click; keyboard focus is kept.
-        onClickCapture={event => {
-          if (event.detail > 0) {
-            (event.target as HTMLElement).blur();
-          }
+          }, 0);
         }}
       >
         {loading && <div className={styles.loadingSpinner} aria-label="Loading" />}
