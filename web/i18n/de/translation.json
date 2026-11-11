@@ -188,6 +188,32 @@
 			"noNews": "Keine Nachrichten.",
 			"title": "News & Updates von Owncast"
 		},
+		"LiveStreaming": {
+			"Status": {
+				"viewersSection": "Zuschauer"
+			},
+			"Viewers": {
+				"bitrate": "Bitrate",
+				"clientReported": "Spielerberichte",
+				"connected": "Verbunden",
+				"duration": "Dauer",
+				"empty": "Derzeit sind keine Zuschauer verbunden.",
+				"filterProtocol": "Protokoll",
+				"fps": "FPS",
+				"ip": "IP",
+				"jitter": "Jitter",
+				"latency": "Latenz",
+				"location": "Standort",
+				"packetLoss": "Paketverlust",
+				"protocol": "Protokoll",
+				"quality": "Qualität",
+				"resolution": "Auflösung",
+				"searchPlaceholder": "IP oder Standort suchen",
+				"serverMeasured": "Server-Messung",
+				"title": "Zuschauer",
+				"username": "Zuschauer"
+			}
+		},
 		"PlaybackClients": {
 			"description": "Jeder Kunde spielt derzeit Ihr Video, wobei die neuste Wiedergabegesundheit dafür gemessen wird. Clients, die ihre eigene Wiedergabe melden, geben mehr Details als die, die der Server nur beobachten kann. Qualität ist die Bitrate, die in Ihrer Stream-Wiedergabeliste beworben wird, die Audio beinhaltet, so dass es in der Nähe, aber nicht genau auf der Video-Bitrate sitzt, die Sie konfiguriert haben.",
 			"errors": "Fehler",

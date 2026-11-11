@@ -210,54 +210,44 @@ func normalizeViewerPage(page, pageSize int) (int, int) {
 func (s *Service) collectLiveViewers() []models.LiveViewer {
 	viewers := make([]models.LiveViewer, 0, 32)
 
-	// WebRTC sessions are collected first so the native viewer list can skip
-	// their addresses: a WebRTC viewer also pings /api/ping, which registers a
-	// second, HLS-labelled entry for the same person.
-	webrtcAddresses := map[string]struct{}{}
 	if s.webrtc != nil {
 		// WebRTC delivery knows the viewer address but not the location, so fill
 		// the geo fields here; without this every WebRTC viewer shows N/A.
 		for _, row := range s.webrtc.LiveViewers() {
 			s.applyViewerLocation(&row)
-			webrtcAddresses[row.IPAddress] = struct{}{}
 			viewers = append(viewers, row)
 		}
 	}
 
-	// The player reports the chat token it belongs to; it is the only reliable way
-	// to name a viewer, because several chat clients can share one address.
+	// A WebRTC session row carries no client id of its own, so player reports are
+	// matched to it by address. They are held in a queue and consumed one per row:
+	// matching by address and stopping at the first hit gave every report to the
+	// first viewport behind a NAT and left the others with no data at all.
+	pendingWebRTCReports := map[string][]models.Viewer{}
 	tokens := map[string]string{}
 
 	if s.stream != nil {
 		for _, viewer := range s.stream.GetActiveViewers() {
-			// A WebRTC player reports protocol=webrtc, which is what identifies it as
-			// the same person as a WebRTC session row. Matching on the address instead
-			// merged everyone behind one NAT into a single row.
 			if strings.EqualFold(viewer.Protocol, "webrtc") {
+				pendingWebRTCReports[viewer.IPAddress] = append(pendingWebRTCReports[viewer.IPAddress], viewer)
 				if viewer.ReportedToken != "" {
-					tokens[viewer.IPAddress] = viewer.ReportedToken
+					tokens["webrtc:"+viewer.IPAddress] = viewer.ReportedToken
 				}
-
-				// Keep the session row (it carries the measured quality) and fold the
-				// reported details into it.
-				mergeReportedIntoRows(viewers, viewer)
 
 				continue
 			}
 
+			// HLS viewers keep their own identity, so two people behind one address
+			// stay two rows with their own names.
 			if viewer.ReportedToken != "" {
-				tokens[viewer.ClientID] = viewer.ReportedToken
+				tokens["client:"+viewer.ClientID] = viewer.ReportedToken
 			}
 
-			row := liveViewerFromViewer(viewer)
-
-			// HLS viewers are keyed by their own client id, so two people sharing an
-			// address stay two rows.
-			tokens["client:"+viewer.ClientID] = viewer.ReportedToken
-
-			viewers = append(viewers, row)
+			viewers = append(viewers, liveViewerFromViewer(viewer))
 		}
 	}
+
+	distributeWebRTCReports(viewers, pendingWebRTCReports)
 
 	s.applyDisplayNames(viewers, tokens)
 
@@ -288,8 +278,14 @@ func (s *Service) applyDisplayNames(viewers []models.LiveViewer, tokens map[stri
 	resolved := s.names.DisplayNamesForTokens(wanted)
 
 	for index := range viewers {
-		token := tokens[viewers[index].IPAddress]
-		if token == "" {
+		var token string
+
+		// A WebRTC row has no client id, so its name is looked up by address; an HLS row
+		// must only use its own identity, otherwise it inherits the name of whoever is
+		// watching over WebRTC from the same address.
+		if strings.EqualFold(viewers[index].Protocol, "webrtc") {
+			token = tokens["webrtc:"+viewers[index].IPAddress]
+		} else {
 			token = tokens["client:"+viewers[index].ClientID]
 		}
 
@@ -299,30 +295,39 @@ func (s *Service) applyDisplayNames(viewers []models.LiveViewer, tokens map[stri
 	}
 }
 
-// mergeReportedIntoRows copies player-reported details onto the WebRTC row for
-// the same address, so one person stays one row with everything they reported.
-func mergeReportedIntoRows(rows []models.LiveViewer, viewer models.Viewer) {
+// distributeWebRTCReports hands one player report to each WebRTC row at an
+// address. Consuming the queue keeps two sessions behind one NAT from both
+// reading the same report and stamps each row with its own data.
+func distributeWebRTCReports(rows []models.LiveViewer, reports map[string][]models.Viewer) {
 	for index := range rows {
-		if rows[index].IPAddress != viewer.IPAddress {
+		if !strings.EqualFold(rows[index].Protocol, "webrtc") {
 			continue
 		}
 
-		if viewer.DisplayName != "" {
-			rows[index].Username = viewer.DisplayName
-		}
-		if viewer.ReportedQuality != "" {
-			rows[index].Quality = viewer.ReportedQuality
-		}
-		if rows[index].Quality == "" || strings.EqualFold(rows[index].Quality, "auto") {
-			if viewer.VariantName != "" {
-				rows[index].Quality = "Auto (" + viewer.VariantName + ")"
-			}
-		}
-		if viewer.ReportedLatency != nil {
-			rows[index].LatencyMs = viewer.ReportedLatency
+		queue := reports[rows[index].IPAddress]
+		if len(queue) == 0 {
+			continue
 		}
 
-		return
+		mergeReportedIntoRow(&rows[index], queue[0])
+		reports[rows[index].IPAddress] = queue[1:]
+	}
+}
+
+// mergeReportedIntoRow copies player-reported details onto one WebRTC row, so
+// one person stays one row with everything they reported.
+func mergeReportedIntoRow(row *models.LiveViewer, viewer models.Viewer) {
+	if viewer.DisplayName != "" {
+		row.Username = viewer.DisplayName
+	}
+	if viewer.ReportedQuality != "" {
+		row.Quality = viewer.ReportedQuality
+	}
+	if row.Quality == "" || strings.EqualFold(row.Quality, "auto") {
+		row.Quality = viewer.VariantName
+	}
+	if viewer.ReportedLatency != nil {
+		row.LatencyMs = viewer.ReportedLatency
 	}
 }
 

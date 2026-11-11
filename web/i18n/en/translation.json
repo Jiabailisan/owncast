@@ -274,15 +274,24 @@
 			"TabWebRtc": "WebRTC Configuration",
 			"Viewers": {
 				"bitrate": "Bitrate",
+				"clientReported": "Player reported",
 				"connected": "Connected",
 				"duration": "Duration",
 				"empty": "No viewers are connected right now.",
+				"filterProtocol": "Protocol",
 				"fps": "FPS",
 				"ip": "IP",
+				"jitter": "Jitter",
+				"latency": "Latency",
 				"location": "Location",
 				"packetLoss": "Packet loss",
 				"protocol": "Protocol",
-				"resolution": "Resolution"
+				"quality": "Quality",
+				"resolution": "Resolution",
+				"searchPlaceholder": "Search IP or location",
+				"serverMeasured": "Server measured",
+				"title": "Viewers",
+				"username": "Viewer"
 			},
 			"WebRtc": {
 				"advertisedIps": "Advertised",
