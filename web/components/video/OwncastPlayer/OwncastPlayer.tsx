@@ -82,13 +82,25 @@ const measureHlsLatencyMs = (player): number | null => {
       liveEdgeLatencySeconds: liveEdgeLatency,
     });
 
-    if (latency !== null) {
-      return latency * 1000;
+    // A plausible live latency is seconds, not minutes: a larger value means the
+    // anchor segment was stale (clock skew, a stale playlist) and would be noise
+    // in the viewer table.
+    const plausible = (seconds: number | null): number | null => {
+      if (seconds === null || !Number.isFinite(seconds) || seconds < 0 || seconds > 120) {
+        return null;
+      }
+
+      return seconds * 1000;
+    };
+
+    const measured = plausible(latency);
+    if (measured !== null) {
+      return measured;
     }
 
-    // Without program-date-time stamps the distance to the live edge is the only
-    // measurable value; report it rather than nothing.
-    return liveEdgeLatency === null ? null : liveEdgeLatency * 1000;
+    // Without usable program-date-time stamps the distance to the live edge is the
+    // only measurable value; report it rather than nothing.
+    return plausible(liveEdgeLatency);
   } catch {
     return null;
   }
