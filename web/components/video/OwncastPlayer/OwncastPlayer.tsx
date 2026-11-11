@@ -721,14 +721,18 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       }
     };
 
-    // Auto means "pick the best this link can take": start at the top rendition
-    // and let ABR step down, instead of crawling up from the cheapest one.
-    try {
-      const vhs = player.tech(true)?.vhs;
-      const representations = vhs?.representations?.() ?? [];
-      if (representations.length > 1 && selectedQuality === 'auto') {
-        // Highest bandwidth, not last index: the master playlist lists the
-        // passthrough first and it is the most expensive rendition.
+    // Auto means "the best this stream offers": hls.js estimates the available
+    // bandwidth conservatively (a LAN viewer was measured at 1.4 Mbps), so its own
+    // ABR never climbs to the top rendition. Pin the highest-bandwidth level while
+    // Auto is selected; picking a specific level in the menu takes over from here.
+    const pinBestLevel = () => {
+      if (selectedQuality !== 'auto') return;
+
+      try {
+        const vhs = player.tech(true)?.vhs;
+        const representations = vhs?.representations?.() ?? [];
+        if (representations.length < 2) return;
+
         let bestLevel = 0;
         let bestBandwidth = -1;
         representations.forEach((representation, level) => {
@@ -740,15 +744,21 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
             bestLevel = level;
           }
         });
-        vhs.startLevel = bestLevel;
+
+        if (vhs.currentLevel !== bestLevel) {
+          vhs.currentLevel = bestLevel;
+        }
+      } catch {
+        // VHS not ready yet.
       }
-    } catch {
-      // VHS not ready yet.
-    }
+    };
+
+    pinBestLevel();
 
     // ABR can switch renditions while playing, so keep the label in step.
     const activeQualityTimer = setInterval(() => {
       if (player.paused()) return;
+      pinBestLevel();
       updateActiveQuality();
     }, 5000);
 
