@@ -115,6 +115,20 @@ func TestWithWebRTCDefaultsNetworkTypesWithoutTCP(t *testing.T) {
 	assertEqualForTest(t, normalized.NetworkTypes, models.DefaultWebRTCConfig().NetworkTypes)
 }
 
+func TestWithWebRTCDefaultsFillsEmptyNetworkTypes(t *testing.T) {
+	// A persisted empty list is indistinguishable from unset; it must be filled or
+	// tcpEnabled silently does nothing.
+	empty := []string{}
+	cfg := models.WebRTCConfig{TCPEnabled: true, NetworkTypes: empty}
+
+	normalized := WithWebRTCDefaults(cfg)
+	assertEqualForTest(t, normalized.NetworkTypes, models.DefaultWebRTCConfig().NetworkTypes)
+
+	cfg = models.WebRTCConfig{TCPEnabled: false, NetworkTypes: []string{}}
+	normalized = WithWebRTCDefaults(cfg)
+	assertEqualForTest(t, normalized.NetworkTypes, []string{"udp4", "udp6"})
+}
+
 func TestNormalizedZeroConfigsAreValid(t *testing.T) {
 	requireValid(t, ValidateSRT(WithSRTDefaults(models.SRTConfig{}), srtContext()))
 	requireValid(t, ValidateWebRTC(WithWebRTCDefaults(models.WebRTCConfig{}), webrtcContext()))

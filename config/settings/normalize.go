@@ -129,7 +129,10 @@ func normalizeWebRTCNetworkDefaults(config *models.WebRTCConfig) {
 	if config.TCPPort < 1024 {
 		config.TCPPort = defaults.TCPPort
 	}
-	if config.NetworkTypes == nil {
+	// len() rather than == nil: a persisted empty list is just as unset, and
+	// leaving it empty produced "tcpEnabled is true but networkTypes has no
+	// tcp4/tcp6 entry" on a default install, with TCP ICE never working.
+	if len(config.NetworkTypes) == 0 {
 		if config.TCPEnabled {
 			config.NetworkTypes = defaultNetworkTypes()
 		} else {
