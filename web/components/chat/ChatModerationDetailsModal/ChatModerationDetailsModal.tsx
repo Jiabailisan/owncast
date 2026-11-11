@@ -7,6 +7,7 @@ import { ErrorBoundary, getErrorMessage } from 'react-error-boundary';
 import ChatModeration from '../../../services/moderation-service';
 import styles from './ChatModerationDetailsModal.module.scss';
 import { formatUAstring } from '../../../utils/format';
+import { clientLocationText } from '../../../utils/location';
 import { ComponentError } from '../../ui/ComponentError/ComponentError';
 
 const { Panel } = Collapse;
@@ -74,20 +75,6 @@ const ValueRow = ({ label, value }: { label: string; value: string }) => (
     <Col span={12}>{value}</Col>
   </Row>
 );
-
-// clientLocationText renders the GeoIP details the server attaches to each
-// connected client, dropping the N/A and Unknown placeholders so a LAN viewer
-// reads as "Local" and an unknown one shows no row at all.
-export function clientLocationText(geo?: ClientGeo | null): string | null {
-  if (!geo) return null;
-
-  const placeholders = new Set(['n/a', 'unknown', '']);
-  const parts = [geo.city, geo.regionName, geo.countryCode]
-    .map(part => (part || '').trim())
-    .filter(part => !placeholders.has(part.toLowerCase()));
-
-  return parts.length > 0 ? parts.join(', ') : null;
-}
 
 const ConnectedClient = ({ client }: { client: Client }) => {
   const { messageCount, connectedAt, geo } = client;

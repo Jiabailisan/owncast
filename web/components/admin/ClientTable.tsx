@@ -1,3 +1,4 @@
+import { clientLocationText } from '../../utils/location';
 import { Input, Table } from 'antd';
 import { FilterDropdownProps, SortOrder } from 'antd/lib/table/interface';
 import { ColumnsType } from 'antd/es/table';
@@ -87,7 +88,7 @@ export const ClientTable: FC<ClientTableProps> = ({ data }) => {
       title: 'Location',
       dataIndex: 'geo',
       key: 'geo',
-      render: geo => (geo ? `${geo.regionName}, ${geo.countryCode}` : '-'),
+      render: geo => clientLocationText(geo) ?? '-',
     },
     {
       title: '',

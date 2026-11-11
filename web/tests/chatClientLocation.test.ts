@@ -1,4 +1,4 @@
-import { clientLocationText } from '../components/chat/ChatModerationDetailsModal/ChatModerationDetailsModal';
+import { clientLocationText } from '../utils/location';
 
 describe('clientLocationText', () => {
   test('drops the N/A placeholders so a LAN viewer reads as Local', () => {
