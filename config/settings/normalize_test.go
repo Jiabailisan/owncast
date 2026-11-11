@@ -129,6 +129,20 @@ func TestWithWebRTCDefaultsFillsEmptyNetworkTypes(t *testing.T) {
 	assertEqualForTest(t, normalized.NetworkTypes, []string{"udp4", "udp6"})
 }
 
+func TestWithWebRTCDefaultsAddsTCPTypesWhenTCPEnabled(t *testing.T) {
+	// UDP-only types with tcpEnabled is the inconsistent combination found on a live
+	// install: the warning said TCP did nothing, and it did nothing.
+	cfg := models.WebRTCConfig{TCPEnabled: true, NetworkTypes: []string{"udp4", "udp6"}}
+
+	normalized := WithWebRTCDefaults(cfg)
+	assertEqualForTest(t, normalized.NetworkTypes, []string{"udp4", "udp6", "tcp4", "tcp6"})
+
+	// Disabling TCP must not add them back.
+	cfg.TCPEnabled = false
+	normalized = WithWebRTCDefaults(cfg)
+	assertEqualForTest(t, normalized.NetworkTypes, []string{"udp4", "udp6"})
+}
+
 func TestNormalizedZeroConfigsAreValid(t *testing.T) {
 	requireValid(t, ValidateSRT(WithSRTDefaults(models.SRTConfig{}), srtContext()))
 	requireValid(t, ValidateWebRTC(WithWebRTCDefaults(models.WebRTCConfig{}), webrtcContext()))
