@@ -17,6 +17,10 @@ const (
 	networkTypeTCP6 = "tcp6"
 )
 
+// udpModeRange is the UDP allocation mode that reserves udpPortMin..udpPortMax.
+// The other mode is "mux": one port for every session.
+const udpModeRange = "range"
+
 // defaultNetworkTypes is the default ICE network type set.
 func defaultNetworkTypes() []string {
 	return []string{networkTypeUDP4, networkTypeUDP6, networkTypeTCP4, networkTypeTCP6}
@@ -52,7 +56,7 @@ func webrtcPersistedMetadata() []Field {
 
 		stringField("bindAddress", groupWebRTCNetwork, "0.0.0.0", "address",
 			"IP address for WebRTC UDP/TCP listeners. Must be an IP literal.", ApplyRestartService),
-		enumField("udpMode", groupWebRTCNetwork, "mux", []string{"mux", "range"},
+		enumField("udpMode", groupWebRTCNetwork, "mux", []string{"mux", udpModeRange},
 			"UDP port strategy: a single mux port or an ephemeral port range.", ApplyRestartService),
 		intField("udpPort", groupWebRTCNetwork, 8189, 1024, 65535, "port",
 			"UDP port for mux mode. Must not collide with the SRT, web or RTMP ports.", ApplyRestartService),

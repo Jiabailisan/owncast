@@ -112,7 +112,7 @@ func validateSRTListener(errs *FieldErrors, config models.SRTConfig, ctx Validat
 	// WebRTC binds a single muxed port in its default mode; the min/max range is only
 	// reserved when udpMode is "range". Applying the range check unconditionally
 	// rejected legal SRT ports.
-	if ctx.WebRTC.UDPMode == "range" {
+	if ctx.WebRTC.UDPMode == udpModeRange {
 		addPortCollision(errs, "port", config.Port, ctx.WebRTC.UDPPort, "WebRTC UDP")
 		if config.Port >= ctx.WebRTC.UDPPortMin && config.Port <= ctx.WebRTC.UDPPortMax {
 			errs.addf("port", "must not fall inside the WebRTC UDP port range (%d-%d)", ctx.WebRTC.UDPPortMin, ctx.WebRTC.UDPPortMax)
@@ -287,7 +287,7 @@ func validateWebRTCNetworkPorts(errs *FieldErrors, config models.WebRTCConfig, c
 	// The reserved range only exists in "range" mode; in the default mux mode the
 	// engine binds a single port and the min/max values are never used, so a port
 	// inside them cannot collide.
-	if config.UDPMode == "range" && srtPort != 0 && srtPort >= config.UDPPortMin && srtPort <= config.UDPPortMax {
+	if config.UDPMode == udpModeRange && srtPort != 0 && srtPort >= config.UDPPortMin && srtPort <= config.UDPPortMax {
 		errs.addf("udpPortMin", "UDP port range (%d-%d) must not include the SRT port %d", config.UDPPortMin, config.UDPPortMax, srtPort)
 	}
 }
