@@ -221,23 +221,6 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
     {
       title: (
         <Translation
-          translationKey={Localization.Admin.LiveStreaming.Viewers.bitrate}
-          defaultText="Bitrate"
-        />
-      ),
-      dataIndex: 'bitrateKbps',
-      key: 'bitrateKbps',
-      sorter: true,
-      render: (value: number | null, viewer) =>
-        renderViewerMetric(
-          viewer,
-          value === null ? null : formatMetricKbps(value),
-          'No bitrate measurement is available for this viewer yet.',
-        ),
-    },
-    {
-      title: (
-        <Translation
           translationKey={Localization.Admin.LiveStreaming.Viewers.resolution}
           defaultText="Resolution"
         />
@@ -265,6 +248,23 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
           viewer,
           value === null ? null : formatMetricNumber(value, 1),
           'No FPS measurement is available for this viewer yet.',
+        ),
+    },
+    {
+      title: (
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.bitrate}
+          defaultText="Bitrate"
+        />
+      ),
+      dataIndex: 'bitrateKbps',
+      key: 'bitrateKbps',
+      sorter: true,
+      render: (value: number | null, viewer) =>
+        renderViewerMetric(
+          viewer,
+          value === null ? null : formatMetricKbps(value),
+          'No bitrate measurement is available for this viewer yet.',
         ),
     },
     {
