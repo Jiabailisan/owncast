@@ -260,11 +260,18 @@ func main() {
 		ConfigRepository: configRepository,
 	})
 
+	// streamSvc is assigned below, once the stream service is constructed; the RTMP
+	// listener only reads it through the IsOnline closure.
+	var streamSvc *stream.Service
+
 	rtmpSvc := rtmp.New(rtmp.Deps{
 		ConfigRepository: configRepository,
 		Config:           cfg,
 		StreamKeys:       streamKeys,
 		Sessions:         sessions,
+		IsOnline: func() bool {
+			return streamSvc != nil && streamSvc.IsStreamConnected()
+		},
 	})
 
 	// Shared in-process event dispatcher. Constructed before its producers
@@ -316,7 +323,6 @@ func main() {
 	// its accepted sessions are handed to the stream lifecycle; the handler
 	// closure is bound once streamSvc exists. The listener only binds when SRT
 	// is enabled in configuration (default off).
-	var streamSvc *stream.Service
 	srtSvc := srt.New(srt.Deps{
 		ConfigProvider: configRepository.GetSRTConfig,
 		StreamKeys:     streamKeys,

@@ -39,6 +39,12 @@ type Service struct {
 	// sessions is the cross-protocol single-publisher arbiter.
 	sessions *ingest.Arbiter
 
+	// isOnline reports whether the stream engine is still tearing a previous
+	// session down. The arbiter releases its slot before that work finishes, so a
+	// reconnect that only waited for the arbiter started while the old session was
+	// still shutting down and was immediately disconnected again.
+	isOnline func() bool
+
 	// mu guards currentSession.
 	mu sync.RWMutex
 	// currentSession is the live inbound session, if any.
@@ -56,6 +62,9 @@ type Deps struct {
 	Config           *config.Config
 	StreamKeys       *ingest.StreamKeyValidator
 	Sessions         *ingest.Arbiter
+	// IsOnline reports whether a stream is still running; used to wait for a
+	// previous session to finish tearing down before accepting a reconnect.
+	IsOnline func() bool
 }
 
 // New constructs an idle RTMP service. Call Start(...) to bind the
@@ -66,5 +75,6 @@ func New(deps Deps) *Service {
 		cfg:              deps.Config,
 		streamKeys:       deps.StreamKeys,
 		sessions:         deps.Sessions,
+		isOnline:         deps.IsOnline,
 	}
 }

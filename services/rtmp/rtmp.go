@@ -86,14 +86,22 @@ const publisherTakeoverWait = 8 * time.Second
 // waitForPreviousSession reports whether no other session is running, waiting for a
 // short while for one that is already shutting down.
 func (s *Service) waitForPreviousSession() bool {
-	if s.sessions.Current() == nil {
+	finished := func() bool {
+		if s.sessions.Current() != nil {
+			return false
+		}
+
+		return s.isOnline == nil || !s.isOnline()
+	}
+
+	if finished() {
 		return true
 	}
 
 	deadline := time.Now().Add(publisherTakeoverWait)
 	for time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
-		if s.sessions.Current() == nil {
+		if finished() {
 			log.Infoln("previous stream finished; accepting the new publisher")
 
 			return true
