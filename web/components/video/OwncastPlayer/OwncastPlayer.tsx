@@ -278,6 +278,21 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       const tech = playerRef.current?.tech?.({ IWillNotUseThisInPlugins: true });
       const vhs = tech?.vhs;
       const levels = vhs?.levels;
+      // Temporary diagnostic: the quality switch cannot be exercised from a
+      // headless probe without visibility into the hls.js instance.
+      try {
+        (window as unknown as Record<string, unknown>).__owncastQualityDebug = {
+          qualityId,
+          hasTech: Boolean(tech),
+          hasVhs: Boolean(vhs),
+          levelCount: Array.isArray(levels) ? levels.length : null,
+          currentLevel: vhs?.currentLevel ?? null,
+          autoLevelEnabled: vhs?.autoLevelEnabled ?? null,
+          uris: Array.isArray(levels) ? levels.map((item: { uri?: string }) => item?.uri) : null,
+        };
+      } catch {
+        // Diagnostics must never break playback.
+      }
       if (!vhs || !Array.isArray(levels) || levels.length === 0) return false;
 
       if (qualityId === 'auto') {
