@@ -405,8 +405,13 @@ func liveViewerFromViewer(viewer models.Viewer) models.LiveViewer {
 	row.Username = viewer.DisplayName
 	row.Quality = viewer.ReportedQuality
 	if row.Quality == "" || strings.EqualFold(row.Quality, "auto") {
-		if viewer.VariantName != "" {
+		switch {
+		case viewer.VariantName != "":
 			row.Quality = "Auto (" + viewer.VariantName + ")"
+		case row.Resolution != "":
+			// The variant name is unknown but the server measured the resolution
+			// it is delivering, which is enough to tell renditions apart.
+			row.Quality = "Auto (" + row.Resolution + ")"
 		}
 	}
 	// A player that reports the variant index instead of its name still gets a

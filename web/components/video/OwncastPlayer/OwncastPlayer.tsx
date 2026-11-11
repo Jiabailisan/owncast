@@ -589,7 +589,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
           selectedQuality === 'auto'
             ? activeQualityName
               ? `Auto (${activeQualityName})`
-              : 'Auto'
+              : resolution
+                ? `Auto (${resolution})`
+                : 'Auto'
             : qualities.find(item => String(item.index) === selectedQuality)?.name ||
               selectedQuality,
         videoBitrateKbps,
