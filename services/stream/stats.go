@@ -112,6 +112,9 @@ func mergeViewerReport(stored, reported *models.Viewer) {
 	if reported.DisplayName != "" {
 		stored.DisplayName = reported.DisplayName
 	}
+	if reported.ReportedToken != "" {
+		stored.ReportedToken = reported.ReportedToken
+	}
 	if reported.ReportedQuality != "" {
 		stored.ReportedQuality = reported.ReportedQuality
 	}

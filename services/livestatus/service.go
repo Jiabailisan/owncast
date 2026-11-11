@@ -57,10 +57,10 @@ type Deps struct {
 	Names NameProvider
 }
 
-// NameProvider resolves the display name of the chat user watching from an
-// address. Names are mutable, so it is consulted when the table is built.
+// NameProvider resolves the display name of the chat user a player belongs to.
+// Names are mutable, so it is consulted when the table is built.
 type NameProvider interface {
-	DisplayNameForIP(ipAddress string) string
+	DisplayNameForToken(accessToken string) string
 }
 
 // Service builds live-status snapshots.
@@ -211,8 +211,16 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 		}
 	}
 
+	// The player reports the chat token it belongs to; it is the only reliable way
+	// to name a viewer, because several chat clients can share one address.
+	tokens := map[string]string{}
+
 	if s.stream != nil {
 		for _, viewer := range s.stream.GetActiveViewers() {
+			if viewer.ReportedToken != "" {
+				tokens[viewer.IPAddress] = viewer.ReportedToken
+			}
+
 			if _, isWebRTC := webrtcAddresses[viewer.IPAddress]; isWebRTC {
 				// The same person also appears as a WebRTC row; keep that row (it has
 				// the measured quality) but take the reported details from here.
@@ -225,20 +233,26 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 		}
 	}
 
-	s.applyDisplayNames(viewers)
+	s.applyDisplayNames(viewers, tokens)
 
 	return viewers
 }
 
-// applyDisplayNames replaces the reported name with the current chat name when
-// the address has a connected chat user: a rename must show up immediately.
-func (s *Service) applyDisplayNames(viewers []models.LiveViewer) {
+// applyDisplayNames replaces the reported name with the current chat name of the
+// user the player belongs to. A rename must show up immediately, and a chat-only
+// client on the same address must never be mistaken for the person watching.
+func (s *Service) applyDisplayNames(viewers []models.LiveViewer, tokens map[string]string) {
 	if s.names == nil {
 		return
 	}
 
 	for index := range viewers {
-		if name := s.names.DisplayNameForIP(viewers[index].IPAddress); name != "" {
+		token := tokens[viewers[index].IPAddress]
+		if token == "" {
+			continue
+		}
+
+		if name := s.names.DisplayNameForToken(token); name != "" {
 			viewers[index].Username = name
 		}
 	}

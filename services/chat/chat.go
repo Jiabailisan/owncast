@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-	"time"
 
 	"github.com/owncast/owncast/services/geoip"
 
@@ -135,31 +134,27 @@ func (s *Service) ResolveLocation(client *Client) *geoip.GeoDetails {
 	return client.Geo
 }
 
-// DisplayNameForIP returns the display name of the chat user connected from an
-// address, preferring the most recent connection. Empty when nobody matches.
-func (s *Service) DisplayNameForIP(ipAddress string) string {
-	if s == nil || ipAddress == "" {
+// DisplayNameForToken returns the current display name of the chat user
+// owning an access token. The player reports the token, so the name is the one the
+// user has now, and a chat-only client on the same address can never be confused
+// with the person watching.
+func (s *Service) DisplayNameForToken(accessToken string) string {
+	if s == nil || accessToken == "" {
 		return ""
 	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	name := ""
-	var newest time.Time
-
 	for _, client := range s.clients {
-		if client.User == nil || client.IPAddress != ipAddress {
+		if client.User == nil || client.accessToken != accessToken {
 			continue
 		}
 
-		if client.ConnectedAt.After(newest) {
-			newest = client.ConnectedAt
-			name = client.User.DisplayName
-		}
+		return client.User.DisplayName
 	}
 
-	return name
+	return ""
 }
 
 // GetClients will return all the current chat clients connected.

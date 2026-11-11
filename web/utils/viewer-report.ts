@@ -6,6 +6,7 @@ const ENDPOINT = '/api/ping';
 const INTERVAL_MS = 5000;
 
 const DISPLAY_NAME_KEY = 'displayName';
+const ACCESS_TOKEN_KEY = 'accessToken';
 
 export type ViewerReport = {
   protocol: 'hls' | 'webrtc';
@@ -17,9 +18,9 @@ export type ViewerReport = {
   bitrateKbps?: number | null;
 };
 
-const readDisplayName = (): string | null => {
+const readStorage = (key: string): string | null => {
   try {
-    return window.localStorage.getItem(DISPLAY_NAME_KEY);
+    return window.localStorage.getItem(key);
   } catch {
     return null;
   }
@@ -62,8 +63,14 @@ export class ViewerReporter {
     }
 
     const params = new URLSearchParams({ protocol: report.protocol });
-    const name = report.name ?? readDisplayName();
+    const name = report.name ?? readStorage(DISPLAY_NAME_KEY);
     if (name) params.set('name', name);
+
+    // The token lets the server read the current display name of the chat user
+    // this player belongs to, so a rename shows up and a chat-only client on the
+    // same address is never mistaken for the viewer.
+    const token = readStorage(ACCESS_TOKEN_KEY);
+    if (token) params.set('token', token);
     if (report.quality) params.set('quality', report.quality);
     if (report.resolution) params.set('resolution', report.resolution);
     appendNumber(params, 'latency', report.latencyMs);

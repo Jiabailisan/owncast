@@ -35,6 +35,9 @@ type Viewer struct {
 	DisplayName     string   `json:"displayName,omitempty"`
 	ReportedQuality string   `json:"reportedQuality,omitempty"`
 	ReportedLatency *float64 `json:"reportedLatencyMs,omitempty"`
+	// ReportedToken is the chat access token the player belongs to, used to read
+	// the current display name instead of trusting a name sent earlier.
+	ReportedToken string `json:"-"`
 }
 
 // GenerateViewerFromRequest will return a chat client from a http request.

@@ -29,6 +29,7 @@ func applyViewerReport(viewer *models.Viewer, r *http.Request) {
 		viewer.Protocol = protocol
 	}
 
+	viewer.ReportedToken = truncateReportString(query.Get("token"), 128)
 	viewer.DisplayName = truncateReportString(query.Get("name"), 64)
 	viewer.ReportedQuality = truncateReportString(query.Get("quality"), 32)
 
