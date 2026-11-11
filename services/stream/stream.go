@@ -310,6 +310,22 @@ func (s *Service) IsStreamBusy() bool {
 
 // applyStreamOffline handles the always-on cleanup when a live stream ends.
 func (s *Service) applyStreamOffline() {
+	// The engine teardown has to run on every exit path. It used to sit after the
+	// offline-clip render, so a clip that could not be written left the publisher
+	// connected, the media legs open and the variants advertised for a stream that
+	// had already ended.
+	defer func() {
+		if s.thumbnailGen != nil {
+			s.thumbnailGen.Stop()
+		}
+		if s.sessions != nil {
+			s.sessions.DisconnectCurrent(errStreamOffline)
+		}
+		s.stopWebRTCProcess()
+		s.closeIngestTee()
+		s.closeWebRTC()
+		s.setCurrentSession(nil)
+	}()
 	_ = s.chat.SendSystemAction("The stream is ending.", true)
 
 	now := utils.NullTime{Time: time.Now(), Valid: true}
@@ -341,17 +357,6 @@ func (s *Service) applyStreamOffline() {
 		log.Errorln(err)
 		return
 	}
-
-	if s.thumbnailGen != nil {
-		s.thumbnailGen.Stop()
-	}
-	if s.sessions != nil {
-		s.sessions.DisconnectCurrent(errStreamOffline)
-	}
-	s.stopWebRTCProcess()
-	s.closeIngestTee()
-	s.closeWebRTC()
-	s.setCurrentSession(nil)
 
 	if s.yp != nil {
 		s.yp.Stop()

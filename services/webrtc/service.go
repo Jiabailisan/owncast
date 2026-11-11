@@ -134,7 +134,19 @@ func (s *Service) Stop(ctx context.Context) error {
 	s.runCtx = nil
 	sessions := s.sessions.drain()
 	legs := s.takeLegsLocked()
+	// The published variant set is only valid while media legs feed it. A restart
+	// (for example saving a restart-service setting while live) closes the legs and
+	// nothing re-opens them for the running stream, so keeping the variants
+	// advertised made WHEP answer 201 with tracks that never deliver a frame - a
+	// permanently black player that never fell back to HLS. Clearing them makes WHEP
+	// refuse new sessions until the next stream publishes variants again.
+	publishedVariants := len(s.variants)
+	s.variants = nil
 	s.mu.Unlock()
+
+	if publishedVariants > 0 {
+		log.Warnln("webrtc: delivery stopped; WebRTC viewer sessions resume on the next stream")
+	}
 
 	if cancel != nil {
 		cancel()
@@ -524,8 +536,14 @@ func (s *Service) dropSession(sess *session, reason string) {
 		return
 	}
 	sess.close(reason)
-	if s.engine != nil && sess.pc != nil {
-		s.engine.release(sess.pc)
+
+	// Stop writes s.engine under the lock; read it the same way.
+	s.mu.RLock()
+	engine := s.engine
+	s.mu.RUnlock()
+
+	if engine != nil && sess.pc != nil {
+		engine.release(sess.pc)
 	}
 	s.capacity.releaseSession(sess.id)
 	log.Debugf("webrtc: dropped session %s (%s)", sess.id, reason)

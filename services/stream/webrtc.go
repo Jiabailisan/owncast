@@ -177,6 +177,26 @@ func rtmpCopyFallback(
 		return decision
 	}
 
+	// RTMP metadata does report the source codec, so an HEVC or AV1 source must not
+	// be forced into the H.264 track: the browser would accept the tracks and then
+	// render nothing. Fall back to a transcode leg instead.
+	if codec := strings.ToLower(strings.TrimSpace(source.VideoCodec)); codec != "" && codec != "h264" {
+		*warnings = append(*warnings, models.StatusWarning{
+			Code:    "webrtc_copy_unsupported_codec",
+			Message: "The source is " + codec + "; WebRTC delivery needs an H.264 transcode leg",
+		})
+		log.Warnln("webrtc: source codec", codec, "cannot be copied to WebRTC; transcoding variant", index)
+
+		return webrtc.LegDecision{
+			Enabled:          true,
+			Mode:             models.OutputModeTranscode,
+			VideoBitrateKbps: webrtc.DefaultWebRTCVideoBitrateKbps,
+			GOPFrames:        webrtc.MinimumWebRTCGOPFrames,
+			H264Profile:      webrtcConfig.H264Profile,
+			Source:           source,
+		}
+	}
+
 	*warnings = append(*warnings, models.StatusWarning{
 		Code:    "webrtc_copy_unverified",
 		Message: "RTMP copy leg is delivered without B-frame/profile verification",

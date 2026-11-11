@@ -67,11 +67,15 @@ func newEngine(ctx context.Context, cfg models.WebRTCConfig) (*engine, error) {
 
 	mediaEngine, err := buildMediaEngine(cfg)
 	if err != nil {
+		// The mux sockets are already bound at this point; without closing them a
+		// later Start cannot rebind the port without restarting the process.
+		e.closeSockets()
 		return nil, err
 	}
 
 	interceptorRegistry, err := e.buildInterceptorRegistry(mediaEngine)
 	if err != nil {
+		e.closeSockets()
 		return nil, err
 	}
 

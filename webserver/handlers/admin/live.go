@@ -27,6 +27,7 @@ const (
 	liveSortDuration    = "duration"
 	liveSortConnectedAt = "connectedAt"
 	liveSortProtocol    = "protocol"
+	liveSortBitrate     = "bitrate"
 
 	liveOrderAscending  = "asc"
 	liveOrderDescending = "desc"
@@ -171,7 +172,7 @@ func normalizeLiveViewersPagination(page, pageSize int) (int, int) {
 
 func normalizeLiveViewersSort(sortBy string) string {
 	switch sortBy {
-	case liveSortDuration, liveSortConnectedAt, liveSortProtocol:
+	case liveSortDuration, liveSortConnectedAt, liveSortProtocol, liveSortBitrate:
 		return sortBy
 	default:
 		return liveSortConnectedAt

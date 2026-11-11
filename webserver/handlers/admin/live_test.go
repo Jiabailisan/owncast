@@ -38,6 +38,7 @@ func TestNormalizeLiveViewersParameters(t *testing.T) {
 		"duration":    liveSortDuration,
 		"connectedAt": liveSortConnectedAt,
 		"protocol":    liveSortProtocol,
+		"bitrate":     liveSortBitrate,
 		"":            liveSortConnectedAt,
 		"bogus":       liveSortConnectedAt,
 	}

@@ -266,7 +266,7 @@ func (h *whepHandler) writeCORS(w http.ResponseWriter, r *http.Request, cfg mode
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Vary", "Origin")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Expose-Headers", "Location, ETag, Link, Retry-After")
+	w.Header().Set("Access-Control-Expose-Headers", "Location, ETag, Link, Retry-After, "+variantHeader)
 }
 
 func (h *whepHandler) writePreflight(w http.ResponseWriter) {

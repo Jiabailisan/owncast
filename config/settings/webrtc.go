@@ -128,9 +128,9 @@ func webrtcPersistedMetadata() []Field {
 		boolField("bandwidthEstimation", groupWebRTCMedia, false,
 			"Run the receive-side bandwidth estimator for monitoring. Requires twcc. No encoder adaptation is performed.", ApplyRestartService),
 		intField("maxBitratePerViewerKbps", groupWebRTCMedia, 0, 0, 100000, "kbps",
-			"Upper bitrate bound per viewer. 0 disables the bound.", ApplyLive),
+			"Reserved and not enforced: every viewer shares one leg per rendition, so there is no per-viewer rate to cap.", ApplyLive),
 		intField("minBitratePerViewerKbps", groupWebRTCMedia, 0, 0, 100000, "kbps",
-			"Lower bitrate bound per viewer. 0 disables the bound.", ApplyLive),
+			"Reserved and not enforced: every viewer shares one leg per rendition, so there is no per-viewer rate floor.", ApplyLive),
 		intField("rtpReorderBufferMs", groupWebRTCMedia, 0, 0, 2000, "ms",
 			"Forwarder RTP reorder buffer. 0 disables reordering.", ApplyRestartService),
 	}
