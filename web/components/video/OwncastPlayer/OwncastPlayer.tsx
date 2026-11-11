@@ -587,11 +587,24 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         sdp: '—',
         // The rendition name only: the operator asked for the real quality, not a
         // wrapper around the word auto.
-        qualityName:
-          selectedQuality === 'auto'
-            ? activeQualityName || 'Auto'
-            : qualities.find(item => String(item.index) === selectedQuality)?.name ||
-              selectedQuality,
+        qualityName: (() => {
+          if (selectedQuality !== 'auto') {
+            return (
+              qualities.find(item => String(item.index) === selectedQuality)?.name ||
+              selectedQuality
+            );
+          }
+
+          // Resolve here rather than reading state: this builder is created once per
+          // stats session, so a state value captured at setup would stay empty.
+          const level = typeof vhs?.currentLevel === 'number' ? vhs.currentLevel : -1;
+          const activeName =
+            level >= 0
+              ? qualities[level]?.name || vhs?.representations?.()?.[level]?.name || ''
+              : '';
+
+          return activeName ? `Auto (${activeName})` : 'Auto';
+        })(),
         videoBitrateKbps,
         audioBitrateKbps,
         connectionSpeedKbps,
@@ -678,7 +691,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         startLevel: -1,
         abrEwmaDefaultEstimate: 8000000,
         experimentalBufferBasedABR: true,
-        useNetworkInformationApi: true,
+        // The Network Information API reports a coarse, often pessimistic downlink
+        // (Chrome said ~1.5 Mbps on a gigabit LAN), which overrides the estimate
+        // above and keeps Auto on a low rendition forever.
+        useNetworkInformationApi: false,
         maxPlaylistRetries: 30,
       },
     },
@@ -710,18 +726,58 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on('seeked', () => setBuffering(false));
     pingTarget.measureLatency = () => measureHlsLatencyMs(player);
 
+    // renditionNameAt resolves a VHS level to the configured variant name. hls.js
+    // lists the levels in master-playlist order, which is the configured variant
+    // order, so the level index is the variant index.
+    const renditionNameAt = (level: number): string => {
+      if (level < 0) return '';
+
+      const byConfig = qualities[level]?.name;
+      if (byConfig) return byConfig;
+
+      const representations =
+        player.tech({ IWillNotUseThisInPlugins: true })?.vhs?.representations?.() ?? [];
+
+      return representations[level]?.name || '';
+    };
+
     const updateActiveQuality = () => {
       try {
         const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
-        const representations = vhs?.representations?.() ?? [];
         const level = typeof vhs?.currentLevel === 'number' ? vhs.currentLevel : -1;
-        const active = representations[level] ?? representations.find(item => item?.enabled?.());
-        const index = active?.attributes?.NAME ?? active?.name ?? String(level);
-        const name =
-          active?.name || qualities.find(item => String(item.index) === String(index))?.name || '';
+        const name = renditionNameAt(level);
         setActiveQualityName(name);
         // Report the rendition that is actually playing, not the word auto.
         if (name) pingTarget.quality = name;
+      } catch {
+        // VHS not ready yet.
+      }
+    };
+
+    // Auto means "best quality first": ask for the top rendition once, without
+    // taking ABR out of the loop the way setting currentLevel would.
+    const preferTopRendition = () => {
+      if (selectedQuality !== 'auto') return;
+
+      try {
+        const vhs = player.tech({ IWillNotUseThisInPlugins: true })?.vhs;
+        const levels = vhs?.levels ?? [];
+        if (levels.length < 2) return;
+
+        let topLevel = 0;
+        let topBandwidth = -1;
+        levels.forEach((level, index) => {
+          const bandwidth = Number(level?.bitrate ?? level?.attributes?.BANDWIDTH ?? 0);
+          if (bandwidth > topBandwidth) {
+            topBandwidth = bandwidth;
+            topLevel = index;
+          }
+        });
+
+        if (vhs.currentLevel !== topLevel) {
+          // nextLevel is a one-shot switch: ABR stays enabled and may step down.
+          vhs.nextLevel = topLevel;
+        }
       } catch {
         // VHS not ready yet.
       }
@@ -735,7 +791,13 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     player.on('dispose', () => clearInterval(activeQualityTimer));
 
+    // The levels only exist once the manifest is parsed, so ask for the top
+    // rendition there and again when playback starts.
+    player.on('loadedmetadata', preferTopRendition);
+    player.on('canplay', preferTopRendition);
+
     player.on('playing', () => {
+      preferTopRendition();
       updateActiveQuality();
       ping.start();
       setVideoPlaying(true);
