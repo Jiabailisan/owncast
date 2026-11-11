@@ -41,10 +41,10 @@ func TestGetIPAddressFromRequestTrustsHeadersOnlyFromLoopback(t *testing.T) {
 			expected: "198.51.100.21",
 		},
 		{
-			name:     "lan peer is not a trusted proxy",
-			peer:     "192.168.50.7:5000",
+			name:     "another machine on the lan is not a trusted proxy",
+			peer:     "192.0.2.55:5000",
 			headers:  map[string]string{"X-Forwarded-For": "198.51.100.7"},
-			expected: "192.168.50.7",
+			expected: "192.0.2.55",
 		},
 		{
 			name:     "invalid cloudflare value falls back to the chain",

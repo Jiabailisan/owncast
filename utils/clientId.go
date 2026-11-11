@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // GenerateClientIDFromRequest generates a client id from the provided request.
@@ -88,11 +89,51 @@ func isTrustedProxyPeer(address string) bool {
 		return false
 	}
 
-	// Only a proxy running on this host (Lucky, nginx, caddy bound to
-	// 127.0.0.1) is trusted to have written the forwarding headers. A LAN peer
-	// talking to Owncast directly must keep its own address, otherwise any LAN
-	// client could claim to be someone else.
-	return ip.IsLoopback()
+	// A proxy running on this host is trusted to have written the forwarding
+	// headers. That covers loopback and the host's own addresses: a proxy bound
+	// to the LAN interface (Lucky on the NAS) reaches Owncast from the machine's
+	// own LAN address, and treating that as an untrusted LAN client is what made
+	// every tunnelled viewer look like the proxy itself.
+	if ip.IsLoopback() {
+		return true
+	}
+
+	return isLocalHostAddress(ip)
+}
+
+// localHostAddresses caches the machine's own addresses; the interface list only
+// changes when the network does, and a stale entry only costs a header trust.
+var (
+	localAddressesOnce sync.Once
+	localAddresses     = map[string]struct{}{}
+)
+
+// isLocalHostAddress reports whether the address belongs to this machine.
+func isLocalHostAddress(ip net.IP) bool {
+	localAddressesOnce.Do(func() {
+		addresses, err := net.InterfaceAddrs()
+		if err != nil {
+			return
+		}
+
+		for _, address := range addresses {
+			var host string
+			switch value := address.(type) {
+			case *net.IPNet:
+				host = value.IP.String()
+			case *net.IPAddr:
+				host = value.IP.String()
+			}
+
+			if host != "" {
+				localAddresses[host] = struct{}{}
+			}
+		}
+	})
+
+	_, ok := localAddresses[ip.String()]
+
+	return ok
 }
 
 // isIPv6 reports whether the address looks like an IPv6 address.
