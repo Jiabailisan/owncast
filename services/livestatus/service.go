@@ -323,7 +323,9 @@ func mergeReportedIntoRow(row *models.LiveViewer, viewer models.Viewer) {
 	if viewer.ReportedQuality != "" {
 		row.Quality = viewer.ReportedQuality
 	}
-	if row.Quality == "" || strings.EqualFold(row.Quality, "auto") {
+	// Keep the rendition the session already reported; only fall back to the
+	// player's variant when it has nothing better.
+	if (row.Quality == "" || strings.EqualFold(row.Quality, "auto")) && viewer.VariantName != "" {
 		row.Quality = viewer.VariantName
 	}
 	if viewer.ReportedLatency != nil {
