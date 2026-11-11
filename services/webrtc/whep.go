@@ -121,6 +121,10 @@ func (h *whepHandler) serveWHEP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Location", whepPathPrefix+sessionPathPrefix+sess.id)
 	w.Header().Set("ETag", "\""+sess.id+"-1\"")
+	// The server picks the variant when the client did not pin one, so it tells the
+	// client which rendition this session got; without it a WebRTC viewer cannot
+	// name the quality it is actually watching.
+	w.Header().Set(variantHeader, strconv.Itoa(variantIndex))
 	for _, link := range buildLinkHeaders(cfg) {
 		w.Header().Add("Link", link)
 	}
@@ -206,6 +210,9 @@ func (h *whepHandler) patchSession(w http.ResponseWriter, r *http.Request, sessi
 	sess.touch()
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// variantHeader reports the variant index a WHEP session was created for.
+const variantHeader = "X-Owncast-Variant"
 
 func (h *whepHandler) selectedVariant(r *http.Request) (int, error) {
 	raw := strings.TrimSpace(r.URL.Query().Get("variant"))

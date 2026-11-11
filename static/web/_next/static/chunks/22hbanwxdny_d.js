@@ -1,0 +1,23 @@
+__turbopack_load_page_chunks__("/embed/video", [
+  "static/chunks/0httft477sx5j.js",
+  "static/chunks/3ns0zkwrl6na3.js",
+  "static/chunks/02if5pgqr6o9c.js",
+  "static/chunks/37vn_t8ph9xsy.js",
+  "static/chunks/2o2owgng04450.js",
+  "static/chunks/2k8g7zb9bac3i.js",
+  "static/chunks/36a88n0bs_5i-.js",
+  "static/chunks/3-37nv3rf10se.js",
+  "static/chunks/2-_irfvjhqb2_.js",
+  "static/chunks/2ii8si9sk1wly.js",
+  "static/chunks/0tz6_10jr3hn4.js",
+  "static/chunks/2ln-03xpwc5sv.js",
+  "static/chunks/3w8mz3zrl0mnd.js",
+  "static/chunks/0ytd19mt2493w.js",
+  "static/chunks/2sts603s6vz2_.js",
+  "static/chunks/2xlx6h5xthqc-.js",
+  "static/chunks/35vcczplrxizt.js",
+  "static/chunks/1ip58b7zsh15d.js",
+  "static/chunks/06hotj2ebcacl.css",
+  "static/chunks/199bn-mcw7k-6.css",
+  "static/chunks/turbopack-2u1-8jp33qpdk.js"
+])

@@ -304,6 +304,11 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
 
     const iceServersFromLink = parseIceServersFromLinkHeader(response.headers.get('Link'));
 
+    // The server picks the rendition when the request did not pin one; it reports
+    // the choice back so the UI can name the quality being watched.
+    const reportedVariant = Number(response.headers.get('X-Owncast-Variant'));
+    const servedVariantIndex = Number.isInteger(reportedVariant) ? reportedVariant : variantIndex;
+
     // Start waiting for the track before applying the answer so an immediate
     // track event cannot be missed.
     streamWaiter = waitForRemoteStream(pc, firstTrackTimeoutMs);
@@ -315,7 +320,7 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
       pc,
       stream,
       sessionUrl,
-      variantIndex,
+      variantIndex: servedVariantIndex ?? null,
       iceServersFromLink,
       close: () => {
         if (streamWaiter) streamWaiter.cancel();
