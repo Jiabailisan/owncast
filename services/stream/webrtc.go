@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -298,7 +299,15 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 
 		leg, err := s.webRTC.OpenMediaLeg(index)
 		if err != nil {
-			log.Errorln("webrtc: unable to open media leg for variant", index, ":", err)
+			// Delivery being switched off is a configuration, not a failure: logging it
+			// as an error made every stream start look broken on installs that do not use
+			// WebRTC.
+			if errors.Is(err, webrtc.ErrDisabled) {
+				log.Debugln("webrtc: delivery is disabled; skipping media leg for variant", index)
+			} else {
+				log.Errorln("webrtc: unable to open media leg for variant", index, ":", err)
+			}
+
 			warnings = append(warnings, models.StatusWarning{Code: "webrtc_media_leg", Message: err.Error()})
 			continue
 		}
