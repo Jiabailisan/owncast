@@ -541,6 +541,29 @@ func NewTranscoder(cfg *config.Config, configRepository models.EngineConfig) *Tr
 }
 
 // Uses `map` https://www.ffmpeg.org/ffmpeg-all.html#Stream-specifiers-1 https://www.ffmpeg.org/ffmpeg-all.html#Advanced-options
+// minRateKbps returns the floor of this variant's rate window. In the shared
+// process model the same encode feeds the WebRTC legs, which must stay pinned to
+// their target, so the window collapses onto the allocated bitrate.
+func (v *HLSVariant) minRateKbps(t *Transcoder) int {
+	if t.sharedMode {
+		return v.getAllocatedVideoBitrate()
+	}
+
+	return v.getMinVideoBitrate()
+}
+
+// maxRateKbps returns the ceiling of this variant's rate window, pinned in the
+// shared process model for the same reason as minRateKbps: x264 rejects
+// nal-hrd=cbr unless the ceiling equals the bitrate, so a VBR window there only
+// produced "CBR HRD requires constant bitrate" and no HRD at all.
+func (v *HLSVariant) maxRateKbps(t *Transcoder) int {
+	if t.sharedMode {
+		return v.getAllocatedVideoBitrate()
+	}
+
+	return v.getMaxVideoBitrate()
+}
+
 func (v *HLSVariant) getVariantString(t *Transcoder) []string {
 	variantEncoderCommands := v.getVideoQualityString(t)
 	variantEncoderCommands = append(variantEncoderCommands, v.getAudioQualityString()...)
@@ -639,8 +662,8 @@ func (v *HLSVariant) getVideoQualityString(t *Transcoder) []string {
 		ffmpegFlagMap, "v:0",
 		fmt.Sprintf("-c:v:%d", v.index), t.codec.Name(), // Video codec used for this variant
 		fmt.Sprintf("-b:v:%d", v.index), fmt.Sprintf("%dk", v.getAllocatedVideoBitrate()), // The average bitrate for this variant allowing space for audio
-		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.getMinVideoBitrate()), // Floor of the VBR window
-		fmt.Sprintf("-maxrate:v:%d", v.index), fmt.Sprintf("%dk", v.getMaxVideoBitrate()), // The max bitrate allowed for this variant
+		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.minRateKbps(t)), // Floor of the VBR window, or the target when shared
+		fmt.Sprintf("-maxrate:v:%d", v.index), fmt.Sprintf("%dk", v.maxRateKbps(t)), // The max bitrate allowed for this variant
 		fmt.Sprintf("-g:v:%d", v.index), fmt.Sprintf("%d", gop), // Suggested interval where i-frames are encoded into the segments
 		fmt.Sprintf("-keyint_min:v:%d", v.index), fmt.Sprintf("%d", gop), // minimum i-keyframe interval
 		fmt.Sprintf("-r:v:%d", v.index), fmt.Sprintf("%d", v.framerate),

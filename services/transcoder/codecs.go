@@ -603,10 +603,13 @@ func (c *VideoToolboxCodec) DecodeFlags() []string { return nil }
 func (c *Libx264Codec) SupportsSharedTranscode() bool { return true }
 
 func (c *Libx264Codec) SharedVariantFlags(v *HLSVariant) []string {
+	// The bitrate window is emitted by the variant itself and is pinned in shared
+	// mode, so nal-hrd=cbr is truthful here. Emitting -minrate again duplicated the
+	// flag and overrode the window with a value that contradicted -maxrate, which
+	// made x264 drop the HRD with "CBR HRD requires constant bitrate".
 	return []string{
 		fmt.Sprintf("-x264-params:v:%d", v.index), "scenecut=0:open_gop=0:bframes=0:nal-hrd=cbr:force-cfr=1",
 		fmt.Sprintf("-bufsize:v:%d", v.index), fmt.Sprintf("%dk", v.getBufferSize()),
-		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.getAllocatedVideoBitrate()),
 		fmt.Sprintf("-fps_mode:v:%d", v.index), "cfr",
 		fmt.Sprintf("-profile:v:%d", v.index), sharedVariantH264Profile(v),
 	}
@@ -626,7 +629,6 @@ func (c *NvencCodec) SharedVariantFlags(v *HLSVariant) []string {
 	return []string{
 		fmt.Sprintf("-tune:v:%d", v.index), "ll",
 		fmt.Sprintf("-rc:v:%d", v.index), "cbr",
-		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.getAllocatedVideoBitrate()),
 		fmt.Sprintf("-bufsize:v:%d", v.index), fmt.Sprintf("%dk", v.getBufferSize()),
 		fmt.Sprintf("-fps_mode:v:%d", v.index), "cfr",
 		fmt.Sprintf("-profile:v:%d", v.index), sharedVariantH264Profile(v),
