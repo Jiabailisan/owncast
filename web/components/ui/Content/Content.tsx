@@ -279,17 +279,29 @@ export const Content: FC = () => {
             />
           )}
           {!online && !appState.appLoading && (
-            <div
-              id="offline-message"
-              className={classnames(styles.offlineSection, {
-                [styles.topSectionElement]: !!recommendedServer,
-              })}
-            >
-              <div
-                className={classnames({
-                  [styles.offlineRecommendationLayout]: !!recommendedServer,
-                })}
-              >
+            // Match the provided binary DOM: #offline-message is a transparent
+            // width:100% row child and (in the normal case) the OfflineBanner is
+            // its ONLY child, so a custom theme's "#offline-message > div" card
+            // rule styles the banner itself. The old black #offline-message
+            // background plus the banner's own topSectionElement background
+            // produced two stacked black layers.
+            <div id="offline-message" className={styles.offlineSection}>
+              {recommendedServer ? (
+                <div className={styles.offlineRecommendationLayout}>
+                  <OfflineBanner
+                    showsHeader={false}
+                    streamName={name}
+                    customText={offlineMessage}
+                    notificationsEnabled={supportsBrowserNotifications}
+                    fediverseAccount={fediverseAccount}
+                    lastLive={lastDisconnectTime}
+                    onNotifyClick={() => setShowNotifyModal(true)}
+                    onFollowClick={() => setShowFollowModal(true)}
+                    className={classnames(styles.topSectionElement, styles.offlineBanner)}
+                  />
+                  <OfflineRecommendation localStreamName={name} server={recommendedServer} />
+                </div>
+              ) : (
                 <OfflineBanner
                   showsHeader={false}
                   streamName={name}
@@ -299,14 +311,9 @@ export const Content: FC = () => {
                   lastLive={lastDisconnectTime}
                   onNotifyClick={() => setShowNotifyModal(true)}
                   onFollowClick={() => setShowFollowModal(true)}
-                  className={classnames(styles.offlineBanner, {
-                    [styles.topSectionElement]: !recommendedServer,
-                  })}
+                  className={classnames(styles.topSectionElement, styles.offlineBanner)}
                 />
-                {recommendedServer && (
-                  <OfflineRecommendation localStreamName={name} server={recommendedServer} />
-                )}
-              </div>
+              )}
             </div>
           )}
         </Row>
