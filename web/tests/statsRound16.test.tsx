@@ -53,6 +53,8 @@ test('stats panel shows the combined quality/SDP row and live latency', () => {
 
 test('summarizeSDP exposes the negotiated H264 profile and candidate count', () => {
   const summary = summarizeSDP(
+    // Documentation addresses (RFC 5737) on purpose: a real host address here would
+    // publish whoever wrote the test.
     'v=0\r\na=rtpmap:96 H264/90000\r\na=fmtp:96 profile-level-id=4d0033;packetization-mode=1\r\na=rtpmap:111 opus/48000/2\r\na=candidate:1 1 udp 1 192.0.2.10 18001 typ host\r\na=candidate:2 1 udp 1 198.51.100.20 18001 typ host\r\n',
   );
   expect(summary).toBe('level-id=4d0033');
