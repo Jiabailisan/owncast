@@ -8,8 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-
-	"github.com/owncast/owncast/services/geoip"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -24,6 +23,7 @@ import (
 	"github.com/owncast/owncast/services/chat/events"
 	"github.com/owncast/owncast/services/datastore"
 	"github.com/owncast/owncast/services/dispatcher"
+	"github.com/owncast/owncast/services/geoip"
 	"github.com/owncast/owncast/services/webhooks"
 )
 
@@ -37,6 +37,7 @@ type Deps struct {
 	ChatMessageRepository chatmessagerepository.ChatMessageRepository
 	UserRepository        userrepository.UserRepository
 	Events                *dispatcher.Dispatcher
+	RejectionTimeout      time.Duration
 	// GeoIP is the shared offline database client; nil disables lookups.
 	GeoIP *geoip.Client
 }
@@ -44,15 +45,19 @@ type Deps struct {
 // New constructs a chat Service. Call Start to launch the broadcast
 // loop and register the Prometheus counter.
 func New(deps Deps) *Service {
-	s := newServer(deps.Webhooks, deps.GeoIP)
-	s.getStatus = deps.GetStatus
+	s := newServer(deps.Webhooks)
 	s.geoipClient = deps.GeoIP
+	s.getStatus = deps.GetStatus
 	s.datastore = deps.Datastore
 	s.configRepository = deps.ConfigRepository
 	s.authRepository = deps.AuthRepository
 	s.chatMessageRepository = deps.ChatMessageRepository
 	s.userRepository = deps.UserRepository
 	s.events = deps.Events
+	s.rejectionTimeout = deps.RejectionTimeout
+	if s.rejectionTimeout == 0 {
+		s.rejectionTimeout = defaultChatRejectionTimeout
+	}
 	return s
 }
 
@@ -88,8 +93,8 @@ func (s *Service) Start() error {
 
 // GetClientsForUser will return chat connections that are owned by a specific user.
 func (s *Service) GetClientsForUser(userID string) ([]*Client, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	clients := map[string][]*Client{}
 
@@ -109,119 +114,21 @@ func (s *Service) FindClientByID(clientID uint) (*Client, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	client, found := s.clients[clientID]
-
 	return client, found
-}
-
-// ResolveLocation returns the client location, resolving it on demand for a
-// client that connected before GeoIP could answer (for example one created by an
-// older build or while the database was still loading).
-func (s *Service) ResolveLocation(client *Client) *geoip.GeoDetails {
-	if client == nil {
-		return nil
-	}
-
-	if client.Geo != nil {
-		return client.Geo
-	}
-
-	if s.geoipClient == nil || client.IPAddress == "" {
-		return nil
-	}
-
-	client.Geo = s.geoipClient.GetGeoFromIP(client.IPAddress)
-
-	return client.Geo
-}
-
-// DisplayNameForToken returns the current display name of the chat user
-// owning an access token. The player reports the token, so the name is the one the
-// user has now, and a chat-only client on the same address can never be confused
-// with the person watching.
-func (s *Service) DisplayNameForToken(accessToken string) string {
-	if s == nil || accessToken == "" {
-		return ""
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for _, client := range s.clients {
-		if client.User == nil || client.accessToken != accessToken {
-			continue
-		}
-
-		return client.User.DisplayName
-	}
-
-	// Fall back to the stored user: a viewer keeps watching while its chat
-	// websocket reconnects, and the name must not disappear in that window.
-	if s.userRepository != nil {
-		if user := s.userRepository.GetUserByToken(accessToken); user != nil {
-			return user.DisplayName
-		}
-	}
-
-	return ""
-}
-
-// DisplayNamesForTokens resolves several access tokens in one pass. The viewer
-// table asks for a whole page at a time and used to take the client lock once per
-// row, competing with the chat fan-out.
-func (s *Service) DisplayNamesForTokens(accessTokens []string) map[string]string {
-	resolved := make(map[string]string, len(accessTokens))
-	if s == nil || len(accessTokens) == 0 {
-		return resolved
-	}
-
-	wanted := make(map[string]struct{}, len(accessTokens))
-	for _, token := range accessTokens {
-		if token != "" {
-			wanted[token] = struct{}{}
-		}
-	}
-
-	s.mu.RLock()
-	for _, client := range s.clients {
-		if client.User == nil {
-			continue
-		}
-
-		if _, ok := wanted[client.accessToken]; ok {
-			resolved[client.accessToken] = client.User.DisplayName
-		}
-	}
-	s.mu.RUnlock()
-
-	// Anything still unresolved falls back to the stored user, outside the lock.
-	for token := range wanted {
-		if resolved[token] != "" {
-			continue
-		}
-
-		if name := s.DisplayNameForToken(token); name != "" {
-			resolved[token] = name
-		}
-	}
-
-	return resolved
 }
 
 // GetClients will return all the current chat clients connected.
 func (s *Service) GetClients() []*Client {
-	clients := []*Client{}
-
 	if s == nil {
-		return clients
+		return []*Client{}
 	}
 
-	// The map is mutated by the connection handlers under s.mu; iterating it
-	// without the lock crashes the process with a concurrent map iteration.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	clients := make([]*Client, 0, len(s.clients))
 	for _, client := range s.clients {
 		clients = append(clients, client)
 	}
+	s.mu.RUnlock()
 
 	sort.Slice(clients, func(i, j int) bool {
 		return clients[i].ConnectedAt.Before(clients[j].ConnectedAt)
@@ -239,6 +146,8 @@ func (s *Service) SendSystemMessage(text string, ephemeral bool) error {
 		ServerName: s.configRepository.GetServerName(),
 	}
 	message.SetDefaults()
+	// Operator-supplied but still rendered into viewer pages, so it goes through
+	// the sanitizer. Upstream renders it as trusted HTML; this fork does not.
 	message.RenderAndSanitizeMessageBody()
 
 	if err := s.BroadcastEvent(&message); err != nil {
@@ -332,7 +241,7 @@ func (s *Service) SendSystemAction(text string, ephemeral bool) error {
 	}
 
 	message.SetDefaults()
-	message.RenderAndSanitizeMessageBody()
+	message.RenderBody()
 
 	if err := s.BroadcastEvent(&message); err != nil {
 		log.Errorln("error sending system chat action")
@@ -366,4 +275,91 @@ func (s *Service) BroadcastEvent(event events.OutboundEvent) error {
 // Wrapper around the lower-level method so router can bind cleanly.
 func (s *Service) HandleWebsocketConnection(w http.ResponseWriter, r *http.Request) {
 	s.HandleClientConnection(w, r)
+}
+
+// ResolveLocation returns the client location, resolving it on demand for a
+// client that connected before GeoIP could answer (for example one created by an
+// older build or while the database was still loading).
+func (s *Service) ResolveLocation(client *Client) *geoip.GeoDetails {
+	if client == nil {
+		return nil
+	}
+
+	if client.Geo != nil {
+		return client.Geo
+	}
+
+	if s.geoipClient == nil || client.IPAddress == "" {
+		return nil
+	}
+
+	client.Geo = s.geoipClient.GetGeoFromIP(client.IPAddress)
+
+	return client.Geo
+}
+
+func (s *Service) DisplayNameForToken(accessToken string) string {
+	if s == nil || accessToken == "" {
+		return ""
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, client := range s.clients {
+		if client.User == nil || client.accessToken != accessToken {
+			continue
+		}
+
+		return client.User.DisplayName
+	}
+
+	// Fall back to the stored user: a viewer keeps watching while its chat
+	// websocket reconnects, and the name must not disappear in that window.
+	if s.userRepository != nil {
+		if user := s.userRepository.GetUserByToken(accessToken); user != nil {
+			return user.DisplayName
+		}
+	}
+
+	return ""
+}
+
+func (s *Service) DisplayNamesForTokens(accessTokens []string) map[string]string {
+	resolved := make(map[string]string, len(accessTokens))
+	if s == nil || len(accessTokens) == 0 {
+		return resolved
+	}
+
+	wanted := make(map[string]struct{}, len(accessTokens))
+	for _, token := range accessTokens {
+		if token != "" {
+			wanted[token] = struct{}{}
+		}
+	}
+
+	s.mu.RLock()
+	for _, client := range s.clients {
+		if client.User == nil {
+			continue
+		}
+
+		if _, ok := wanted[client.accessToken]; ok {
+			resolved[client.accessToken] = client.User.DisplayName
+		}
+	}
+	s.mu.RUnlock()
+
+	// Anything still unresolved falls back to the stored user, outside the lock.
+	for token := range wanted {
+		if resolved[token] != "" {
+			continue
+		}
+
+		if name := s.DisplayNameForToken(token); name != "" {
+			resolved[token] = name
+		}
+	}
+
+	return resolved
 }

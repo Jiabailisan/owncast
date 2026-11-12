@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -9,11 +10,6 @@ import (
 
 	"github.com/owncast/owncast/services/activitypub/apmodels"
 )
-
-// maxInboxBodyBytes bounds one federation inbox delivery. The inbox is
-// unauthenticated and signature verification happens later in the worker, so the
-// body must be capped here.
-const maxInboxBodyBytes = 1 << 20
 
 // InboxHandler handles inbound federated requests.
 func (c *Controllers) InboxHandler(w http.ResponseWriter, r *http.Request) {
@@ -47,12 +43,16 @@ func (c *Controllers) acceptInboxRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// The inbox is unauthenticated and verification happens later in the worker,
-	// so the body must be bounded here or one large POST can exhaust memory.
-	r.Body = http.MaxBytesReader(w, r.Body, maxInboxBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB — consistent with indieauth server handler
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Errorln("Unable to read inbox request payload", err)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
 		return
 	}
 

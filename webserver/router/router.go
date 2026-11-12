@@ -1,8 +1,9 @@
 package router
 
 import (
-	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,18 @@ import (
 	"github.com/owncast/owncast/webserver/handlers"
 	"github.com/owncast/owncast/webserver/router/middleware"
 )
+
+const pluginUploadReadTimeout = 5 * time.Minute
+
+func withPluginUploadReadTimeout(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/admin/plugins" {
+			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(pluginUploadReadTimeout))
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 
 // Start starts the router for the http, ws, and rtmp.
 //
@@ -45,6 +58,13 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 		r.Use(viewerAuthGate)
 	}
 
+	// WebRTC low-latency delivery (WHEP signaling). nil when the WebRTC
+	// service is disabled, in which case the endpoint must not exist at all.
+	if webrtcHandler != nil {
+		r.Handle("/webrtc", webrtcHandler)
+		r.Handle("/webrtc/*", webrtcHandler)
+	}
+
 	addStaticFileEndpoints(r, h, apc)
 
 	// websocket
@@ -56,14 +76,6 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 
 	// Return HLS video
 	r.HandleFunc("/hls/*", h.HandleHLSRequest)
-
-	// WebRTC low-latency delivery (WHEP signaling). nil when the WebRTC
-	// service is not constructed. Mounted ahead of the catch-all viewer
-	// route; auth.gate still applies because it is global middleware.
-	if webrtcHandler != nil {
-		r.Handle("/webrtc", webrtcHandler)
-		r.Handle("/webrtc/*", webrtcHandler)
-	}
 
 	// The admin web app.
 	r.HandleFunc("/admin/*", mw.RequireAdminAuth(h.IndexHandler))
@@ -135,14 +147,12 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 
 	compress, _ := newHTTPCompressionAdapter()
 	server := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", ip, port),
+		Addr:              net.JoinHostPort(ip, strconv.Itoa(port)),
 		ReadHeaderTimeout: 4 * time.Second,
-		// Bound the whole request read and idle keep-alives: without these a
-		// slow or stalled client holds a connection (and its buffers) forever.
-		ReadTimeout: 30 * time.Second,
-		IdleTimeout: 120 * time.Second,
-		Handler:     compress(m),
-		Protocols:   protocols,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		Handler:           withPluginUploadReadTimeout(compress(m)),
+		Protocols:         protocols,
 	}
 
 	if ip != "0.0.0.0" {
@@ -172,9 +182,6 @@ func addStaticFileEndpoints(r chi.Router, h *handlers.Handlers, apc *apcontrolle
 
 	// Custom Javascript
 	r.HandleFunc("/customjavascript", h.ServeCustomJavascript)
-
-	// Custom player module (spec 7.3). 404 unless custom-player mode is active.
-	r.HandleFunc("/custom-player/player.js", h.ServeCustomPlayer)
 
 	// robots.txt
 	r.HandleFunc("/robots.txt", h.GetRobotsDotTxt)

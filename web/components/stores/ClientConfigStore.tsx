@@ -280,6 +280,8 @@ export const ClientConfigStore: FC = () => {
     setLocalStorage(DISPLAY_NAME_KEY, '');
     setAccessToken(null);
     ws?.shutdown();
+    setWebsocketService(null);
+    ws = null;
     handleUserRegistration();
   };
 

@@ -20,8 +20,6 @@ func (s *Service) runPruner() {
 		log.Debugln(err)
 		return
 	}
-	// Roll back on every early return so the pooled connection is released.
-	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(deleteStatement)
 	if err != nil {

@@ -96,11 +96,7 @@
 
 .offlineSection {
   width: 100%;
-
-  // Intentionally transparent: the OfflineBanner (topSectionElement) owns the
-  // single background layer. Custom themes restyle the banner through
-  // "#offline-message > div", which must not sit on top of a second black box.
-  background-color: transparent;
+  background-color: var(--theme-color-components-video-background);
 }
 
 .offlineRecommendationLayout {

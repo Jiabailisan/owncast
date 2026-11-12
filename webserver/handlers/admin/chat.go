@@ -4,11 +4,12 @@ package admin
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/config"
@@ -67,12 +68,13 @@ func (a *Admin) BanIPAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	typedValue, valueOK := valueAsStringOK(configValue.Value)
-	if !valueOK {
-		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+	ipAddress, ok := configValue.Value.(string)
+	if !ok || net.ParseIP(ipAddress) == nil {
+		webutils.WriteSimpleResponse(w, false, "invalid IP address")
 		return
 	}
-	if err := a.authRepository.BanIPAddress(typedValue, "manually added"); err != nil {
+
+	if err := a.authRepository.BanIPAddress(ipAddress, "manually added"); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error saving IP address ban")
 		return
 	}
@@ -92,12 +94,7 @@ func (a *Admin) UnBanIPAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	typedValue, valueOK := valueAsStringOK(configValue.Value)
-	if !valueOK {
-		webutils.BadRequestHandler(w, errors.New("value must be a string"))
-		return
-	}
-	if err := a.authRepository.RemoveIPAddressBan(typedValue); err != nil {
+	if err := a.authRepository.RemoveIPAddressBan(configValue.Value.(string)); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error removing IP address ban")
 		return
 	}
@@ -160,7 +157,7 @@ func (a *Admin) updateUserStatus(request generated.UpdateUserEnabledJSONBody, mo
 
 	messageIDs, err := a.chatMessageRepository.GetMessageIdsForUserID(*request.UserId)
 	if err != nil {
-		return fmt.Errorf("error fetching user messages: %w", err)
+		return errors.Wrap(err, "error fetching user messages")
 	}
 
 	if !*request.Enabled && len(messageIDs) > 0 {
@@ -227,10 +224,6 @@ func (a *Admin) UpdateUserModerator(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the user object with new moderation access.
-	if req.UserId == nil || req.IsModerator == nil {
-		webutils.BadRequestHandler(w, errors.New("user id and moderator flag are required"))
-		return
-	}
 	if err := a.userRepository.SetModerator(*req.UserId, *req.IsModerator); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
@@ -331,7 +324,7 @@ func (a *Admin) SendIntegrationChatMessage(integration models.ExternalAPIUser, w
 		return
 	}
 	event.SetDefaults()
-	event.RenderAndSanitizeMessageBody()
+	event.RenderBody()
 	event.Type = "CHAT"
 
 	if event.Empty() {
@@ -388,12 +381,7 @@ func (a *Admin) SetEnableEstablishedChatUserMode(w http.ResponseWriter, r *http.
 		return
 	}
 
-	typedValue, valueOK := valueAsBoolOK(configValue.Value)
-	if !valueOK {
-		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
-		return
-	}
-	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(typedValue); err != nil {
+	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(configValue.Value.(bool)); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}

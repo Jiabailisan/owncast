@@ -26,6 +26,10 @@ import (
 	"github.com/owncast/owncast/utils"
 )
 
+// payloadKeyType is the JSON key used to identify the event type in outbound
+// chat socket payloads. Mirrors events.payloadKeyType (unexported there).
+const payloadKeyType = "type" //nolint:goconst
+
 // Service is an instance of the chat server. Construct via New(Deps).
 type Service struct {
 	clients map[uint]*Client
@@ -84,6 +88,7 @@ type Service struct {
 	// a map of user IDs and pending chat part messages.
 	userPartedTimers         map[string]*pendingUserPart
 	userPartedTimersMu       sync.Mutex
+	rejectionTimeout         time.Duration
 	seq                      uint
 	maxSocketConnectionLimit uint64
 
@@ -91,7 +96,7 @@ type Service struct {
 }
 
 // NewChat will return a new instance of the chat server.
-func newServer(webhooksSvc *webhooks.Service, sharedGeoIP *geoip.Client) *Service {
+func newServer(webhooksSvc *webhooks.Service) *Service {
 	maximumConcurrentConnectionLimit := getMaximumConcurrentConnectionLimit()
 	setSystemConcurrentConnectionLimit(maximumConcurrentConnectionLimit)
 
@@ -101,7 +106,7 @@ func newServer(webhooksSvc *webhooks.Service, sharedGeoIP *geoip.Client) *Servic
 		inbound:                  make(chan chatClientEvent),
 		unregister:               make(chan uint),
 		maxSocketConnectionLimit: maximumConcurrentConnectionLimit,
-		geoipClient:              sharedGeoIP,
+		geoipClient:              geoip.NewClient(),
 		webhooks:                 webhooksSvc,
 		userPartedTimers:         map[string]*pendingUserPart{},
 	}
@@ -158,8 +163,8 @@ func (s *Service) Addclient(conn *websocket.Conn, user *models.User, accessToken
 	s.mu.Lock()
 	{
 		// If there is a pending disconnect timer then clear it. A quick
-		// reconnect before the part was sent is not a new join, so neither the
-		// join broadcast nor the webhook should fire for it.
+		// reconnect before the part was sent is not a new join, so neither
+		// the join broadcast nor the webhook should fire for it.
 		if s.cancelUserPartedMessage(user.ID) {
 			isNewJoin = false
 		}
@@ -167,10 +172,10 @@ func (s *Service) Addclient(conn *websocket.Conn, user *models.User, accessToken
 		client.Id = s.seq
 		s.clients[client.Id] = client
 		s.seq++
+		logTotal := len(s.clients)
+		s.mu.Unlock()
+		log.Traceln("Adding client", client.Id, "total count:", logTotal)
 	}
-	s.mu.Unlock()
-
-	log.Traceln("Adding client", client.Id, "total count:", len(s.clients))
 
 	go client.writePump()
 	go client.readPump()
@@ -184,17 +189,10 @@ func (s *Service) Addclient(conn *websocket.Conn, user *models.User, accessToken
 		s.sendWelcomeMessageToClient(client)
 	}
 
-	// Resolve the viewer location before the client is published: the lookup is an
-	// in-memory database read, and doing it here means the admin client list always
-	// has a location instead of missing it for the first seconds of a session.
-	if s.geoipClient != nil {
+	// Asynchronously, optionally, fetch GeoIP data.
+	go func(client *Client) {
 		client.Geo = s.geoipClient.GetGeoFromIP(ipAddress)
-		if client.Geo == nil {
-			log.Warnln("chat: no location resolved for client address", ipAddress)
-		}
-	} else {
-		log.Warnln("chat: geoip client is not wired; client locations are unavailable")
-	}
+	}(client)
 
 	return client
 }
@@ -313,11 +311,10 @@ func (s *Service) HandleClientConnection(w http.ResponseWriter, r *http.Request)
 		log.Errorln("error determining if IP address is blocked: ", err)
 	}
 
-	// Limit concurrent chat connections
 	s.mu.RLock()
-	connected := uint64(len(s.clients))
+	clientCount := len(s.clients)
 	s.mu.RUnlock()
-	if connected >= s.maxSocketConnectionLimit {
+	if uint64(clientCount) >= s.maxSocketConnectionLimit {
 		log.Warnln("rejecting incoming client connection as it exceeds the max client count of", s.maxSocketConnectionLimit)
 		_, _ = w.Write([]byte(events.ErrorMaxConnectionsExceeded))
 		return
@@ -365,17 +362,31 @@ func (s *Service) HandleClientConnection(w http.ResponseWriter, r *http.Request)
 	if user == nil {
 		// Send error that registration is required
 		_ = conn.WriteJSON(events.EventPayload{
-			"type": events.ErrorNeedsRegistration,
+			payloadKeyType: events.ErrorNeedsRegistration,
 		})
 		_ = conn.Close()
 		return
 	}
 
+	// Stale-localStorage path: the client sent a stale anonymous token but
+	// a verified gate session is present (armed auth.gate plugin). Force
+	// re-registration so the frontend clears its localStorage token and
+	// calls /api/chat/register again — which will now return the gate
+	// user's token. This prevents an orphan anon user from shadowing the
+	// authenticated gate identity, and is a no-op on servers with no gate
+	// plugin (SessionTokenFromContext returns "" in that case).
+	if !user.Authenticated && plugins.SessionTokenFromContext(r.Context()) != "" {
+		_ = conn.WriteJSON(events.EventPayload{
+			payloadKeyType: events.ErrorNeedsRegistration,
+		})
+		_ = conn.Close()
+		return
+	}
 	// User is disabled therefore we should disconnect.
 	if user.DisabledAt != nil {
 		log.Traceln("Disabled user", user.ID, user.DisplayName, "rejected")
 		_ = conn.WriteJSON(events.EventPayload{
-			"type": events.ErrorUserDisabled,
+			payloadKeyType: events.ErrorUserDisabled,
 		})
 		_ = conn.Close()
 		return
@@ -393,23 +404,15 @@ func (s *Service) Broadcast(payload events.EventPayload) error {
 		return err
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for _, client := range s.clients {
+	clients := s.GetClients()
+	for _, client := range clients {
 		if client == nil {
 			continue
 		}
 
-		client.mu.RLock()
-		if client.send != nil {
-			select {
-			case client.send <- data:
-			default:
-				go client.close()
-			}
+		if !client.trySend(data) {
+			go client.close()
 		}
-		client.mu.RUnlock()
 	}
 
 	return nil
@@ -417,26 +420,10 @@ func (s *Service) Broadcast(payload events.EventPayload) error {
 
 // Send will send a single payload to a single connected client.
 func (s *Service) Send(payload events.EventPayload, client *Client) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		log.Errorln(err)
+	if client == nil {
 		return
 	}
-
-	client.mu.RLock()
-	defer client.mu.RUnlock()
-
-	if client.send == nil {
-		return
-	}
-
-	select {
-	case client.send <- data:
-	default:
-		// A client that stopped reading must not stall the caller, which is the
-		// single chat event loop: drop it instead.
-		go client.close()
-	}
+	client.sendPayload(payload)
 }
 
 // DisconnectClients will forcefully disconnect all clients belonging to a user by ID.
@@ -560,9 +547,7 @@ func (s *Service) sendWelcomeMessageToClient(c *Client) {
 }
 
 func (s *Service) sendAllWelcomeMessage() {
-	// Render and sanitise: this body is broadcast to every client and the admin
-	// chat panel renders it with dangerouslySetInnerHTML.
-	welcomeMessage := events.RenderAndSanitize(s.configRepository.GetServerWelcomeMessage())
+	welcomeMessage := utils.RenderSimpleMarkdown(s.configRepository.GetServerWelcomeMessage())
 
 	if welcomeMessage != "" {
 		clientMessage := events.SystemMessageEvent{
@@ -586,7 +571,7 @@ func (s *Service) sendSystemMessageToClient(c *Client, message string) {
 		ServerName: s.configRepository.GetServerName(),
 	}
 	clientMessage.SetDefaults()
-	clientMessage.RenderAndSanitizeMessageBody()
+	clientMessage.RenderBody()
 	s.Send(clientMessage.GetBroadcastPayload(), c)
 }
 
@@ -600,6 +585,6 @@ func (s *Service) sendActionToClient(c *Client, message string) {
 		},
 	}
 	clientMessage.SetDefaults()
-	clientMessage.RenderAndSanitizeMessageBody()
+	clientMessage.RenderBody()
 	s.Send(clientMessage.GetBroadcastPayload(), c)
 }

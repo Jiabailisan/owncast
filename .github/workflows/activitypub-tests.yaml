@@ -50,12 +50,9 @@ jobs:
 
       - name: Install Caddy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-          sudo apt-get update
-          sudo apt-get install -y caddy
+          curl -sfL https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz -o caddy.tar.gz
+          tar -xzf caddy.tar.gz caddy
+          sudo mv caddy /usr/local/bin/caddy
 
       - name: Install dependencies
         run: |
@@ -96,12 +93,9 @@ jobs:
 
       - name: Install Caddy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-          sudo apt-get update
-          sudo apt-get install -y caddy
+          curl -sfL https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz -o caddy.tar.gz
+          tar -xzf caddy.tar.gz caddy
+          sudo mv caddy /usr/local/bin/caddy
 
       - name: Install dependencies
         run: |
@@ -168,18 +162,23 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.12.0"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
       - name: Install Caddy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-          sudo apt-get update
-          sudo apt-get install -y caddy
+          curl -sfL https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz -o caddy.tar.gz
+          tar -xzf caddy.tar.gz caddy
+          sudo mv caddy /usr/local/bin/caddy
 
       - name: Install dependencies
         run: |
           sudo apt-get install -y snac2 ffmpeg jq
+          npm ci --prefix web --ignore-scripts
 
       - name: Run setup
         env:
@@ -217,12 +216,9 @@ jobs:
 
       - name: Install Caddy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-          sudo apt-get update
-          sudo apt-get install -y caddy
+          curl -sfL https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz -o caddy.tar.gz
+          tar -xzf caddy.tar.gz caddy
+          sudo mv caddy /usr/local/bin/caddy
 
       - name: Install dependencies
         run: |
@@ -264,12 +260,9 @@ jobs:
 
       - name: Install Caddy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-          sudo apt-get update
-          sudo apt-get install -y caddy
+          curl -sfL https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz -o caddy.tar.gz
+          tar -xzf caddy.tar.gz caddy
+          sudo mv caddy /usr/local/bin/caddy
 
       - name: Install dependencies
         run: |

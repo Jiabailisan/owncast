@@ -38,13 +38,7 @@ func createAuthRequest(authDestination, userID, displayName, accessToken, baseSe
 	codeChallenge := createCodeChallenge(codeVerifier)
 	state := randString(20)
 	responseType := "code"
-	// indielogin.com (and the IndieAuth spec) treat the client_id as an exact
-	// string: an application registered as https://host/ is only matched when the
-	// client sends the trailing slash, so normalise it here.
 	clientID := baseServerURL.String() // Our local URL
-	if !strings.HasSuffix(clientID, "/") {
-		clientID += "/"
-	}
 	codeChallengeMethod := "S256"
 
 	redirect := *authEndpointURL
@@ -65,7 +59,7 @@ func createAuthRequest(authDestination, userID, displayName, accessToken, baseSe
 		DisplayName:        displayName,
 		CurrentAccessToken: accessToken,
 		Endpoint:           authEndpointURL,
-		ClientID:           clientID,
+		ClientID:           baseServer,
 		CodeVerifier:       codeVerifier,
 		CodeChallenge:      codeChallenge,
 		State:              state,
@@ -73,32 +67,6 @@ func createAuthRequest(authDestination, userID, displayName, accessToken, baseSe
 		Callback:           &callbackURL,
 		Timestamp:          time.Now(),
 	}, nil
-}
-
-// The shared IndieAuth authentication service moved: indieauth.com has been
-// unreliable for a long time, and indielogin.com is its successor. Sites that
-// still advertise the old provider are redirected to the new one, and a domain
-// that advertises no authorization endpoint at all is authenticated through the
-// successor instead of failing outright.
-const (
-	legacyIndieAuthHost      = "indieauth.com"
-	defaultIndieAuthProvider = "https://indielogin.com/auth"
-)
-
-// successorIndieAuthEndpoint rewrites an endpoint that points at the retired
-// provider to its successor, keeping the path.
-func successorIndieAuthEndpoint(endpoint *url.URL) *url.URL {
-	if endpoint == nil || !strings.EqualFold(endpoint.Hostname(), legacyIndieAuthHost) {
-		return endpoint
-	}
-
-	rewritten := *endpoint
-	rewritten.Host = strings.Replace(endpoint.Host, endpoint.Hostname(), "indielogin.com", 1)
-	if rewritten.Path == "" {
-		rewritten.Path = "/auth"
-	}
-
-	return &rewritten
 }
 
 func getAuthEndpointFromURL(urlstring string) (*url.URL, error) {
@@ -127,14 +95,7 @@ func getAuthEndpointFromURL(urlstring string) (*url.URL, error) {
 	}
 	authorizationEndpointTag := cascadia.MustCompile("link[rel=authorization_endpoint]").MatchAll(scrapedHTMLDocument)
 	if len(authorizationEndpointTag) == 0 {
-		// No endpoint advertised by the site: authenticate through the shared
-		// provider, which is what most small IndieAuth sites rely on.
-		fallback, err := url.Parse(defaultIndieAuthProvider)
-		if err != nil {
-			return nil, errors.Wrap(err, "unable to parse the default indieauth provider")
-		}
-
-		return fallback, nil
+		return nil, fmt.Errorf("url does not support indieauth")
 	}
 
 	for _, attr := range authorizationEndpointTag[len(authorizationEndpointTag)-1].Attr {
@@ -154,7 +115,7 @@ func getAuthEndpointFromURL(urlstring string) (*url.URL, error) {
 				u.Host = htmlDocScrapeURL.Host
 			}
 
-			return successorIndieAuthEndpoint(u), nil
+			return u, nil
 		}
 	}
 

@@ -43,20 +43,16 @@ func (s *Service) userNameChanged(eventData chatClientEvent) {
 		return
 	}
 
-	for _, blockedName := range blocklist {
-		normalizedName := strings.TrimSpace(blockedName)
-		normalizedName = strings.ToLower(normalizedName)
-		if strings.Contains(normalizedName, proposedUsername) {
-			// Denied.
-			log.Debugln(logSanitize(eventData.client.User.DisplayName), "blocked from changing name to", logSanitize(proposedUsername), "due to blocked name", normalizedName)
-			message := fmt.Sprintf("You cannot change your name to **%s**.", proposedUsername)
-			s.sendActionToClient(eventData.client, message)
+	if blockedName, forbidden := ForbiddenUsername(proposedUsername, blocklist); forbidden {
+		// Denied.
+		log.Debugln(logSanitize(eventData.client.User.DisplayName), "blocked from changing name to", logSanitize(proposedUsername), "due to blocked name", blockedName)
+		message := fmt.Sprintf("You cannot change your name to **%s**.", proposedUsername)
+		s.sendActionToClient(eventData.client, message)
 
-			// Resend the client's user so their username is in sync.
-			eventData.client.sendConnectedClientInfo()
+		// Resend the client's user so their username is in sync.
+		eventData.client.sendConnectedClientInfo()
 
-			return
-		}
+		return
 	}
 
 	// Check if the name is not already assigned to a registered user.
@@ -74,13 +70,6 @@ func (s *Service) userNameChanged(eventData chatClientEvent) {
 	}
 
 	savedUser := s.userRepository.GetUserByToken(eventData.client.accessToken)
-	if savedUser == nil {
-		// The token was revoked or the row is gone; do not crash the chat
-		// goroutine, just refresh the client with what we still know.
-		eventData.client.sendConnectedClientInfo()
-
-		return
-	}
 	oldName := savedUser.DisplayName
 
 	// Check that the new name is different from old.

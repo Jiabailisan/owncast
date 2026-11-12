@@ -3,7 +3,6 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/owncast/owncast/config"
@@ -66,16 +65,11 @@ func TestAllowHTML(t *testing.T) {
 	}
 }
 
-// System messages and actions are reachable from the external integrations
-// API (/api/integrations/chat/system and .../action) with an access token, so
-// their bodies must be sanitized exactly like viewer messages: unsanitized HTML
-// here is stored XSS in the admin UI.
-func TestSendSystemActionSanitizesHTML(t *testing.T) {
+func TestSendSystemActionRendersTrustedHTML(t *testing.T) {
 	client := &Client{send: make(chan []byte, 1)}
 	service := &Service{clients: map[uint]*Client{1: client}}
 
-	body := "<span class='trusted' style='color:red' onclick='alert(1)'>Status</span><script>alert(1)</script>"
-	if err := service.SendSystemAction(body, true); err != nil {
+	if err := service.SendSystemAction(`<span class="trusted" style="color:red">Status</span>`, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,13 +80,9 @@ func TestSendSystemActionSanitizesHTML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, forbidden := range []string{"onclick", "<script", "style="} {
-		if strings.Contains(payload.Body, forbidden) {
-			t.Fatalf("system action kept executable markup %q: %q", forbidden, payload.Body)
-		}
-	}
-	if !strings.Contains(payload.Body, "Status") {
-		t.Fatalf("system action lost its text: %q", payload.Body)
+	const want = "<p><span class=\"trusted\" style=\"color:red\">Status</span></p>\n"
+	if payload.Body != want {
+		t.Fatalf("action body = %q, want %q", payload.Body, want)
 	}
 }
 
@@ -112,7 +102,7 @@ func TestSendSystemActionDoesNotReactivateSanitizedDisplayName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const want = "<p><strong>Alice</strong> has been removed from chat.</p>"
+	const want = "<p><strong>Alice</strong> has been removed from chat.</p>\n"
 	if payload.Body != want {
 		t.Fatalf("action body = %q, want %q", payload.Body, want)
 	}

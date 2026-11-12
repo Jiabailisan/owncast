@@ -36,7 +36,6 @@ type Client struct {
 	MessageCount int    `json:"messageCount"`
 	Id           uint   `json:"-"`
 	mu           sync.RWMutex
-	inTimeout    bool
 }
 
 type chatClientEvent struct {
@@ -58,6 +57,14 @@ const (
 	// Larger messages get thrown away.
 	// Messages > *2 the socket gets closed.
 	maxMessageSize = config.MaxSocketPayloadSize
+
+	// defaultChatRejectionTimeout is the fallback cooling-off duration applied
+	// to a client that exceeds the chat rate limit thresholds. 10 seconds is
+	// chosen as a balanced live-chat convention (similar to IRC/Twitch slow mode)
+	// to suppress automated flood scripts without imposing an overly punitive
+	// lockout on legitimate human users who sent multiple messages quickly.
+	// This duration can be configured at service construction via chat.Deps.RejectionTimeout.
+	defaultChatRejectionTimeout = 10 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
@@ -120,7 +127,7 @@ func (c *Client) readPump() {
 		}
 
 		// Check if this client is temporarily blocked from sending messages.
-		if c.inTimeout {
+		if c.isInTimeout() {
 			continue
 		}
 
@@ -196,25 +203,40 @@ func (c *Client) handleEvent(data []byte) {
 }
 
 func (c *Client) close() {
-	log.Traceln("client closed:", c.User.DisplayName, c.Id, c.IPAddress)
+	var displayName string
+	if c.User != nil {
+		displayName = c.User.DisplayName
+	}
+	log.Traceln("client closed:", displayName, c.Id, c.IPAddress)
 
-	// Closing the channel and clearing the field happens under c.mu, and every
-	// sender takes c.mu.RLock first, so a broadcast can never race the close and
-	// panic with "send on closed channel". The unregister hand-off is done after
-	// the lock is released: it blocks until the chat goroutine receives, and that
-	// goroutine may need s.mu, which a broadcaster is holding.
 	c.mu.Lock()
+	if c.timeoutTimer != nil {
+		c.timeoutTimer.Stop()
+		c.timeoutTimer = nil
+	}
 	if c.send == nil {
 		c.mu.Unlock()
-
 		return
 	}
-	_ = c.conn.Close()
+	if c.conn != nil {
+		_ = c.conn.Close()
+	}
 	close(c.send)
 	c.send = nil
 	c.mu.Unlock()
 
-	c.server.unregister <- c.Id
+	// Do not hold c.mu while waiting for the server loop. The loop can be
+	// delivering to this client and needs the same mutex before it can receive
+	// the unregister request.
+	if c.server != nil && c.server.unregister != nil {
+		c.server.unregister <- c.Id
+	}
+}
+
+func (c *Client) isInTimeout() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.timeoutTimer != nil
 }
 
 func (c *Client) passesRateLimit() bool {
@@ -224,21 +246,27 @@ func (c *Client) passesRateLimit() bool {
 		return true
 	}
 
-	return (c.rateLimiter.Allow() && !c.inTimeout)
+	return (c.rateLimiter.Allow() && !c.isInTimeout())
 }
 
 func (c *Client) startChatRejectionTimeout() {
-	if c.timeoutTimer != nil {
+	c.mu.Lock()
+	if c.send == nil || c.timeoutTimer != nil {
+		c.mu.Unlock()
 		return
 	}
 
-	c.inTimeout = true
-	// time.AfterFunc fires once; a "for range timer.C" loop would block forever
-	// after the first fire and leak one goroutine per flood.
-	c.timeoutTimer = time.AfterFunc(10*time.Second, func() {
-		c.inTimeout = false
+	timeout := defaultChatRejectionTimeout
+	if c.server != nil && c.server.rejectionTimeout > 0 {
+		timeout = c.server.rejectionTimeout
+	}
+
+	c.timeoutTimer = time.AfterFunc(timeout, func() {
+		c.mu.Lock()
 		c.timeoutTimer = nil
+		c.mu.Unlock()
 	})
+	c.mu.Unlock()
 
 	c.sendAction("You are temporarily blocked from sending chat messages due to perceived flooding.")
 }
@@ -254,16 +282,24 @@ func (c *Client) sendPayload(payload interface{}) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if c.send != nil {
+		c.send <- data
+	}
+}
+
+func (c *Client) trySend(data []byte) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if c.send == nil {
-		return
+		return false
 	}
 
-	// Never block while holding the lock: a client that stopped reading would
-	// block here forever, keeping close() from ever running and leaking the slot.
 	select {
 	case c.send <- data:
+		return true
 	default:
-		go c.close()
+		return false
 	}
 }
 
@@ -274,6 +310,6 @@ func (c *Client) sendAction(message string) {
 		},
 	}
 	clientMessage.SetDefaults()
-	clientMessage.RenderAndSanitizeMessageBody()
+	clientMessage.RenderBody()
 	c.sendPayload(clientMessage.GetBroadcastPayload())
 }

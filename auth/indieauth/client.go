@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -17,11 +18,6 @@ import (
 
 // StartAuthFlow will begin the IndieAuth flow by generating an auth request.
 func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName, requestOrigin string) (*url.URL, error) {
-	// Limit the number of pending requests
-	if len(s.pendingAuthRequests) >= maxPendingRequests {
-		return nil, errors.New("Please try again later. Too many pending requests.")
-	}
-
 	// Sanity check the server URL.
 	u, err := url.ParseRequestURI(authHost)
 	if err != nil {
@@ -38,9 +34,9 @@ func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName, requ
 		return nil, errors.New("only servers secured with https are supported")
 	}
 
-	// Prefer the origin the viewer is browsing: an instance reachable under
-	// several hostnames must authenticate on each of them, because the IndieAuth
-	// client_id is that origin. Fall back to the configured server URL.
+	// Prefer the origin the viewer is browsing: the IndieAuth client_id is that
+	// origin, so an instance reachable under several hostnames has to
+	// authenticate on each of them. Fall back to the configured server URL.
 	serverURL := strings.TrimSpace(requestOrigin)
 	if serverURL == "" {
 		serverURL = s.configRepository.GetServerURL()
@@ -54,7 +50,9 @@ func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName, requ
 		return nil, errors.Wrap(err, "unable to generate IndieAuth request")
 	}
 
-	s.pendingAuthRequests[r.State] = r
+	if err := s.storePendingAuthRequest(r); err != nil {
+		return nil, err
+	}
 
 	return r.Redirect, nil
 }
@@ -62,10 +60,12 @@ func (s *Service) StartAuthFlow(authHost, userID, accessToken, displayName, requ
 // HandleCallbackCode will handle the callback from the IndieAuth server
 // to continue the next step of the auth flow.
 func (s *Service) HandleCallbackCode(code, state string) (*Request, *Response, error) {
-	request, exists := s.pendingAuthRequests[state]
+	request, exists := s.takePendingAuthRequest(state)
 	if !exists {
-		log.Warnln("IndieAuth callback with unknown state:", state)
 		return nil, nil, errors.New("no auth requests pending")
+	}
+	if time.Since(request.Timestamp) > registrationTimeout {
+		return nil, nil, errors.New("auth request has expired")
 	}
 
 	data := url.Values{}
@@ -104,14 +104,14 @@ func (s *Service) HandleCallbackCode(code, state string) (*Request, *Response, e
 
 	if response.Error != "" || response.ErrorDescription != "" {
 		errorText := makeIndieAuthClientErrorText(response.Error)
-		log.Warnln("IndieAuth token exchange rejected:", response.Error, response.ErrorDescription)
+		log.Debugln("IndieAuth error:", response.Error, response.ErrorDescription)
 		return nil, nil, fmt.Errorf("IndieAuth error: %s - %s", errorText, response.ErrorDescription)
 	}
 
 	// In case this IndieAuth server does not use OAuth error keys or has internal
 	// issues resulting in unstructured errors.
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		log.Warnln("IndieAuth token exchange failed with status", res.StatusCode, "body:", string(body))
+		log.Debugln("IndieAuth error. status code:", res.StatusCode, "body:", string(body))
 		return nil, nil, errors.New("there was an error authenticating against IndieAuth server")
 	}
 
@@ -121,7 +121,6 @@ func (s *Service) HandleCallbackCode(code, state string) (*Request, *Response, e
 
 	// What we sent and what we got back must match
 	if meRequestVerifier != meResponseVerifier {
-		log.Warnln("IndieAuth me mismatch: requested", meRequestVerifier, "returned", meResponseVerifier)
 		return nil, nil, errors.New("indieauth response does not match the initial anticipated auth destination")
 	}
 
@@ -141,4 +140,25 @@ func makeIndieAuthClientErrorText(err string) string {
 	default:
 		return err
 	}
+}
+
+func (s *Service) storePendingAuthRequest(request *Request) error {
+	s.pendingAuthRequestsLock.Lock()
+	defer s.pendingAuthRequestsLock.Unlock()
+
+	if len(s.pendingAuthRequests) >= maxPendingRequests {
+		return errors.New("Please try again later. Too many pending requests.")
+	}
+	s.pendingAuthRequests[request.State] = request
+	return nil
+}
+
+func (s *Service) takePendingAuthRequest(state string) (*Request, bool) {
+	s.pendingAuthRequestsLock.Lock()
+	defer s.pendingAuthRequestsLock.Unlock()
+	request, exists := s.pendingAuthRequests[state]
+	if exists {
+		delete(s.pendingAuthRequests, state)
+	}
+	return request, exists
 }
