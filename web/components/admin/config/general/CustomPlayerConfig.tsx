@@ -38,6 +38,18 @@ const ACTIVE_FRONTEND_TAG: Record<
 // The precedence decision and path validation are computed by the backend
 // (AppearanceAdminReport); this component renders the result, the two editable
 // paths, their validation errors and the explanations for ignored fields.
+// formatLoadErrorTime renders the report timestamp, falling back to a dash when the
+// payload is missing or unparsable: date-fns throws RangeError on an invalid date,
+// which used to take the whole Appearance page down.
+function formatLoadErrorTime(raw?: string): string {
+  if (!raw) return '-';
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '-';
+
+  return format(parsed, 'MMM d, yyyy HH:mm');
+}
+
 export const CustomPlayerConfig: FC = () => {
   const { t } = useTranslation();
   const serverStatusData = useContext(ServerStatusContext);
@@ -135,7 +147,8 @@ export const CustomPlayerConfig: FC = () => {
           className={styles.alert}
           message={t(Localization.Admin.Appearance.customPlayerLoadErrorTitle)}
           description={t(Localization.Admin.Appearance.customPlayerLoadErrorDescription, {
-            time: format(new Date(loadErrorReport.at), 'MMM d, yyyy HH:mm'),
+            time: formatLoadErrorTime(loadErrorReport.at),
+
             message: loadErrorReport.message,
           })}
         />

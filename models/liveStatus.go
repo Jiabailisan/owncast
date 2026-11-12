@@ -108,6 +108,13 @@ type WebRTCStatus struct {
 type WebRTCCapacity struct {
 	Used  int `json:"used"`
 	Limit int `json:"limit"`
+	// Reserved is the number of capacity reservations in flight, i.e. WHEP
+	// requests that have been admitted but have not produced a session yet.
+	Reserved int `json:"reserved"`
+	// MaxViewersPerIP is the configured per-address limit, 0 when unlimited.
+	MaxViewersPerIP int `json:"maxViewersPerIP"`
+	// RejectedTotal counts viewer requests refused by the gate since start.
+	RejectedTotal uint64 `json:"rejectedTotal"`
 }
 
 // GeoIPStatus reports the offline GeoIP database state.

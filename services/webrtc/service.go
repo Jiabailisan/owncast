@@ -474,7 +474,13 @@ func liveViewerRow(snapshot ViewerSnapshot, serverMeasuredFPS *float64) models.L
 func (s *Service) Capacity() models.WebRTCCapacity {
 	snapshot := s.capacity.snapshot()
 
-	return models.WebRTCCapacity{Used: snapshot.Used, Limit: snapshot.Limit}
+	return models.WebRTCCapacity{
+		Used:            snapshot.Used,
+		Limit:           snapshot.Limit,
+		Reserved:        snapshot.Reserved,
+		MaxViewersPerIP: snapshot.MaxViewersPerIP,
+		RejectedTotal:   snapshot.RejectedTotal,
+	}
 }
 
 // Warnings returns the current non-fatal WebRTC configuration and runtime
@@ -490,6 +496,12 @@ func (s *Service) Warnings() []string {
 	}
 	if !s.IsStarted() {
 		warnings = append(warnings, "webrtc_not_started: the WebRTC service is not running")
+	}
+
+	if warnings == nil {
+		// The API documents warnings as an array, so the healthy case has to be an
+		// empty array rather than null.
+		return []string{}
 	}
 
 	return warnings

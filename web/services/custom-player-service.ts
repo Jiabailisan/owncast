@@ -77,8 +77,15 @@ export function mapAutoplayForCustomPlayer(
   setting: AutoplaySetting | string,
   initiallyMuted = false,
 ): OwncastPlayerAutoplay {
-  if (initiallyMuted) return 'muted';
+  // The instance setting is decided first: an embed that starts muted must not
+  // override an admin autoplay=off and let the stream play by itself. This
+  // mirrors utils/autoplay.ts, where Off maps to false regardless of whether the
+  // player begins inaudible, and where "only with sound" declines to start when
+  // the start would be silent.
   if (setting === AutoplaySetting.Off) return 'none';
+
+  if (initiallyMuted) return 'muted';
+
   return 'unmuted-when-allowed';
 }
 

@@ -367,7 +367,14 @@ type PublicICEServer struct {
 
 // PublicICEServers returns the viewer-facing ICE server list for /api/config.
 func (s *Service) PublicICEServers() []PublicICEServer {
-	cfg := s.Config()
+	return PublicICEServersForConfig(s.Config())
+}
+
+// PublicICEServersForConfig is the single implementation of the viewer-facing ICE
+// list. /api/config and the WHEP answer must mint the same credentials: when a TURN
+// entry carries only a REST static secret, copying the stored credential verbatim
+// left the browser a relay URL it could not authenticate to.
+func PublicICEServersForConfig(cfg models.WebRTCConfig) []PublicICEServer {
 	entries := viewerICEEntries(cfg)
 	servers := make([]PublicICEServer, 0, len(entries))
 

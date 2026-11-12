@@ -31,6 +31,32 @@ func storedVariantsJSON(t *testing.T, ds *datastore.Datastore) []byte {
 	return payload
 }
 
+func TestStreamOutputVariantsRoundTripKeepsTheConfiguredFramerate(t *testing.T) {
+	repo, _ := newPhase1TestRepo(t)
+
+	// The effective framerate of a passthrough variant is 0 and of an unset one is
+	// 24, both computed by GetFramerate. Persisting must keep what was configured:
+	// JSON marshalling used to run MarshalJSON and store the computed value.
+	variants := []models.StreamOutputVariant{
+		{Name: "passthrough configured as 30", IsVideoPassthrough: true, Framerate: 30, CPUUsageLevel: 0},
+		{Name: "unset framerate", VideoBitrate: 900, Framerate: 0, CPUUsageLevel: 2},
+	}
+
+	mustNoError(t, repo.SetStreamOutputVariants(variants))
+
+	stored := repo.GetStreamOutputVariants()
+	if len(stored) != len(variants) {
+		t.Fatalf("got %d variants, want %d", len(stored), len(variants))
+	}
+
+	if stored[0].Framerate != 30 {
+		t.Errorf("passthrough framerate round-tripped as %d, want 30", stored[0].Framerate)
+	}
+	if stored[1].Framerate != 0 {
+		t.Errorf("unset framerate round-tripped as %d, want 0", stored[1].Framerate)
+	}
+}
+
 func TestStreamOutputVariantsRoundTripPreservesPointerToFalse(t *testing.T) {
 	repo, ds := newPhase1TestRepo(t)
 

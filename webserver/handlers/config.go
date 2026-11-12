@@ -11,6 +11,7 @@ import (
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/config/settings"
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/webrtc"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/router/middleware"
 	webutils "github.com/owncast/owncast/webserver/utils"
@@ -266,26 +267,21 @@ func buildPublicWebRTCConfig(cfg models.WebRTCConfig, broadcast *models.CurrentB
 }
 
 // publicICEServers converts configured STUN/TURN servers to the browser-facing
-// shape, omitting REST static secrets.
+// shape. It delegates to the WebRTC service implementation so a TURN server that
+// only has a REST static secret gets per-viewer credentials minted, the same way
+// the WHEP answer does, instead of an empty username and credential.
 func publicICEServers(cfg models.WebRTCConfig) []webRTCICEServerResponse {
-	servers := make([]webRTCICEServerResponse, 0, len(cfg.STUNServers)+len(cfg.TURNServers))
-	for _, server := range cfg.STUNServers {
-		if server == "" {
-			continue
-		}
-		servers = append(servers, webRTCICEServerResponse{URLs: []string{server}})
-	}
-	for _, server := range cfg.TURNServers {
-		if server.URL == "" {
-			continue
-		}
-		servers = append(servers, webRTCICEServerResponse{
-			URLs:       []string{server.URL},
+	servers := webrtc.PublicICEServersForConfig(cfg)
+	response := make([]webRTCICEServerResponse, 0, len(servers))
+	for _, server := range servers {
+		response = append(response, webRTCICEServerResponse{
+			URLs:       server.URLs,
 			Username:   server.Username,
 			Credential: server.Credential,
 		})
 	}
-	return servers
+
+	return response
 }
 
 // buildPublicPlayerConfig reports the active custom-player mode. A custom

@@ -530,8 +530,20 @@ func (r *SqlConfigRepository) GetStreamOutputVariants() []models.StreamOutputVar
 // re-enabling HLS after a restart. JSON keeps pointer-to-false distinct from
 // nil. datastore.Save still provides the KV storage/caching semantics by
 // gob-wrapping the []byte value.
+// storedStreamOutputVariant is the persistence shape of a variant. It has the same
+// fields and no methods: marshalling models.StreamOutputVariant would run its
+// MarshalJSON, which reports the effective framerate, so a passthrough variant
+// configured with 30 was stored as 0 and read back as 0 instead of what the
+// operator saved.
+type storedStreamOutputVariant models.StreamOutputVariant
+
 func (r *SqlConfigRepository) SetStreamOutputVariants(variants []models.StreamOutputVariant) error {
-	encoded, err := json.Marshal(variants)
+	stored := make([]storedStreamOutputVariant, len(variants))
+	for index := range variants {
+		stored[index] = storedStreamOutputVariant(variants[index])
+	}
+
+	encoded, err := json.Marshal(stored)
 	if err != nil {
 		return err
 	}
