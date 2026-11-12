@@ -69,17 +69,32 @@ func (g *ThumbnailGenerator) Start(chunkPath string, variantIndex int, isVideoPa
 	go func() {
 		defer log.Debug("thumbnail generator has stopped")
 
+		failures := 0
+
 		for {
 			select {
 			case <-done:
 				return
 			case <-timer.C:
 				if err := g.fireThumbnailGenerator(chunkPath, variantIndex); err != nil {
-					logMsg := "Unable to generate thumbnail: " + err.Error()
+					failures++
+
+					// Report the first failure, then keep retrying quietly: a variant
+					// directory that is missing produced one error every 20 seconds for the
+					// whole stream (525 lines in a three hour run) without ever recovering,
+					// while a transient failure still needs to be visible.
+					logMsg := err.Error()
 					if isVideoPassthrough {
 						logMsg += ". Video Passthrough is enabled. You should disable it to fix this, and other, streaming errors. https://owncast.online/troubleshoot"
 					}
-					log.Errorln("Unable to generate thumbnail:", logMsg)
+
+					if failures == 1 {
+						log.Errorln("Unable to generate thumbnail:", logMsg)
+					} else {
+						log.Debugln("Unable to generate thumbnail:", logMsg)
+					}
+				} else if failures != 0 {
+					failures = 0
 				}
 			}
 		}
