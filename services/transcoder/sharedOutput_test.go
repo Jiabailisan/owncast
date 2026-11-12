@@ -3,6 +3,7 @@ package transcoder
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -51,6 +52,29 @@ func TestSharedTeeOutputEncodesTranscodeOnce(t *testing.T) {
 	for _, want := range []string{"/0/stream.m3u8", "/0/stream-goldenid-", "rtp://127.0.0.1:40000", "rtp://127.0.0.1:40001"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("shared output missing %q: %s", want, joined)
+		}
+	}
+}
+
+// TestSharedOpusOptionsUseAudioRelativeSpecifiers guards the stream specifier of the
+// shared Opus encoder options.
+//
+// The Opus stream is an extra output audio stream, so its index is audio-relative.
+// Addressing it with the flat output index (":N") points at a video stream as soon
+// as there is more than one variant, and FFmpeg then drops the option with "Codec
+// AVOption ... has not been used for any stream" - silently disabling the low-delay
+// and frame-size settings WebRTC depends on.
+func TestSharedOpusOptionsUseAudioRelativeSpecifiers(t *testing.T) {
+	tr := sharedTestTranscoder(t)
+	joined := strings.Join(tr.getFlags().command, " ")
+
+	audioIndex := strconv.Itoa(len(tr.variants))
+	for _, option := range []string{"-application", "-frame_duration", "-ar", "-ac"} {
+		if !strings.Contains(joined, option+":a:"+audioIndex+" ") {
+			t.Fatalf("expected %q to be scoped to the audio stream: %s", option+":a:"+audioIndex, joined)
+		}
+		if strings.Contains(joined, option+":"+audioIndex+" ") {
+			t.Fatalf("%q uses the flat output index, which addresses a video stream: %s", option+":"+audioIndex, joined)
 		}
 	}
 }

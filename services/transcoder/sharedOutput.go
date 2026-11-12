@@ -119,6 +119,12 @@ func teeOptionString(key, value string) string {
 // variant audio streams, so every encoder option is scoped to that stream
 // index: unscoped options would override the HLS variants' AAC copy/encode
 // settings and re-encode their audio as Opus.
+//
+// The specifier must be audio-relative (":a:N"), not the flat output index
+// (":N"). With two variants the flat stream list is v:0, a:0, v:1, a:1, opus, so
+// a flat ":2" addresses a video stream: FFmpeg dropped -application and
+// -frame_duration with "Codec AVOption ... has not been used for any stream",
+// which silently disabled the low-delay and frame-size settings WebRTC relies on.
 func (t *Transcoder) sharedAudioEncoderFlags() []string {
 	if !sharedAudioCompatible(t.rtpOutputs) {
 		return nil
@@ -131,10 +137,10 @@ func (t *Transcoder) sharedAudioEncoderFlags() []string {
 		ffmpegFlagMap, "0:a:0?",
 		"-c:a" + suffix, "libopus",
 		"-b:a" + suffix, strconv.Itoa(opusBitrate) + "k",
-		"-ar" + suffix, "48000",
-		"-ac" + suffix, "2",
-		"-application" + suffix, "lowdelay",
-		"-frame_duration" + suffix, strconv.Itoa(opusFrame),
+		"-ar:a" + suffix, "48000",
+		"-ac:a" + suffix, "2",
+		"-application:a" + suffix, "lowdelay",
+		"-frame_duration:a" + suffix, strconv.Itoa(opusFrame),
 	}
 }
 
