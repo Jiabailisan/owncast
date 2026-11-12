@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"errors"
 	"strings"
 	"time"
 
@@ -233,49 +232,9 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 	webrtcVariants := effectiveWebRTCVariants(variants)
 	webrtcConfig := s.configRepository.GetWebRTCConfig()
 
-	broadcaster := s.waitForSourceInfo(session, webrtcVariants)
-	source := webrtc.SourceInfo{Protocol: string(session.Protocol())}
-	if broadcaster != nil {
-		source = webrtc.SourceInfoFromDetails(string(session.Protocol()), broadcaster.StreamDetails)
-	}
+	source := s.webrtcSourceInfo(session, webrtcVariants)
 
-	warnings := make([]models.StatusWarning, 0, len(webrtcVariants))
-	decisions := make(map[int]webrtc.LegDecision, len(webrtcVariants))
-	hasEnabled := false
-	for index := range webrtcVariants {
-		variant := webrtcVariants[index]
-		if !variant.WebRTCEnabled() {
-			continue
-		}
-		decision, err := webrtc.ResolveWebRTCLeg(source, variant, webrtcConfig)
-		if err != nil {
-			log.Errorln("webrtc: invalid output variant; falling back to transcode:", err)
-			decision = webrtc.LegDecision{
-				Enabled:          true,
-				Mode:             models.OutputModeTranscode,
-				VideoBitrateKbps: webrtc.DefaultWebRTCVideoBitrateKbps,
-				GOPFrames:        webrtc.MinimumWebRTCGOPFrames,
-				H264Profile:      webrtcConfig.H264Profile,
-			}
-		}
-		appendLegDiagnostics(decision, &warnings)
-		// RTMP cannot provide the strict copy-eligibility metadata. When the
-		// operator asked for passthrough (explicit copy or inheritance from a
-		// passthrough HLS variant), deliver the copy leg with an honest
-		// warning. The WebRTC forwarder supplies cached SPS/PPS per IDR, so
-		// viewers joining mid-stream can decode it.
-		decision = rtmpCopyFallback(session, variant, decision, source, webrtcConfig, &warnings, index)
-		if !decision.Enabled {
-			// Disable the leg in the published variant set but keep the slice
-			// position so WHEP variant indices stay stable.
-			if webrtcVariants[index].Outputs != nil && webrtcVariants[index].Outputs.WebRTC != nil {
-				webrtcVariants[index].Outputs.WebRTC.Enabled = models.BoolPtr(false)
-			}
-			continue
-		}
-		decisions[index] = decision
-		hasEnabled = true
-	}
+	decisions, warnings, hasEnabled := s.resolveWebRTCLegs(session, webrtcVariants, webrtcConfig, source)
 	if !hasEnabled {
 		s.setWebRTCWarnings(warnings)
 		return nil
@@ -288,57 +247,9 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 		return nil
 	}
 
-	videoCodec := s.configRepository.GetVideoCodec()
-	outputs := make([]transcoder.RTPOutput, 0, len(decisions))
-	for index := range webrtcVariants {
-		variant := webrtcVariants[index]
-		decision, ok := decisions[index]
-		if !ok {
-			continue
-		}
-
-		leg, err := s.webRTC.OpenMediaLeg(index)
-		if err != nil {
-			// Delivery being switched off is a configuration, not a failure: logging it
-			// as an error made every stream start look broken on installs that do not use
-			// WebRTC.
-			if errors.Is(err, webrtc.ErrDisabled) {
-				log.Debugln("webrtc: delivery is disabled; skipping media leg for variant", index)
-			} else {
-				log.Errorln("webrtc: unable to open media leg for variant", index, ":", err)
-			}
-
-			warnings = append(warnings, models.StatusWarning{Code: "webrtc_media_leg", Message: err.Error()})
-			continue
-		}
-		s.legsMu.Lock()
-		s.webRTCLegs = append(s.webRTCLegs, index)
-		s.legsMu.Unlock()
-		s.registerWebRTCLeg(index, leg)
-
-		outputs = append(outputs, transcoder.RTPOutput{
-			VariantIndex:     index,
-			VideoURL:         leg.VideoURL(),
-			AudioURL:         leg.AudioURL(),
-			VideoPayloadType: webrtc.PayloadTypeVideo,
-			AudioPayloadType: webrtc.PayloadTypeAudio,
-			VideoBitrateKbps: decision.VideoBitrateKbps,
-			// The isolated WebRTC process decodes the raw source, so a transcode
-			// leg must be told the variant's size explicitly or it keeps the
-			// source resolution (a 1440p source stayed 1440p at 6 Mbps).
-			Scale:           webrtcLegScale(variant, decision),
-			GOPFrames:       decision.GOPFrames,
-			CopyVideo:       decision.Copy,
-			H264Profile:     decision.H264Profile,
-			VideoCodec:      videoCodec,
-			CPUUsageLevel:   variant.CPUUsageLevel,
-			OpusBitrateKbps: webrtcConfig.OpusBitrateKbps,
-			OpusFrameMs:     webrtcConfig.OpusFrameMs,
-			OpusFEC:         webrtcConfig.OpusFEC,
-			OpusDTX:         webrtcConfig.OpusDTX,
-		})
-	}
+	outputs, warnings := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, warnings)
 	s.setWebRTCWarnings(warnings)
+
 	return outputs
 }
 
