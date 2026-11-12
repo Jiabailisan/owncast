@@ -322,6 +322,13 @@ func (s *Service) applyStreamOffline() {
 	// connected, the media legs open and the variants advertised for a stream that
 	// had already ended.
 	defer func() {
+		// Cancel the delayed live-notification timer: a stream that ends within
+		// its two-minute window would otherwise still announce "we are live" to
+		// the fediverse and to push subscribers after it has already stopped.
+		if s.onlineTimerCancelFunc != nil {
+			s.onlineTimerCancelFunc()
+			s.onlineTimerCancelFunc = nil
+		}
 		if s.thumbnailGen != nil {
 			s.thumbnailGen.Stop()
 		}
