@@ -322,7 +322,9 @@ func validateServerConfig(cfg models.WebRTCConfig) error {
 // Warnings returns non-fatal configuration problems for the admin UI and the
 // preflight endpoint.
 func Warnings(cfg models.WebRTCConfig) []string {
-	var warnings []string
+	// Initialised, not nil: the API documents this as an array, and a nil slice
+	// marshals to null on the healthy path.
+	warnings := []string{}
 	if cfg.Domain == "" && len(cfg.PublicIPs) == 0 {
 		warnings = append(warnings, "webrtc_domain_unset: no domain or publicIPs configured; ICE candidates advertise local interface addresses")
 	}

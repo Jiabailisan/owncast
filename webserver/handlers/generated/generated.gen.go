@@ -805,7 +805,7 @@ type ServerInterface interface {
 	RegisterForLiveNotifications(w http.ResponseWriter, r *http.Request, params RegisterForLiveNotificationsParams)
 	// Ping Tell the backend you're an active viewer
 	// (GET /ping)
-	Ping(w http.ResponseWriter, r *http.Request)
+	Ping(w http.ResponseWriter, r *http.Request, params PingParams)
 	// RemoteFollow Request remote follow
 	// (POST /remotefollow)
 	RemoteFollow(w http.ResponseWriter, r *http.Request)
@@ -2287,7 +2287,7 @@ func (_ Unimplemented) RegisterForLiveNotifications(w http.ResponseWriter, r *ht
 
 // Ping Tell the backend you're an active viewer
 // (GET /ping)
-func (_ Unimplemented) Ping(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) Ping(w http.ResponseWriter, r *http.Request, params PingParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -6606,8 +6606,118 @@ func (siw *ServerInterfaceWrapper) RegisterForLiveNotifications(w http.ResponseW
 // Ping operation middleware
 func (siw *ServerInterfaceWrapper) Ping(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PingParams
+
+	// ------------- Optional query parameter "protocol" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "protocol", r.URL.Query(), &params.Protocol, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "protocol"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "protocol", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "quality" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "quality", r.URL.Query(), &params.Quality, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "quality"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "quality", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "latency" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "latency", r.URL.Query(), &params.Latency, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "latency"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "latency", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "resolution" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "resolution", r.URL.Query(), &params.Resolution, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "resolution"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resolution", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "fps" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "fps", r.URL.Query(), &params.Fps, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fps"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fps", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "bitrate" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bitrate", r.URL.Query(), &params.Bitrate, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bitrate"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bitrate", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "token" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "token", r.URL.Query(), &params.Token, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "token"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Ping(w, r)
+		siw.Handler.Ping(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

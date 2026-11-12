@@ -74,7 +74,9 @@ func (s *ServerInterfaceImpl) GetVideoStreamOutputVariants(w http.ResponseWriter
 	s.h.GetVideoStreamOutputVariants(w, r)
 }
 
-func (s *ServerInterfaceImpl) Ping(w http.ResponseWriter, r *http.Request) {
+func (s *ServerInterfaceImpl) Ping(w http.ResponseWriter, r *http.Request, _ generated.PingParams) {
+	// The report parameters are documented for clients but parsed from the query
+	// string by the handler, which also accepts the token as a header.
 	s.h.Ping(w, r)
 }
 

@@ -95,6 +95,24 @@ func (e AdminLiveStatusState) Valid() bool {
 	}
 }
 
+// Defines values for AdminLiveViewerIceTransport.
+const (
+	AdminLiveViewerIceTransportTcp AdminLiveViewerIceTransport = "tcp"
+	AdminLiveViewerIceTransportUdp AdminLiveViewerIceTransport = "udp"
+)
+
+// Valid indicates whether the value is a known member of the AdminLiveViewerIceTransport enum.
+func (e AdminLiveViewerIceTransport) Valid() bool {
+	switch e {
+	case AdminLiveViewerIceTransportTcp:
+		return true
+	case AdminLiveViewerIceTransportUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AdminLiveViewerProtocol.
 const (
 	AdminLiveViewerProtocolHls    AdminLiveViewerProtocol = "hls"
@@ -271,16 +289,16 @@ func (e PlaybackClientHealthSource) Valid() bool {
 
 // Defines values for PortProbeProtocol.
 const (
-	Tcp PortProbeProtocol = "tcp"
-	Udp PortProbeProtocol = "udp"
+	PortProbeProtocolTcp PortProbeProtocol = "tcp"
+	PortProbeProtocolUdp PortProbeProtocol = "udp"
 )
 
 // Valid indicates whether the value is a known member of the PortProbeProtocol enum.
 func (e PortProbeProtocol) Valid() bool {
 	switch e {
-	case Tcp:
+	case PortProbeProtocolTcp:
 		return true
-	case Udp:
+	case PortProbeProtocolUdp:
 		return true
 	default:
 		return false
@@ -398,6 +416,24 @@ func (e SettingsFieldType) Valid() bool {
 	}
 }
 
+// Defines values for WebRTCClientReportRequestTransport.
+const (
+	WebRTCClientReportRequestTransportTcp WebRTCClientReportRequestTransport = "tcp"
+	WebRTCClientReportRequestTransportUdp WebRTCClientReportRequestTransport = "udp"
+)
+
+// Valid indicates whether the value is a known member of the WebRTCClientReportRequestTransport enum.
+func (e WebRTCClientReportRequestTransport) Valid() bool {
+	switch e {
+	case WebRTCClientReportRequestTransportTcp:
+		return true
+	case WebRTCClientReportRequestTransportUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WebhookEventType.
 const (
 	CHAT                      WebhookEventType = "CHAT"
@@ -469,6 +505,7 @@ func (e ReorderFederatedServerJSONBodyDirection) Valid() bool {
 
 // Defines values for GetLiveViewersParamsSort.
 const (
+	Bitrate     GetLiveViewersParamsSort = "bitrate"
 	ConnectedAt GetLiveViewersParamsSort = "connectedAt"
 	Duration    GetLiveViewersParamsSort = "duration"
 	Protocol    GetLiveViewersParamsSort = "protocol"
@@ -477,6 +514,8 @@ const (
 // Valid indicates whether the value is a known member of the GetLiveViewersParamsSort enum.
 func (e GetLiveViewersParamsSort) Valid() bool {
 	switch e {
+	case Bitrate:
+		return true
 	case ConnectedAt:
 		return true
 	case Duration:
@@ -615,19 +654,30 @@ type AdminFederationConfig struct {
 
 // AdminLiveFFmpegProcess One supervised FFmpeg process with the exact executed argv (secrets redacted)
 type AdminLiveFFmpegProcess struct {
-	Argv            *[]string            `json:"argv,omitempty"`
-	CpuPercent      *float32             `json:"cpuPercent"`
-	DroppedFrames   *int                 `json:"droppedFrames"`
-	DuplicateFrames *int                 `json:"duplicateFrames"`
-	Id              string               `json:"id"`
-	Pid             int                  `json:"pid"`
-	Purpose         []string             `json:"purpose"`
-	RestartCount    int                  `json:"restartCount"`
-	RssBytes        *int                 `json:"rssBytes"`
-	Sections        *map[string][]string `json:"sections,omitempty"`
-	Speed           *float32             `json:"speed"`
-	StartedAt       time.Time            `json:"startedAt"`
-	UptimeSeconds   float32              `json:"uptimeSeconds"`
+	Argv            *[]string `json:"argv,omitempty"`
+	CpuPercent      *float32  `json:"cpuPercent"`
+	DroppedFrames   *int      `json:"droppedFrames"`
+	DuplicateFrames *int      `json:"duplicateFrames"`
+
+	// GpuMemoryBytes Best-effort per-process GPU memory in bytes; null when unavailable.
+	GpuMemoryBytes *int `json:"gpuMemoryBytes,omitempty"`
+
+	// GpuName GPU device name when GPU metrics are available.
+	GpuName *string `json:"gpuName,omitempty"`
+
+	// GpuPercent Best-effort GPU utilization (0-100) for hardware encoders; null when unavailable.
+	GpuPercent   *float32 `json:"gpuPercent,omitempty"`
+	Id           string   `json:"id"`
+	Pid          int      `json:"pid"`
+	Purpose      []string `json:"purpose"`
+	RestartCount int      `json:"restartCount"`
+	RssBytes     *int     `json:"rssBytes"`
+
+	// Sections The exact argv split into the display groups common, hls, webrtc and environment (environment is redacted). Every argv element appears in exactly one group.
+	Sections      *map[string][]string `json:"sections,omitempty"`
+	Speed         *float32             `json:"speed"`
+	StartedAt     time.Time            `json:"startedAt"`
+	UptimeSeconds float32              `json:"uptimeSeconds"`
 }
 
 // AdminLiveFFmpegStatus FFmpeg process model and the processes feeding the stream
@@ -762,25 +812,31 @@ type AdminLiveStatusInputProtocol string
 // AdminLiveStatusState defines model for AdminLiveStatus.State.
 type AdminLiveStatusState string
 
-// AdminLiveViewer One live viewer row. HLS rows populate the additive bitrateKbps, resolution and fps fields from the variant playlist the viewer is currently requesting (field population only; the schema already allowed these fields). WebRTC rows come from Pion stats.
+// AdminLiveViewer One live viewer row. HLS rows populate the additive bitrateKbps, resolution and fps fields from the variant playlist the viewer is currently requesting (field population only; the schema already allowed these fields). WebRTC rows merge Pion server measurements with the player's validated stats beacon: validated client-measured bitrate, resolution, fps and packetLossPct win, server measurements are the fallback, and the source field is "client" only when a client value was actually used. WebRTC rows also carry the selected ICE transport so the admin UI can render WebRTC-U (udp) or WebRTC-T (tcp).
 type AdminLiveViewer struct {
-	BitrateKbps         *float32                `json:"bitrateKbps"`
-	City                *string                 `json:"city,omitempty"`
-	ClientID            string                  `json:"clientID"`
-	ConnectedAt         time.Time               `json:"connectedAt"`
-	Country             *string                 `json:"country,omitempty"`
-	DurationSeconds     float32                 `json:"durationSeconds"`
-	Fps                 *float32                `json:"fps"`
-	IpAddress           string                  `json:"ipAddress"`
-	JitterMs            *float32                `json:"jitterMs"`
-	LocationApproximate *bool                   `json:"locationApproximate,omitempty"`
-	PacketLossPct       *float32                `json:"packetLossPct"`
-	Protocol            AdminLiveViewerProtocol `json:"protocol"`
-	Region              *string                 `json:"region,omitempty"`
-	Resolution          *string                 `json:"resolution,omitempty"`
-	Source              AdminLiveViewerSource   `json:"source"`
-	UserAgent           *string                 `json:"userAgent,omitempty"`
+	BitrateKbps     *float32  `json:"bitrateKbps"`
+	City            *string   `json:"city,omitempty"`
+	ClientID        string    `json:"clientID"`
+	ConnectedAt     time.Time `json:"connectedAt"`
+	Country         *string   `json:"country,omitempty"`
+	DurationSeconds float32   `json:"durationSeconds"`
+	Fps             *float32  `json:"fps"`
+
+	// IceTransport Selected ICE candidate-pair transport for WebRTC rows. Server detection wins; the player-reported transport is only a fallback. Omitted when unknown and never present for HLS rows.
+	IceTransport        *AdminLiveViewerIceTransport `json:"iceTransport,omitempty"`
+	IpAddress           string                       `json:"ipAddress"`
+	JitterMs            *float32                     `json:"jitterMs"`
+	LocationApproximate *bool                        `json:"locationApproximate,omitempty"`
+	PacketLossPct       *float32                     `json:"packetLossPct"`
+	Protocol            AdminLiveViewerProtocol      `json:"protocol"`
+	Region              *string                      `json:"region,omitempty"`
+	Resolution          *string                      `json:"resolution,omitempty"`
+	Source              AdminLiveViewerSource        `json:"source"`
+	UserAgent           *string                      `json:"userAgent,omitempty"`
 }
+
+// AdminLiveViewerIceTransport Selected ICE candidate-pair transport for WebRTC rows. Server detection wins; the player-reported transport is only a fallback. Omitted when unknown and never present for HLS rows.
+type AdminLiveViewerIceTransport string
 
 // AdminLiveViewerProtocol defines model for AdminLiveViewer.Protocol.
 type AdminLiveViewerProtocol string
@@ -1522,6 +1578,31 @@ type PublicFederatedServer struct {
 	ThumbnailUrl      *string   `json:"thumbnailUrl,omitempty"`
 }
 
+// PublicWebRTCConfig WebRTC delivery configuration for the viewer. Absent when WebRTC is disabled. The signaling endpoint is not served under the /api prefix.
+type PublicWebRTCConfig struct {
+	Enabled       *bool `json:"enabled,omitempty"`
+	FallbackToHls *bool `json:"fallbackToHls,omitempty"`
+
+	// IceServers ICE servers for the browser. A TURN entry configured with a REST static secret carries short-lived per-viewer credentials here; the secret itself is never exposed.
+	IceServers *[]struct {
+		Credential *string   `json:"credential,omitempty"`
+		Urls       *[]string `json:"urls,omitempty"`
+		Username   *string   `json:"username,omitempty"`
+	} `json:"iceServers,omitempty"`
+
+	// Variants Renditions that can be selected over WebRTC.
+	Variants *[]struct {
+		Fps    *int    `json:"fps,omitempty"`
+		Height *int    `json:"height,omitempty"`
+		Index  *int    `json:"index,omitempty"`
+		Name   *string `json:"name,omitempty"`
+		Width  *int    `json:"width,omitempty"`
+	} `json:"variants,omitempty"`
+
+	// WhepUrl Path the player posts its SDP offer to (WHEP).
+	WhepUrl *string `json:"whepUrl,omitempty"`
+}
+
 // S3Info defines model for S3Info.
 type S3Info struct {
 	AccessKey      *string `json:"accessKey,omitempty"`
@@ -1714,13 +1795,21 @@ type SocialHandle struct {
 
 // Status Response for status
 type Status struct {
+	AudioBitrate *int `json:"audioBitrate,omitempty"`
+
+	// InputProtocol Protocol the publisher connected with.
+	InputProtocol      *string `json:"inputProtocol,omitempty"`
 	LastConnectTime    *string `json:"lastConnectTime,omitempty"`
 	LastDisconnectTime *string `json:"lastDisconnectTime,omitempty"`
 	Online             *bool   `json:"online,omitempty"`
 	ServerTime         *string `json:"serverTime,omitempty"`
 	StreamTitle        *string `json:"streamTitle,omitempty"`
 	VersionNumber      *string `json:"versionNumber,omitempty"`
-	ViewerCount        *int    `json:"viewerCount,omitempty"`
+	VideoBitrate       *int    `json:"videoBitrate,omitempty"`
+
+	// VideoPipeline Video pipeline in use, for example copy or transcode.
+	VideoPipeline *string `json:"videoPipeline,omitempty"`
+	ViewerCount   *int    `json:"viewerCount,omitempty"`
 }
 
 // StreamHealthOverview defines model for StreamHealthOverview.
@@ -1777,9 +1866,9 @@ type TURNServerUpdate struct {
 	Username     *string `json:"username,omitempty"`
 }
 
-// TestDomainRequest Domain to resolve
+// TestDomainRequest Domain to resolve. When it is omitted or empty the currently configured WebRTC domain is tested.
 type TestDomainRequest struct {
-	Domain string `json:"domain"`
+	Domain *string `json:"domain,omitempty"`
 }
 
 // TestDomainResponse Domain resolution and ICE advertisement result
@@ -1899,13 +1988,22 @@ type WebConfig struct {
 	OfflineMessage            *string             `json:"offlineMessage,omitempty"`
 
 	// Player Custom player module activation for the viewer
-	Player             *PlayerConfig   `json:"player,omitempty"`
-	SocialHandles      *[]SocialHandle `json:"socialHandles,omitempty"`
-	SocketHostOverride *string         `json:"socketHostOverride,omitempty"`
-	StreamTitle        *string         `json:"streamTitle,omitempty"`
-	Summary            *string         `json:"summary,omitempty"`
-	Tags               *[]string       `json:"tags,omitempty"`
-	Version            *string         `json:"version,omitempty"`
+	Player *PlayerConfig `json:"player,omitempty"`
+
+	// PluginStyles CSS contributed by loaded plugins, applied after the theme and before custom styles.
+	PluginStyles *string `json:"pluginStyles,omitempty"`
+
+	// PluginTabs Viewer-page tabs contributed by loaded plugins.
+	PluginTabs         *[]map[string]interface{} `json:"pluginTabs,omitempty"`
+	SocialHandles      *[]SocialHandle           `json:"socialHandles,omitempty"`
+	SocketHostOverride *string                   `json:"socketHostOverride,omitempty"`
+	StreamTitle        *string                   `json:"streamTitle,omitempty"`
+	Summary            *string                   `json:"summary,omitempty"`
+	Tags               *[]string                 `json:"tags,omitempty"`
+	Version            *string                   `json:"version,omitempty"`
+
+	// Webrtc WebRTC delivery configuration for the viewer. Absent when WebRTC is disabled. The signaling endpoint is not served under the /api prefix.
+	Webrtc *PublicWebRTCConfig `json:"webrtc,omitempty"`
 }
 
 // WebRTCCapacity WebRTC viewer capacity snapshot
@@ -1917,16 +2015,31 @@ type WebRTCCapacity struct {
 	Used            *int `json:"used,omitempty"`
 }
 
-// WebRTCClientReportRequest Browser-measured WebRTC playback statistics
+// WebRTCClientReportRequest Browser-measured WebRTC playback statistics. The server validates every value before it can reach the admin viewer row: fps only 0..240, decodedWidth/decodedHeight only when both >= 16, packetLossPct only 0..100, non-negative packet counters, and transport only udp/tcp. Invalid values are ignored.
 type WebRTCClientReportRequest struct {
-	DecodedHeight   *int     `json:"decodedHeight,omitempty"`
-	DecodedWidth    *int     `json:"decodedWidth,omitempty"`
-	Fps             *float32 `json:"fps,omitempty"`
-	JitterMs        *float32 `json:"jitterMs,omitempty"`
-	PacketsLost     *int     `json:"packetsLost,omitempty"`
+	DecodedHeight *int     `json:"decodedHeight,omitempty"`
+	DecodedWidth  *int     `json:"decodedWidth,omitempty"`
+	Fps           *float32 `json:"fps,omitempty"`
+	JitterMs      *float32 `json:"jitterMs,omitempty"`
+
+	// PacketLossPct Loss percentage exactly as the player's stats panel shows it (0..100). When absent the server derives it from packetsLost and packetsReceived.
+	PacketLossPct *float32 `json:"packetLossPct,omitempty"`
+	PacketsLost   *int     `json:"packetsLost,omitempty"`
+
+	// PacketsReceived Cumulative inbound-rtp packetsReceived counter.
+	PacketsReceived *int     `json:"packetsReceived,omitempty"`
 	RoundTripTimeMs *float32 `json:"roundTripTimeMs,omitempty"`
 	SessionId       string   `json:"sessionId"`
+
+	// Transport Client-observed selected ICE candidate-pair protocol. Used as a fallback only; server-side detection is authoritative.
+	Transport *WebRTCClientReportRequestTransport `json:"transport,omitempty"`
+
+	// VideoBitrateKbps Client-measured inbound video bitrate in kbps.
+	VideoBitrateKbps *float32 `json:"videoBitrateKbps,omitempty"`
 }
+
+// WebRTCClientReportRequestTransport Client-observed selected ICE candidate-pair protocol. Used as a fallback only; server-side detection is authoritative.
+type WebRTCClientReportRequestTransport string
 
 // WebRTCConfigPublic WebRTC configuration without any secret value
 type WebRTCConfigPublic struct {
@@ -2437,6 +2550,33 @@ type RegisterForLiveNotificationsJSONBody struct {
 // RegisterForLiveNotificationsParams defines parameters for RegisterForLiveNotifications.
 type RegisterForLiveNotificationsParams struct {
 	AccessToken AccessToken `form:"accessToken" json:"accessToken"`
+}
+
+// PingParams defines parameters for Ping.
+type PingParams struct {
+	// Protocol Playback protocol the viewer is using, for example hls or webrtc.
+	Protocol *string `form:"protocol,omitempty" json:"protocol,omitempty"`
+
+	// Quality Rendition the player is showing, for example 1080p60@6Mbps.
+	Quality *string `form:"quality,omitempty" json:"quality,omitempty"`
+
+	// Latency Playback latency in milliseconds.
+	Latency *int `form:"latency,omitempty" json:"latency,omitempty"`
+
+	// Name Display name the player believes it has.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// Resolution Decoded resolution, for example 1920x1080.
+	Resolution *string `form:"resolution,omitempty" json:"resolution,omitempty"`
+
+	// Fps Measured frame rate. Clamped to 0..240.
+	Fps *int `form:"fps,omitempty" json:"fps,omitempty"`
+
+	// Bitrate Measured playback bitrate in kbps.
+	Bitrate *int `form:"bitrate,omitempty" json:"bitrate,omitempty"`
+
+	// Token Access token of the viewer. Ignored when the X-Owncast-Access-Token header is present.
+	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
 
 // RemoteFollowJSONBody defines parameters for RemoteFollow.

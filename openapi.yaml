@@ -285,8 +285,64 @@ paths:
   /ping:
     get:
       summary: Tell the backend you're an active viewer
+      description: >-
+        Records the caller as an active viewer and, optionally, the playback
+        details shown in the admin viewer table. Values are bounded by the
+        server: quality, resolution and name are truncated, fps is clamped to
+        0..240, and latency and bitrate must be non-negative.
       operationId: Ping
       tags: ['Internal', 'Video']
+      parameters:
+        - name: protocol
+          in: query
+          required: false
+          description: Playback protocol the viewer is using, for example hls or webrtc.
+          schema:
+            type: string
+        - name: quality
+          in: query
+          required: false
+          description: Rendition the player is showing, for example 1080p60@6Mbps.
+          schema:
+            type: string
+        - name: latency
+          in: query
+          required: false
+          description: Playback latency in milliseconds.
+          schema:
+            type: integer
+            minimum: 0
+        - name: name
+          in: query
+          required: false
+          description: Display name the player believes it has.
+          schema:
+            type: string
+        - name: resolution
+          in: query
+          required: false
+          description: Decoded resolution, for example 1920x1080.
+          schema:
+            type: string
+        - name: fps
+          in: query
+          required: false
+          description: Measured frame rate. Clamped to 0..240.
+          schema:
+            type: integer
+        - name: bitrate
+          in: query
+          required: false
+          description: Measured playback bitrate in kbps.
+          schema:
+            type: integer
+            minimum: 0
+        - name: token
+          in: query
+          required: false
+          description: Access token of the viewer. Ignored when the X-Owncast-Access-Token header is present.
+          schema:
+            type: string
       responses:
         '200':
           description: Added as an active viewer
@@ -778,8 +834,8 @@ paths:
           description: Sort key for the viewer table.
           schema:
             type: string
-            enum: [duration, connectedAt, protocol]
-            default: duration
+            enum: [duration, connectedAt, protocol, bitrate]
+            default: connectedAt
         - name: order
           in: query
           required: false
@@ -818,9 +874,8 @@ paths:
       summary: Get the FFmpeg processes feeding the live stream
       description: >-
         Returns the supervised FFmpeg process model and one entry per process
-        with the exact executed argv split into input/video/audio/output/other/
-        environment sections. Secrets are redacted with *** in both argv and
-        sections.
+        with the exact executed argv split into common/hls/webrtc/environment
+        sections. Secrets are redacted with *** in both argv and sections.
       operationId: GetLiveFFmpeg
       tags: ['Internal', 'Admin']
       security:
@@ -5539,11 +5594,12 @@ components:
       required: [ffmpeg, ports, warnings]
     TestDomainRequest:
       type: object
-      description: Domain to resolve
+      description: >-
+        Domain to resolve. When it is omitted or empty the currently configured
+        WebRTC domain is tested.
       properties:
         domain:
           type: string
-      required: [domain]
     TestDomainResponse:
       type: object
       description: Domain resolution and ICE advertisement result
@@ -5582,6 +5638,16 @@ components:
           type: boolean
         streamTitle:
           type: string
+        inputProtocol:
+          type: string
+          description: Protocol the publisher connected with.
+        videoBitrate:
+          type: integer
+        audioBitrate:
+          type: integer
+        videoPipeline:
+          type: string
+          description: Video pipeline in use, for example copy or transcode.
     Emojis:
       type: array
       items:
@@ -5913,6 +5979,63 @@ components:
           $ref: '#/components/schemas/AuthenticationConfig'
         player:
           $ref: '#/components/schemas/PlayerConfig'
+        webrtc:
+          $ref: '#/components/schemas/PublicWebRTCConfig'
+        pluginStyles:
+          type: string
+          description: CSS contributed by loaded plugins, applied after the theme and before custom styles.
+        pluginTabs:
+          type: array
+          description: Viewer-page tabs contributed by loaded plugins.
+          items:
+            type: object
+            additionalProperties: true
+    PublicWebRTCConfig:
+      type: object
+      description: >-
+        WebRTC delivery configuration for the viewer. Absent when WebRTC is
+        disabled. The signaling endpoint is not served under the /api prefix.
+      properties:
+        enabled:
+          type: boolean
+        whepUrl:
+          type: string
+          description: Path the player posts its SDP offer to (WHEP).
+        variants:
+          type: array
+          description: Renditions that can be selected over WebRTC.
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              name:
+                type: string
+              width:
+                type: integer
+              height:
+                type: integer
+              fps:
+                type: integer
+        iceServers:
+          type: array
+          description: >-
+            ICE servers for the browser. A TURN entry configured with a REST
+            static secret carries short-lived per-viewer credentials here; the
+            secret itself is never exposed.
+          items:
+            type: object
+            properties:
+              urls:
+                type: array
+                items:
+                  type: string
+              username:
+                type: string
+              credential:
+                type: string
+        fallbackToHls:
+          type: boolean
     AdminConfigStringValue:
       type: object
       description: One string configuration value

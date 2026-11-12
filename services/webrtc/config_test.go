@@ -253,6 +253,14 @@ func TestWarnings(t *testing.T) {
 	assert.NotEmpty(t, warnings)
 }
 
+func TestWarningsIsNeverNil(t *testing.T) {
+	// The API documents warnings as an array, so the healthy case must marshal to
+	// [] and not to null: a strict generated client cannot bind null to an array.
+	warnings := Warnings(NormalizeConfig(models.WebRTCConfig{Domain: "live.example.org", TCPEnabled: false}))
+	assert.NotNil(t, warnings)
+	assert.Empty(t, warnings)
+}
+
 func TestReservationTTLConstant(t *testing.T) {
 	assert.Greater(t, reservationTTL, time.Duration(0))
 }
