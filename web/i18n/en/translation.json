@@ -216,7 +216,12 @@
 				"restarts": "Restarts",
 				"rss": "RSS",
 				"speed": "Speed",
-				"webrtc": "WebRTC"
+				"webrtc": "WebRTC",
+				"audio": "Audio",
+				"input": "Input",
+				"other": "Other",
+				"output": "Output",
+				"video": "Video"
 			},
 			"Settings": {
 				"addCidr": "Add CIDR...",
@@ -233,7 +238,19 @@
 				"save": "Save changes",
 				"secretClear": "Clear on save",
 				"secretNotSet": "Not set",
-				"secretSet": "Set"
+				"secretSet": "Set",
+				"applyLive": "Applies immediately",
+				"applyRestartServer": "Applies after a server restart",
+				"applyRestartService": "Applies after a service restart",
+				"applyRestartStream": "Applies on the next stream",
+				"secretKeepPlaceholder": "Unchanged",
+				"secretNotSetPlaceholder": "Not set",
+				"turnServerAdd": "Add TURN server",
+				"turnServerCredential": "Credential",
+				"turnServerRemove": "Remove",
+				"turnServerStaticSecret": "Static secret",
+				"turnServerUrl": "URL",
+				"turnServerUsername": "Username"
 			},
 			"Srt": {
 				"disabled": "SRT ingest is disabled. Existing RTMP behavior is unchanged.",
@@ -267,7 +284,26 @@
 				"started": "Started",
 				"streamKey": "Key",
 				"uptime": "Uptime",
-				"viewersSection": "Viewers"
+				"viewersSection": "Viewers",
+				"audioBitrate": "Audio bitrate",
+				"audioCodec": "Audio codec",
+				"droppedFrames": "Dropped frames",
+				"duplicateFrames": "Duplicate frames",
+				"ffmpegSpeed": "Encoding speed",
+				"fps": "FPS",
+				"ingestBitrate": "Ingest bitrate",
+				"packetLoss": "Packet loss",
+				"resolution": "Resolution",
+				"rtt": "Round-trip time",
+				"stateDegraded": "Degraded",
+				"stateError": "Error",
+				"stateLive": "Live",
+				"stateOffline": "Offline",
+				"stateWaiting": "Waiting",
+				"videoBitrate": "Video bitrate",
+				"videoCodec": "Video codec",
+				"viewersTotal": "Total viewers",
+				"webrtcCapacity": "WebRTC capacity"
 			},
 			"TabSrt": "SRT Configuration",
 			"TabStatus": "Live Stream Status",
@@ -572,7 +608,8 @@
 			"secondVariantRecommendation": "You have only set one video quality variant. If your server has the computing resources, consider adding another, lower-quality variant, so more people can view your content!",
 			"webrtcEnabled": "WebRTC delivery",
 			"webrtcMode": "WebRTC mode",
-			"webrtcOff": "Off"
+			"webrtcOff": "Off",
+			"webrtcInherit": "Follows HLS"
 		},
 		"ViewerInfo": {
 			"chartNoData": "Viewer counts over time are sampled every couple of minutes, so there is nothing to chart for this window yet.",

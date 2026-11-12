@@ -176,7 +176,23 @@ export const CurrentVariantsTable: FC = () => {
       ),
       key: 'outputs',
       render: (_, variant: VideoVariant) => {
+        const webrtcConfigured = variant.outputs?.webrtc !== undefined;
         const webrtcEnabled = webRTCEnabledForVariant(variant);
+
+        // A variant with no explicit WebRTC block is not off: the server delivers
+        // every HLS variant over WebRTC unless a variant opts out, which is what the
+        // note above the table says. Showing "Off" here contradicted it.
+        if (!webrtcConfigured) {
+          return (
+            <Tag data-testid="variant-webrtc-inherit">
+              <Translation
+                translationKey={Localization.Admin.VideoVariantForm.webrtcInherit}
+                defaultText="Follows HLS"
+              />
+            </Tag>
+          );
+        }
+
         if (!webrtcEnabled) {
           return (
             <Tag data-testid="variant-webrtc-off">

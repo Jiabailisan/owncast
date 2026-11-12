@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/owncast/owncast/webserver/handlers/generated"
 	"github.com/owncast/owncast/webserver/router/middleware"
@@ -27,7 +29,32 @@ func New(h *Handlers) *ServerInterfaceImpl {
 }
 
 func (s *ServerInterfaceImpl) Handler() http.Handler {
-	return generated.Handler(s)
+	return generated.HandlerWithOptions(s, generated.ChiServerOptions{
+		ErrorHandlerFunc: writeParameterError,
+	})
+}
+
+// writeParameterError answers a request the generated binder rejected. Without it a
+// malformed parameter on an admin route was answered with a bare 400 before the
+// admin authentication ran, so an unauthenticated caller learned that the endpoint
+// exists and got a text/plain body that is not part of the API schema. Admin routes
+// answer 401 first now, and everything else gets a JSON 400.
+func writeParameterError(w http.ResponseWriter, r *http.Request, err error) {
+	if strings.HasPrefix(r.URL.Path, "/api/admin/") {
+		if _, _, ok := r.BasicAuth(); !ok {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Owncast"`)
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": false,
+		"message": "invalid request parameters: " + err.Error(),
+	})
 }
 
 func (s *ServerInterfaceImpl) GetStatus(w http.ResponseWriter, r *http.Request) {

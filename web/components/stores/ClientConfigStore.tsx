@@ -399,6 +399,15 @@ export const ClientConfigStore: FC = () => {
   // window.statusHydration) after mount. This fills in real config and
   // status without waiting on an API round trip, while keeping React's
   // hydration pass identical to the statically-exported HTML.
+  // The viewer report sends the display name from local storage, so a rename has to
+  // update it: otherwise /api/ping keeps reporting the old name until a reload.
+  useEffect(() => {
+    const displayName = currentUser?.displayName;
+    if (displayName) {
+      setLocalStorage(DISPLAY_NAME_KEY, displayName);
+    }
+  }, [currentUser?.displayName]);
+
   useEffect(() => {
     const { config, success: hasHydratedConfig } = getInitialConfig();
     const { status, success: hasHydratedStatus } = getInitialStatus();

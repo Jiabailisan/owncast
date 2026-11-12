@@ -59,12 +59,14 @@ describe('CurrentVariantsTable WebRTC output column', () => {
     renderTable();
     const modeTag = screen.getByTestId('variant-webrtc-mode');
     expect(modeTag).toHaveTextContent('Copy');
-    expect(screen.getAllByTestId('variant-webrtc-off')).toHaveLength(1);
+    // A variant without an explicit WebRTC block is delivered over WebRTC anyway,
+    // so it must not be labelled Off.
+    expect(screen.queryAllByTestId('variant-webrtc-off')).toHaveLength(0);
   });
 
-  test('shows the Off tag for a legacy variant without outputs', () => {
+  test('shows the inherit tag for a legacy variant without outputs', () => {
     renderTable();
     expect(screen.getByText('legacy')).toBeInTheDocument();
-    expect(screen.getByTestId('variant-webrtc-off')).toHaveTextContent('Off');
+    expect(screen.getByTestId('variant-webrtc-inherit')).toHaveTextContent('Follows HLS');
   });
 });

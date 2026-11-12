@@ -444,6 +444,7 @@ export const Localization = {
       implicitEnableNote: 'Admin.VideoVariantForm.implicitEnableNote',
       outputsColumn: 'Admin.VideoVariantForm.outputsColumn',
       webrtcOff: 'Admin.VideoVariantForm.webrtcOff',
+      webrtcInherit: 'Admin.VideoVariantForm.webrtcInherit',
     },
 
     // Output process model card (master spec 3.4)
