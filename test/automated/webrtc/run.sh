@@ -52,6 +52,10 @@ DO_BUILD=1
 KEEP_SERVER=0
 DO_MEDIA=1
 
+# The netns re-exec below forwards the original arguments; the parse loop
+# shifts them away, so keep a copy.
+ORIG_ARGS=("$@")
+
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--no-build) DO_BUILD=0 ;;
@@ -69,7 +73,7 @@ if [[ "${QA_NETNS:-0}" == "1" && "${QA_IN_NETNS:-0}" != "1" ]]; then
 		exit 2
 	fi
 	echo "QA_NETNS=1: re-executing inside an unprivileged network namespace (isolated loopback ports)"
-	exec unshare -rn env QA_IN_NETNS=1 bash -c 'ip link set lo up 2>/dev/null || true; exec bash "$@"' _ "$0" "$@"
+	exec unshare -rn env QA_IN_NETNS=1 bash -c 'ip link set lo up 2>/dev/null || true; exec bash "$@"' _ "$0" "${ORIG_ARGS[@]}"
 fi
 
 mkdir -p "$RUN_DIR"
