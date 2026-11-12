@@ -96,6 +96,10 @@ Go module: github.com/aymerick/douceur@v0.2.0
   Source: https://pkg.go.dev/github.com/aymerick/douceur@v0.2.0
   LICENSE: SHA256 ba43a2005466c2e4d84d7b4af55f6c88a982c5e4831b9a58347e800281e560bf
 
+Go module: github.com/benburkert/openpgp@v0.0.0-20160410205803-c2471f86866c
+  Source: https://pkg.go.dev/github.com/benburkert/openpgp@v0.0.0-20160410205803-c2471f86866c
+  LICENSE TEXT NOT FOUND: No license file is published with this version. It is an indirect dependency of the WebRTC/SRT stack and carries no license text upstream.
+
 Go module: github.com/beorn7/perks@v1.0.1
   Source: https://pkg.go.dev/github.com/beorn7/perks@v1.0.1
   LICENSE: SHA256 0db7c9ebb3717e526f34f87dd1ee8bc77d36846e29cb0cec9246f7138fbe962b
@@ -107,6 +111,10 @@ Go module: github.com/CAFxX/httpcompression@v0.0.9
 Go module: github.com/cespare/xxhash/v2@v2.3.0
   Source: https://pkg.go.dev/github.com/cespare/xxhash/v2@v2.3.0
   LICENSE.txt: SHA256 f566a9f97bacdaf00d9f21dd991e81dc11201c4e016c86b470799429a1c9a79c
+
+Go module: github.com/datarhei/gosrt@v0.13.0
+  Source: https://pkg.go.dev/github.com/datarhei/gosrt@v0.13.0
+  LICENSE: SHA256 e06fa69a1323047677ade8e6757aa248183203e6b80025d3029db090d3b48624
 
 Go module: github.com/dylibso/observe-sdk/go@v0.0.0-20240819160327-2d926c5d788a
   Source: https://pkg.go.dev/github.com/dylibso/observe-sdk/go@v0.0.0-20240819160327-2d926c5d788a
@@ -221,6 +229,70 @@ Go module: github.com/oschwald/maxminddb-golang@v1.13.0
   Source: https://pkg.go.dev/github.com/oschwald/maxminddb-golang@v1.13.0
   LICENSE: SHA256 cb89cb8d744d4890187eb3e98fa36f644adf2e56866faba0af891f55493ac522
 
+Go module: github.com/pion/datachannel@v1.6.3
+  Source: https://pkg.go.dev/github.com/pion/datachannel@v1.6.3
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/dtls/v3@v3.1.15
+  Source: https://pkg.go.dev/github.com/pion/dtls/v3@v3.1.15
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/ice/v4@v4.4.8
+  Source: https://pkg.go.dev/github.com/pion/ice/v4@v4.4.8
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/interceptor@v0.1.51
+  Source: https://pkg.go.dev/github.com/pion/interceptor@v0.1.51
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/logging@v0.2.4
+  Source: https://pkg.go.dev/github.com/pion/logging@v0.2.4
+  LICENSE: SHA256 87272dba8c4fcf57101a3195f4f53f7b010b6e153b9b0977bb1a3f91acddf691
+
+Go module: github.com/pion/mdns/v2@v2.2.2
+  Source: https://pkg.go.dev/github.com/pion/mdns/v2@v2.2.2
+  LICENSE: SHA256 83e4dd21429a91fb7cea67a476032a9641425e5355df2e0f589a738b6ec9fd2c
+
+Go module: github.com/pion/randutil@v0.1.0
+  Source: https://pkg.go.dev/github.com/pion/randutil@v0.1.0
+  LICENSE: SHA256 badaf9bc72e71d5a70e7604c636b5b7adf79b9cafc188688438105d2b1e54722
+
+Go module: github.com/pion/rtcp@v1.2.20
+  Source: https://pkg.go.dev/github.com/pion/rtcp@v1.2.20
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/rtp@v1.10.6
+  Source: https://pkg.go.dev/github.com/pion/rtp@v1.10.6
+  LICENSE: SHA256 b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0
+
+Go module: github.com/pion/sctp@v1.12.0
+  Source: https://pkg.go.dev/github.com/pion/sctp@v1.12.0
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/sdp/v3@v3.0.20
+  Source: https://pkg.go.dev/github.com/pion/sdp/v3@v3.0.20
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/srtp/v3@v3.1.3
+  Source: https://pkg.go.dev/github.com/pion/srtp/v3@v3.1.3
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/stun/v4@v4.0.1
+  Source: https://pkg.go.dev/github.com/pion/stun/v4@v4.0.1
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/transport/v5@v5.1.4
+  Source: https://pkg.go.dev/github.com/pion/transport/v5@v5.1.4
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/turn/v5@v5.1.3
+  Source: https://pkg.go.dev/github.com/pion/turn/v5@v5.1.3
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
+Go module: github.com/pion/webrtc/v4@v4.2.26
+  Source: https://pkg.go.dev/github.com/pion/webrtc/v4@v4.2.26
+  LICENSE: SHA256 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+
 Go module: github.com/pkg/errors@v0.9.1
   Source: https://pkg.go.dev/github.com/pkg/errors@v0.9.1
   LICENSE: SHA256 8d427fd87bc9579ea368fde3d49f9ca22eac857f91a9dec7e3004bdfab7dee86
@@ -298,6 +370,10 @@ Go module: github.com/TwiN/go-away@v1.8.1
   Source: https://pkg.go.dev/github.com/TwiN/go-away@v1.8.1
   LICENSE: SHA256 9696bcf3a699af2d0146d2f1d823c5648f9d8c513fddcfdd2f3db1088fd577c5
 
+Go module: github.com/wlynxg/anet@v0.0.5
+  Source: https://pkg.go.dev/github.com/wlynxg/anet@v0.0.5
+  LICENSE: SHA256 6b8970dbe36fe214fd02b438c06daee19897708e435d761ecd18adc9ef7e7a05
+
 Go module: github.com/yuin/goldmark-emoji@v1.0.6
   Source: https://pkg.go.dev/github.com/yuin/goldmark-emoji@v1.0.6
   LICENSE: SHA256 64ce0d485c3558737f049b960abc5dde745f4122daaae1869ebc066566cc35f1
@@ -320,28 +396,28 @@ Go module: go.yaml.in/yaml/v2@v2.4.2
   LICENSE.libyaml: SHA256 a94710b55e03b5285f77d048c5ba61bb9d6ee04a06c0eb90e68821e11b0c707a
   NOTICE: SHA256 f6c2dd3a67b576eafb89b80200b8b1627230bf3821a0c14cb99a22ac19107d00
 
-Go module: golang.org/x/crypto@v0.54.0
-  Source: https://pkg.go.dev/golang.org/x/crypto@v0.54.0
+Go module: golang.org/x/crypto@v0.58.0
+  Source: https://pkg.go.dev/golang.org/x/crypto@v0.58.0
   LICENSE: SHA256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 
-Go module: golang.org/x/mod@v0.37.0
-  Source: https://pkg.go.dev/golang.org/x/mod@v0.37.0
+Go module: golang.org/x/mod@v0.41.0
+  Source: https://pkg.go.dev/golang.org/x/mod@v0.41.0
   LICENSE: SHA256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 
-Go module: golang.org/x/net@v0.56.0
-  Source: https://pkg.go.dev/golang.org/x/net@v0.56.0
+Go module: golang.org/x/net@v0.61.0
+  Source: https://pkg.go.dev/golang.org/x/net@v0.61.0
   LICENSE: SHA256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 
-Go module: golang.org/x/sync@v0.22.0
-  Source: https://pkg.go.dev/golang.org/x/sync@v0.22.0
+Go module: golang.org/x/sync@v0.24.0
+  Source: https://pkg.go.dev/golang.org/x/sync@v0.24.0
   LICENSE: SHA256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 
-Go module: golang.org/x/sys@v0.47.0
-  Source: https://pkg.go.dev/golang.org/x/sys@v0.47.0
+Go module: golang.org/x/sys@v0.49.0
+  Source: https://pkg.go.dev/golang.org/x/sys@v0.49.0
   LICENSE: SHA256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 
-Go module: golang.org/x/text@v0.40.0
-  Source: https://pkg.go.dev/golang.org/x/text@v0.40.0
+Go module: golang.org/x/text@v0.43.0
+  Source: https://pkg.go.dev/golang.org/x/text@v0.43.0
   LICENSE: SHA256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 
 Go module: golang.org/x/time@v0.15.0
@@ -356,7 +432,7 @@ Go module: mvdan.cc/xurls/v2@v2.6.0
   Source: https://pkg.go.dev/mvdan.cc/xurls/v2@v2.6.0
   LICENSE: SHA256 6b44db2e2b57c1f8a3b44f105650813bbef494e0472cb76620d4dfbffd96f988
 
-Go runtime: go1.26.5
+Go runtime: go1.26.2
   Source: https://go.dev/LICENSE
   LICENSE: SHA256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 
@@ -844,6 +920,21 @@ Web package: @next/swc-linux-x64-musl@16.2.10
   Source: https://registry.npmjs.org/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-16.2.10.tgz
   Declared license: MIT
   LICENSE TEXT NOT FOUND: The package contains no root license text. package.json declares: MIT.
+
+Web package: @parcel/watcher-linux-x64-glibc@2.5.6
+  Source: https://registry.npmjs.org/@parcel/watcher-linux-x64-glibc/-/watcher-linux-x64-glibc-2.5.6.tgz
+  Declared license: MIT
+  LICENSE: SHA256 5cfba9d5711264d45a2431a53c79f597cef12720cc7c764db2602daa92d0bd2a
+
+Web package: @parcel/watcher-linux-x64-musl@2.5.6
+  Source: https://registry.npmjs.org/@parcel/watcher-linux-x64-musl/-/watcher-linux-x64-musl-2.5.6.tgz
+  Declared license: MIT
+  LICENSE: SHA256 5cfba9d5711264d45a2431a53c79f597cef12720cc7c764db2602daa92d0bd2a
+
+Web package: @parcel/watcher@2.5.6
+  Source: https://registry.npmjs.org/@parcel/watcher/-/watcher-2.5.6.tgz
+  Declared license: MIT
+  LICENSE: SHA256 5cfba9d5711264d45a2431a53c79f597cef12720cc7c764db2602daa92d0bd2a
 
 Web package: @polka/url@1.0.0-next.29
   Source: https://registry.npmjs.org/@polka/url/-/url-1.0.0-next.29.tgz
@@ -2160,6 +2251,11 @@ Web package: next@16.2.10
   Declared license: MIT
   license.md: SHA256 ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224
 
+Web package: node-addon-api@7.1.1
+  Source: https://registry.npmjs.org/node-addon-api/-/node-addon-api-7.1.1.tgz
+  Declared license: MIT
+  LICENSE.md: SHA256 89024017b88a9f2b763f79b941a4f2db3b4428edfcacdc0b23866b2da633ad0c
+
 Web package: node-releases@2.0.50
   Source: https://registry.npmjs.org/node-releases/-/node-releases-2.0.50.tgz
   Declared license: MIT
@@ -2222,6 +2318,11 @@ Web package: picocolors@1.1.1
 
 Web package: picomatch@2.3.2
   Source: https://registry.npmjs.org/picomatch/-/picomatch-2.3.2.tgz
+  Declared license: MIT
+  LICENSE: SHA256 d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9
+
+Web package: picomatch@4.0.5
+  Source: https://registry.npmjs.org/picomatch/-/picomatch-4.0.5.tgz
   Declared license: MIT
   LICENSE: SHA256 d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9
 
@@ -9249,6 +9350,34 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
+SHA256: 5cfba9d5711264d45a2431a53c79f597cef12720cc7c764db2602daa92d0bd2a
+Used by: Web package: @parcel/watcher-linux-x64-glibc@2.5.6 (LICENSE)
+Used by: Web package: @parcel/watcher-linux-x64-musl@2.5.6 (LICENSE)
+Used by: Web package: @parcel/watcher@2.5.6 (LICENSE)
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2017-present Devon Govett
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
 SHA256: 5d0427088e37071c4b942de990f6365d5c2d195f3e957ce925322d184784e2eb
 Used by: Web package: @rc-component/async-validator@6.0.0 (LICENSE.md)
 Used by: Web package: @rc-component/collapse@1.2.0 (LICENSE.md)
@@ -9484,6 +9613,31 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
+SHA256: 6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f
+Used by: Go module: github.com/pion/datachannel@v1.6.3 (LICENSE)
+Used by: Go module: github.com/pion/dtls/v3@v3.1.15 (LICENSE)
+Used by: Go module: github.com/pion/ice/v4@v4.4.8 (LICENSE)
+Used by: Go module: github.com/pion/interceptor@v0.1.51 (LICENSE)
+Used by: Go module: github.com/pion/rtcp@v1.2.20 (LICENSE)
+Used by: Go module: github.com/pion/sctp@v1.12.0 (LICENSE)
+Used by: Go module: github.com/pion/sdp/v3@v3.0.20 (LICENSE)
+Used by: Go module: github.com/pion/srtp/v3@v3.1.3 (LICENSE)
+Used by: Go module: github.com/pion/stun/v4@v4.0.1 (LICENSE)
+Used by: Go module: github.com/pion/transport/v5@v5.1.4 (LICENSE)
+Used by: Go module: github.com/pion/turn/v5@v5.1.3 (LICENSE)
+Used by: Go module: github.com/pion/webrtc/v4@v4.2.26 (LICENSE)
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2026 The Pion community <https://pion.ly>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
 SHA256: 64ce0d485c3558737f049b960abc5dde745f4122daaae1869ebc066566cc35f1
 Used by: Go module: github.com/yuin/goldmark-emoji@v1.0.6 (LICENSE)
 --------------------------------------------------------------------------------
@@ -9710,6 +9864,39 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+SHA256: 6b8970dbe36fe214fd02b438c06daee19897708e435d761ecd18adc9ef7e7a05
+Used by: Go module: github.com/wlynxg/anet@v0.0.5 (LICENSE)
+--------------------------------------------------------------------------------
+BSD 3-Clause License
+
+Copyright (c) 2023, wlynxg
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 SHA256: 6c03fd41cfd7c92d8aa8a2fa521b94b2683f059123281dcf921ddea9216b6254
@@ -10584,6 +10771,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
+SHA256: 83e4dd21429a91fb7cea67a476032a9641425e5355df2e0f589a738b6ec9fd2c
+Used by: Go module: github.com/pion/mdns/v2@v2.2.2 (LICENSE)
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2018 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
 SHA256: 8548bfb2bc1913396df38c548a6ec60b8dbcac3b0800485a40569c8bdd184471
 Used by: Go module: github.com/prometheus/client_golang@v1.23.2 (NOTICE)
 --------------------------------------------------------------------------------
@@ -10706,6 +10919,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ================================================================================
+SHA256: 87272dba8c4fcf57101a3195f4f53f7b010b6e153b9b0977bb1a3f91acddf691
+Used by: Go module: github.com/pion/logging@v0.2.4 (LICENSE)
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2023 The Pion community <https://pion.ly>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
 SHA256: 87c2f96d275cd4fb2b047e23f792f34704ffb798949039da60392b7122685412
 Used by: Web package: debounce@1.2.1 (LICENSE)
 --------------------------------------------------------------------------------
@@ -10782,6 +11009,20 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+SHA256: 89024017b88a9f2b763f79b941a4f2db3b4428edfcacdc0b23866b2da633ad0c
+Used by: Web package: node-addon-api@7.1.1 (LICENSE.md)
+--------------------------------------------------------------------------------
+The MIT License (MIT)
+
+Copyright (c) 2017 [Node.js API collaborators](https://github.com/nodejs/node-addon-api#collaborators)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 SHA256: 896c9fd6b5fc48ac31800b9d29a6e3ffcb0c2d534ed077ebfa5c2fa388cc38b7
@@ -11103,14 +11344,14 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 SHA256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
-Used by: Go module: golang.org/x/crypto@v0.54.0 (LICENSE)
-Used by: Go module: golang.org/x/mod@v0.37.0 (LICENSE)
-Used by: Go module: golang.org/x/net@v0.56.0 (LICENSE)
-Used by: Go module: golang.org/x/sync@v0.22.0 (LICENSE)
-Used by: Go module: golang.org/x/sys@v0.47.0 (LICENSE)
-Used by: Go module: golang.org/x/text@v0.40.0 (LICENSE)
+Used by: Go module: golang.org/x/crypto@v0.58.0 (LICENSE)
+Used by: Go module: golang.org/x/mod@v0.41.0 (LICENSE)
+Used by: Go module: golang.org/x/net@v0.61.0 (LICENSE)
+Used by: Go module: golang.org/x/sync@v0.24.0 (LICENSE)
+Used by: Go module: golang.org/x/sys@v0.49.0 (LICENSE)
+Used by: Go module: golang.org/x/text@v0.43.0 (LICENSE)
 Used by: Go module: golang.org/x/time@v0.15.0 (LICENSE)
-Used by: Go runtime: go1.26.5 (LICENSE)
+Used by: Go runtime: go1.26.2 (LICENSE)
 --------------------------------------------------------------------------------
 Copyright 2009 The Go Authors.
 
@@ -12536,6 +12777,20 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
+SHA256: b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0
+Used by: Go module: github.com/pion/rtp@v1.10.6 (LICENSE)
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
 SHA256: ba1246a778c0fa3d8d8e2e63c3334d88e004743c8bb7f069b1b640d2e3f6476f
 Used by: Go module: github.com/extism/go-sdk@v1.7.1 (LICENSE)
 --------------------------------------------------------------------------------
@@ -12619,6 +12874,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+================================================================================
+SHA256: badaf9bc72e71d5a70e7604c636b5b7adf79b9cafc188688438105d2b1e54722
+Used by: Go module: github.com/pion/randutil@v0.1.0 (LICENSE)
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2020 Pion
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ================================================================================
 SHA256: badfc510e6e1ee190a835f7977bb06b30b66cc05755627b6a1b75562deb97ff7
@@ -14026,6 +14307,7 @@ THE SOFTWARE.
 ================================================================================
 SHA256: d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9
 Used by: Web package: picomatch@2.3.2 (LICENSE)
+Used by: Web package: picomatch@4.0.5 (LICENSE)
 --------------------------------------------------------------------------------
 The MIT License (MIT)
 
@@ -14452,6 +14734,32 @@ Used by: Web package: readdirp@5.0.0 (LICENSE)
 MIT License
 
 Copyright (c) 2012-2019 Thorsten Lorenz, Paul Miller (https://paulmillr.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+SHA256: e06fa69a1323047677ade8e6757aa248183203e6b80025d3029db090d3b48624
+Used by: Go module: github.com/datarhei/gosrt@v0.13.0 (LICENSE)
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2020-2022 FOSS GmbH
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

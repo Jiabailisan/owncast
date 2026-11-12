@@ -24,6 +24,10 @@ const knownMissing = new Map([
     'Go module: github.com/schollz/sqlite3dump@v1.3.1',
     'The pinned archive predates the MIT license now published by the upstream repository.',
   ],
+  [
+    'Go module: github.com/benburkert/openpgp@v0.0.0-20160410205803-c2471f86866c',
+    'No license file is published with this version. It is an indirect dependency of the WebRTC/SRT stack and carries no license text upstream.',
+  ],
 ]);
 const legalName = /^(licen[cs]e|notice|copying|copyright|third[-_]party[-_]notices?)([._-].*)?$/i;
 
