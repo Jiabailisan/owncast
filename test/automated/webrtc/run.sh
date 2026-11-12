@@ -404,9 +404,72 @@ else
 	status_skip "t4-srt-webrtc" "WebRTC disabled or --no-media"
 fi
 
-status_blocked "capacity-gate" "env-gated (OWNCAST_WHEP_CAPACITY_TEST): requires maxViewers=1 server config; covered by services/webrtc tests"
-status_blocked "rate-limit" "env-gated (OWNCAST_WHEP_RATELIMIT_TEST): requires signalingRateLimit=1 server config"
-status_blocked "domain-binding" "env-gated (OWNCAST_WHEP_STRICT_DOMAIN_TEST): requires strictDomain=true server config"
+# --- gated WHEP contract tests ----------------------------------------------
+# These three used to be reported BLOCKED in every gate, so the capacity limit,
+# the signaling rate limit and the strict-domain Host check had no runtime
+# coverage at all. Each setting is ApplyLive, so the server can be reconfigured
+# for the test and restored afterwards without a restart.
+gated_restore_config() {
+	[[ -f "$RUN_DIR/gated-original.json" ]] || return 0
+	node "$CONFIG_MERGE" "$RUN_DIR/gated-original.json" "$RUN_DIR/gated-restore.json" >/dev/null 2>&1 || return 0
+	api_code PUT /config/webrtc "$RUN_DIR/gated-restore-response.json" "$RUN_DIR/gated-restore.json" >/dev/null 2>&1 || true
+}
+
+run_gated_whep() { # run_gated_whep <tag> <go test name> <extra env> <merge args...>
+	local tag="$1" test_name="$2" extra_env="$3"
+	shift 3
+	if [[ "$WEBRTC_ENABLED" != "1" || "$GO_HARNESS" != "1" ]]; then
+		status_skip "$tag" "WebRTC disabled or no Go harness"
+		return 0
+	fi
+	if ! node "$CONFIG_MERGE" "$RUN_DIR/gated-original.json" "$RUN_DIR/gated-$tag-put.json" "$@" >/dev/null 2>&1; then
+		status_blocked "$tag" "could not build the config update"
+		return 0
+	fi
+	local put rc=0
+	put="$(api_code PUT /config/webrtc "$RUN_DIR/gated-$tag-put-response.json" "$RUN_DIR/gated-$tag-put.json")"
+	if [[ "$put" != "200" ]]; then
+		status_blocked "$tag" "config PUT -> $put (gated-$tag-put-response.json)"
+		gated_restore_config
+		return 0
+	fi
+	(
+		cd "$OWNCAST_DIR" || exit 1
+		# shellcheck disable=SC2086
+		env OWNCAST_BASE_URL="$BASE" $extra_env \
+			timeout 180 go test -tags=integration -count=1 -run "^$test_name$" ./test/automated/webrtc/...
+	) >"$RUN_DIR/go-$tag.log" 2>&1 || rc=$?
+	gated_restore_config
+	if [[ "$rc" == "0" ]]; then
+		status_pass "$tag" "$test_name passed with the gated config (go-$tag.log)"
+	else
+		status_fail "$tag" "$test_name failed rc=$rc (go-$tag.log)"
+	fi
+	return 0
+}
+
+if [[ "$WEBRTC_ENABLED" == "1" && "$DO_MEDIA" == "1" && "$GO_HARNESS" == "1" ]]; then
+	api_code GET /config/webrtc "$RUN_DIR/gated-original.json" >/dev/null 2>&1 || true
+	"$FF" -hide_banner -loglevel error -re -stream_loop -1 -i "$SAMPLE_FLV" \
+		-c copy -f flv "rtmp://127.0.0.1:$RTMP_PORT/live/abc123" >"$RUN_DIR/publisher-gated.log" 2>&1 &
+	PUB_PID=$!
+	if wait_online 25; then
+		run_gated_whep "capacity-gate" "TestWHEPCapacityRejection" "" maxViewers=1
+		run_gated_whep "rate-limit" "TestWHEPRateLimit" "" signalingRateLimit=1
+		run_gated_whep "domain-binding" "TestWHEPStrictDomain" "OWNCAST_WHEP_DOMAIN=live.example.org" \
+			domain=live.example.org 'publicIPs=["127.0.0.1"]' strictDomain=true
+	else
+		status_blocked "capacity-gate" "no live stream for the gated WHEP tests (publisher-gated.log)"
+		status_blocked "rate-limit" "no live stream for the gated WHEP tests"
+		status_blocked "domain-binding" "no live stream for the gated WHEP tests"
+	fi
+	kill "$PUB_PID" 2>/dev/null || true; wait "$PUB_PID" 2>/dev/null || true; PUB_PID=""
+	wait_offline 20 || true
+else
+	status_skip "capacity-gate" "WebRTC disabled, --no-media, or no Go harness"
+	status_skip "rate-limit" "WebRTC disabled, --no-media, or no Go harness"
+	status_skip "domain-binding" "WebRTC disabled, --no-media, or no Go harness"
+fi
 status_blocked "nack-pli-counters" "no public/admin per-viewer NACK/PLI counter API; harness asserts RTCP PLI acceptance only"
 
 cp "$STATE_DIR/logs/owncast.log" "$RUN_DIR/owncast.log" 2>/dev/null || true
