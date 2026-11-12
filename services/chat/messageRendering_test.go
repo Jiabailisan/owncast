@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/owncast/owncast/config"
@@ -65,11 +66,15 @@ func TestAllowHTML(t *testing.T) {
 	}
 }
 
-func TestSendSystemActionRendersTrustedHTML(t *testing.T) {
+func TestSendSystemActionSanitizesHTML(t *testing.T) {
 	client := &Client{send: make(chan []byte, 1)}
 	service := &Service{clients: map[uint]*Client{1: client}}
 
-	if err := service.SendSystemAction(`<span class="trusted" style="color:red">Status</span>`, true); err != nil {
+	// A system action body is operator or integration supplied but rendered into
+	// viewer and admin pages with dangerouslySetInnerHTML, so it must be sanitised
+	// like any other body.
+	body := "<span class='trusted' style='color:red' onclick='alert(1)'>Status</span><script>alert(1)</script>"
+	if err := service.SendSystemAction(body, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,9 +85,13 @@ func TestSendSystemActionRendersTrustedHTML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const want = "<p><span class=\"trusted\" style=\"color:red\">Status</span></p>\n"
-	if payload.Body != want {
-		t.Fatalf("action body = %q, want %q", payload.Body, want)
+	for _, forbidden := range []string{"onclick", "<script", "style="} {
+		if strings.Contains(payload.Body, forbidden) {
+			t.Fatalf("system action kept executable markup %q: %q", forbidden, payload.Body)
+		}
+	}
+	if !strings.Contains(payload.Body, "Status") {
+		t.Fatalf("system action lost its text: %q", payload.Body)
 	}
 }
 
@@ -102,7 +111,8 @@ func TestSendSystemActionDoesNotReactivateSanitizedDisplayName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const want = "<p><strong>Alice</strong> has been removed from chat.</p>\n"
+	// Sanitised rendering does not append the trailing newline goldmark emits.
+	const want = "<p><strong>Alice</strong> has been removed from chat.</p>"
 	if payload.Body != want {
 		t.Fatalf("action body = %q, want %q", payload.Body, want)
 	}

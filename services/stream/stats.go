@@ -39,6 +39,11 @@ func (s *Service) setupStats() error {
 // live HLS content. Returns false during the brief warm-up after an
 // RTMP connection where HLS segments aren't ready yet.
 func (s *Service) IsStreamConnected() bool {
+	// The metrics ticker and every playlist request mutate these fields under
+	// statsMu, and this is called per HLS segment request.
+	s.statsMu.RLock()
+	defer s.statsMu.RUnlock()
+
 	if s.stats == nil || !s.stats.StreamConnected {
 		return false
 	}

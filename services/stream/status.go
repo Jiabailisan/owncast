@@ -28,18 +28,22 @@ func (s *Service) GetStatus() models.Status {
 		return models.Status{}
 	}
 
+	// Resolve connectivity before taking statsMu: IsStreamConnected takes the same
+	// read lock, and a recursive read lock deadlocks as soon as a writer queues.
+	online := s.IsStreamConnected()
+
 	// The viewer map and the counters are mutated by the metrics ticker and by
 	// every playlist request, so read them under the lock.
 	s.statsMu.RLock()
 	viewerCount := 0
-	if s.IsStreamConnected() {
+	if online {
 		viewerCount = len(s.stats.Viewers)
 	}
 	stats := s.stats
 	s.statsMu.RUnlock()
 
 	status := models.Status{
-		Online:                s.IsStreamConnected(),
+		Online:                online,
 		ViewerCount:           viewerCount,
 		OverallMaxViewerCount: stats.OverallMaxViewerCount,
 		SessionMaxViewerCount: stats.SessionMaxViewerCount,

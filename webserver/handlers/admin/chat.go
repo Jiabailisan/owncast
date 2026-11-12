@@ -94,7 +94,13 @@ func (a *Admin) UnBanIPAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.authRepository.RemoveIPAddressBan(configValue.Value.(string)); err != nil {
+	typedValue, valueOK := configValue.Value.(string)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a string"))
+		return
+	}
+
+	if err := a.authRepository.RemoveIPAddressBan(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, "error removing IP address ban")
 		return
 	}
@@ -324,7 +330,7 @@ func (a *Admin) SendIntegrationChatMessage(integration models.ExternalAPIUser, w
 		return
 	}
 	event.SetDefaults()
-	event.RenderBody()
+	event.RenderAndSanitizeMessageBody()
 	event.Type = "CHAT"
 
 	if event.Empty() {
@@ -381,7 +387,13 @@ func (a *Admin) SetEnableEstablishedChatUserMode(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(configValue.Value.(bool)); err != nil {
+	typedValue, valueOK := configValue.Value.(bool)
+	if !valueOK {
+		webutils.BadRequestHandler(w, errors.New("value must be a boolean"))
+		return
+	}
+
+	if err := a.configRepository.SetChatEstablishedUsersOnlyMode(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
