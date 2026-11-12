@@ -66,8 +66,11 @@ const BrowserNotifyModal = dynamic(
   },
 );
 
-const OwncastPlayer = dynamic(
-  () => import('../../video/OwncastPlayer/OwncastPlayer').then(mod => mod.OwncastPlayer),
+// PlayerContainer picks WebRTC when the server enables it and falls back to the
+// HLS player otherwise. Rendering the HLS player directly here bypassed that
+// choice entirely, so a viewer never got the low-latency transport.
+const PlayerContainer = dynamic(
+  () => import('../../video/PlayerContainer').then(mod => mod.PlayerContainer),
   {
     ssr: false,
     loading: () => <Skeleton loading active paragraph={{ rows: 12 }} />,
@@ -270,7 +273,7 @@ export const Content: FC = () => {
         )}
         <Row>
           {online && configLoaded && (
-            <OwncastPlayer
+            <PlayerContainer
               source="/hls/stream.m3u8"
               online={online}
               title={streamTitle || name}
