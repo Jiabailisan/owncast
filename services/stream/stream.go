@@ -466,13 +466,18 @@ func (s *Service) stopOnlineCleanupTimer() {
 	}
 }
 
+// goLiveNotificationDelay is how long a stream must stay live before the federated
+// Go Live message and the push notifications go out, so a short test stream does
+// not notify every follower. It is cancelled outright if the stream ends first.
+const goLiveNotificationDelay = 15 * time.Second
+
 func (s *Service) startLiveStreamNotificationsTimer() context.CancelFunc {
 	// Send delayed notification messages.
 	c, cancelFunc := context.WithCancel(context.Background())
 	s.onlineTimerCancelFunc = cancelFunc
 	go func(c context.Context) {
 		select {
-		case <-time.After(time.Minute * 2.0):
+		case <-time.After(goLiveNotificationDelay):
 			if s.lastNotified != nil && time.Since(*s.lastNotified) < 10*time.Minute {
 				return
 			}

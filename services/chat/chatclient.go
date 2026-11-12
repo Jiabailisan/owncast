@@ -279,11 +279,11 @@ func (c *Client) sendPayload(payload interface{}) {
 		return
 	}
 
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.send != nil {
-		c.send <- data
+	// Never block the single chat event loop on one slow reader. trySend drops the
+	// payload when this client's buffer is full instead of stalling every other
+	// viewer's chat; the client resynchronises when it reconnects.
+	if !c.trySend(data) {
+		log.Debugln("chat: dropped a payload for a client whose buffer is full", c.Id)
 	}
 }
 
