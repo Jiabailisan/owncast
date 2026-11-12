@@ -259,59 +259,66 @@ func (a *Admin) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// SetCustomPlayerPath validates, stores or clears the custom player module path.
-func (a *Admin) SetCustomPlayerPath(w http.ResponseWriter, r *http.Request) {
+// setAppearanceStringField is the shared shape of the appearance setters that take a
+// single optional string: POST only, a string value, an optional validator when the
+// value is not empty, then the repository write. The two setters below were the same
+// fifty lines twice.
+func (a *Admin) setAppearanceStringField(
+	w http.ResponseWriter,
+	r *http.Request,
+	fieldName string,
+	validate func(string) error,
+	store func(string) error,
+	successMessage string,
+) {
 	if !requirePOST(w, r) {
 		return
 	}
-	configValue, success := getValueFromRequest(w, r)
-	if !success {
-		return
-	}
-	path, ok := valueAsStringOK(configValue.Value)
+	configValue, ok := getValueFromRequest(w, r)
 	if !ok {
-		webutils.WriteSimpleResponse(w, false, "custom player path must be a string")
 		return
 	}
-
-	if path != "" {
-		if _, err := settings.ValidatePlayerPath(path); err != nil {
+	value, ok := valueAsStringOK(configValue.Value)
+	if !ok {
+		webutils.WriteSimpleResponse(w, false, fieldName+" must be a string")
+		return
+	}
+	if value != "" && validate != nil {
+		if err := validate(value); err != nil {
 			webutils.WriteSimpleResponse(w, false, err.Error())
 			return
 		}
 	}
-	if err := a.configRepository.SetCustomPlayerPath(path); err != nil {
+	if err := store(value); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
-	webutils.WriteSimpleResponse(w, true, "custom player path updated")
+	webutils.WriteSimpleResponse(w, true, successMessage)
+}
+
+// SetCustomPlayerPath validates, stores or clears the custom player module path.
+func (a *Admin) SetCustomPlayerPath(w http.ResponseWriter, r *http.Request) {
+	a.setAppearanceStringField(
+		w, r, "custom player path",
+		func(value string) error {
+			_, err := settings.ValidatePlayerPath(value)
+			return err
+		},
+		a.configRepository.SetCustomPlayerPath,
+		"custom player path updated",
+	)
 }
 
 // SetCustomFrontendDir validates, stores or clears the custom viewer frontend
 // directory.
 func (a *Admin) SetCustomFrontendDir(w http.ResponseWriter, r *http.Request) {
-	if !requirePOST(w, r) {
-		return
-	}
-	configValue, success := getValueFromRequest(w, r)
-	if !success {
-		return
-	}
-	directory, ok := valueAsStringOK(configValue.Value)
-	if !ok {
-		webutils.WriteSimpleResponse(w, false, "custom frontend directory must be a string")
-		return
-	}
-
-	if directory != "" {
-		if _, err := settings.ValidateFrontendDir(directory); err != nil {
-			webutils.WriteSimpleResponse(w, false, err.Error())
-			return
-		}
-	}
-	if err := a.configRepository.SetCustomFrontendDir(directory); err != nil {
-		webutils.WriteSimpleResponse(w, false, err.Error())
-		return
-	}
-	webutils.WriteSimpleResponse(w, true, "custom frontend directory updated")
+	a.setAppearanceStringField(
+		w, r, "custom frontend directory",
+		func(value string) error {
+			_, err := settings.ValidateFrontendDir(value)
+			return err
+		},
+		a.configRepository.SetCustomFrontendDir,
+		"custom frontend directory updated",
+	)
 }
