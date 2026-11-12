@@ -307,7 +307,10 @@ func (t *Transcoder) writeMasterPlaylist() {
 			"BANDWIDTH=" + strconv.Itoa(peakKbps*1000),
 			"AVERAGE-BANDWIDTH=" + strconv.Itoa(averageKbps*1000),
 		}
-		if variant.videoSize.Width > 0 && variant.videoSize.Height > 0 {
+		// A passthrough rendition is not scaled, so videoSize only restates the
+		// configured scaler inputs: advertising it claimed a resolution the copied
+		// segments do not have (854x480 announced while the frames were 1280x720).
+		if !variant.isVideoPassthrough && variant.videoSize.Width > 0 && variant.videoSize.Height > 0 {
 			attributes = append(attributes, fmt.Sprintf("RESOLUTION=%dx%d", variant.videoSize.Width, variant.videoSize.Height))
 		}
 		if variant.framerate > 0 {
