@@ -162,10 +162,9 @@ export type OwncastPlayerProps = {
   transportError?: string;
 };
 
-// Minimum window for a decoded-frame sample. The meter polls once a second, so this
-// must stay below that or no sample ever qualifies; it still rejects the much
-// shorter windows that turned 60 fps into 120.
-const MIN_FPS_SAMPLE_SECONDS = 0.9;
+// Minimum window for a decoded-frame sample. A shorter window turns 60 fps into
+// 120 and a counter that has not advanced into a blank reading.
+const MIN_FPS_SAMPLE_SECONDS = 1.5;
 
 export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   source,
@@ -357,25 +356,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         });
 
         return false;
-      }
-
-      // The switch is only decided now; the buffer still holds segments of the
-      // previous level, so playback would drain them before the new one appears.
-      // Jumping to the live edge discards them and starts fetching the new level
-      // immediately, which is what a viewer expects from a manual selection.
-      try {
-        const player = playerRef.current;
-        const edge = player?.liveTracker?.seekableEnd?.() ?? player?.seekableEnd?.();
-        if (
-          typeof edge === 'number' &&
-          Number.isFinite(edge) &&
-          edge > 0 &&
-          player?.liveTracker?.isLive?.() !== false
-        ) {
-          player.currentTime(edge);
-        }
-      } catch {
-        // Seeking is an optimisation; a failure must not fail the switch.
       }
 
       return true;
