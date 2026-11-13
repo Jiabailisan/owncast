@@ -36,6 +36,7 @@ import {
   hlsPlaylistFps,
   hlsPlaylistSegments,
   hlsResolution,
+  hlsAdvertisedBitrateKbps,
   hlsVideoBitrateKbps,
   pushSparkline,
   videoAspectRatio,
@@ -161,6 +162,10 @@ export type OwncastPlayerProps = {
   transportError?: string;
 };
 
+// Minimum window for a decoded-frame sample. A shorter window turns 60 fps into
+// 120 and a counter that has not advanced into a blank reading.
+const MIN_FPS_SAMPLE_SECONDS = 1.5;
+
 export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   source,
   online,
@@ -214,6 +219,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const hlsMeterRef = React.useRef<{
     frames: number | null;
     sampledAt: number;
+    lastFps: number | null;
     decodedBytes: number | null;
     decodedAt: number;
     audioBitrateKbps: number | null;
@@ -221,6 +227,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   }>({
     frames: null,
     sampledAt: 0,
+    lastFps: null,
     decodedBytes: null,
     decodedAt: 0,
     audioBitrateKbps: null,
@@ -557,11 +564,18 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         typeof quality?.totalVideoFrames === 'number' ? quality.totalVideoFrames : null;
       let measuredFps: number | null = null;
       if (totalFrames !== null && meter.frames !== null && meter.sampledAt > 0) {
-        measuredFps = hlsMeasuredFps(totalFrames - meter.frames, (now - meter.sampledAt) / 1000);
-      }
-      if (totalFrames !== null) {
-        meter.frames = totalFrames;
-        meter.sampledAt = now;
+        const elapsed = (now - meter.sampledAt) / 1000;
+        // Sample over a window long enough to average out a bursty frame counter.
+        // A short window reports 60 fps as 120, and a counter that has not advanced
+        // yet as nothing at all, which made the figure blink once a poll.
+        if (elapsed >= MIN_FPS_SAMPLE_SECONDS) {
+          measuredFps = hlsMeasuredFps(totalFrames - meter.frames, elapsed) ?? meter.lastFps;
+          if (measuredFps !== null) meter.lastFps = measuredFps;
+          meter.frames = totalFrames;
+          meter.sampledAt = now;
+        } else {
+          measuredFps = meter.lastFps;
+        }
       }
 
       // WebKit exposes a decoded-byte counter, the most direct bitrate source.
@@ -614,7 +628,12 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         decodedBitsPerSecond,
         audioBitrateKbps: meter.audioBitrateKbps,
       };
-      const videoBitrateKbps = hlsVideoBitrateKbps(meterInput);
+      const videoBitrateKbps =
+        hlsVideoBitrateKbps(meterInput) ??
+        hlsAdvertisedBitrateKbps(
+          activeRepresentation?.attributes ?? null,
+          qualities.find(item => String(item.index) === selectedQuality)?.name ?? null,
+        );
       const connectionSpeedKbps = hlsConnectionSpeedKbps(meterInput, videoBitrateKbps);
       const resolution = hlsResolution(video?.videoWidth, video?.videoHeight, fps);
       const audioBitrateKbps = meter.audioBitrateKbps;

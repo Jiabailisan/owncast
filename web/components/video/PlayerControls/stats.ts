@@ -218,6 +218,24 @@ export function hlsPlaylistFps(
   return fromName !== null ? Math.round(fromName) : null;
 }
 
+// Advertised video bitrate in kbps: the playlist BANDWIDTH attribute, or a quality
+// name such as "1.2Mbps@24fps". Native HLS playback (iOS Safari) exposes neither
+// the VHS counters nor a representation, so this is the only figure available
+// there; showing the advertised rate beats showing nothing.
+export function hlsAdvertisedBitrateKbps(
+  attributes?: Record<string, unknown> | null,
+  qualityName?: string | null,
+): number | null {
+  const fromAttributes = positiveNumber(attributes?.['BANDWIDTH'] ?? attributes?.['bandwidth']);
+  if (fromAttributes !== null) return Math.round(fromAttributes / 1000);
+
+  const match =
+    typeof qualityName === 'string' ? qualityName.match(/(\d+(?:\.\d+)?)\s*Mbps/i) : null;
+  const mbps = match ? positiveNumber(match[1]) : null;
+
+  return mbps !== null ? Math.round(mbps * 1000) : null;
+}
+
 // "1280x720@24fps" when width/height are known; em dash otherwise.
 export function hlsResolution(
   width: number | null | undefined,
