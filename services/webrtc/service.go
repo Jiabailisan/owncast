@@ -340,6 +340,29 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 	return nil
 }
 
+// registerSession publishes sess only while the variant it was negotiated against
+// is still the published one. Variant withdrawal mutates s.variants under the same
+// lock, so a withdrawal that races the negotiation is caught here: either it lands
+// first and the session is refused, or it lands afterwards and DisableVariants
+// drops the session. Without this the session became reachable while the tracks it
+// was built on were no longer published.
+func (s *Service) registerSession(sess *session) bool {
+	if sess == nil || sess.variant == nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current, ok := s.variants[sess.variant.variant.Index]
+	if !ok || current != sess.variant {
+		return false
+	}
+	s.sessions.add(sess)
+
+	return true
+}
+
 // DisableVariants removes published variants whose media leg could not be opened,
 // so WHEP never offers a rendition it cannot deliver. The remaining variants keep
 // their configured indices, an explicit request for a disabled one is answered

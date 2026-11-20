@@ -143,6 +143,10 @@ type Service struct {
 	webRTCProcessMu sync.RWMutex
 	// webRTCProcess is the WebRTC-only FFmpeg process.
 	webRTCProcess *transcoder.Transcoder
+	// webRTCProcessSession is the session the process above belongs to. A
+	// supervisor from an older session must not install or clear a reference that
+	// a newer session owns, so ownership is recorded with the reference.
+	webRTCProcessSession ingest.Session
 	// webRTCMu guards webRTCWarnings.
 	webRTCMu sync.RWMutex
 	// webRTCWarnings are the leg-planning warnings for the current stream.

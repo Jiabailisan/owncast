@@ -41,6 +41,10 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	}
 	s.setTranscoder(hls)
 
+	// Claim the process reference for this session before its supervisor starts, so
+	// a supervisor left over from the previous stream can no longer write to it.
+	s.claimWebRTCProcessSession(session)
+
 	go tee.Run()
 	go hls.Start(true)
 	go s.superviseWebRTCProcess(tee, session, rtpOutputs)
@@ -80,7 +84,13 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			default:
 			}
 		}
-		s.setWebRTCTranscoder(tr)
+		if !s.registerWebRTCTranscoder(session, tr) {
+			// The session ended, or a newer stream already owns the reference: this
+			// process must not start and must not keep its ingest branch.
+			tee.RemoveBranch(webRTCBranchName)
+
+			return
+		}
 		go tr.Start(false)
 
 		select {
@@ -88,6 +98,9 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			s.clearWebRTCTranscoder(tr)
 			if err == nil {
 				log.Traceln("isolated webrtc process exited cleanly")
+				// The process is gone, so its branch must stop queueing for it.
+				tee.RemoveBranch(webRTCBranchName)
+
 				return
 			}
 			if attempt >= webRTCProcessMaxRestarts {
@@ -96,6 +109,10 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 					Code:    "webrtc_process_failed",
 					Message: "The WebRTC process failed repeatedly; WebRTC delivery is disabled for this stream while HLS continues.",
 				}))
+				// No replacement will be started; release the dead branch so the tee
+				// stops queueing into it for the rest of the stream.
+				tee.RemoveBranch(webRTCBranchName)
+
 				return
 			}
 			log.Warnf("isolated webrtc process exited (attempt %d/%d); restarting in %s: %v",
@@ -108,6 +125,8 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			select {
 			case <-session.Done():
 				s.clearWebRTCTranscoder(tr)
+				tee.RemoveBranch(webRTCBranchName)
+
 				return
 			case <-time.After(backoff):
 			}
@@ -115,6 +134,8 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		case <-session.Done():
 			tr.Stop()
 			s.clearWebRTCTranscoder(tr)
+			tee.RemoveBranch(webRTCBranchName)
+
 			return
 		}
 	}
@@ -173,11 +194,40 @@ func (s *Service) closeIngestTee() {
 	}
 }
 
-// setWebRTCTranscoder records the isolated WebRTC-only FFmpeg process.
-func (s *Service) setWebRTCTranscoder(tr *transcoder.Transcoder) {
+// claimWebRTCProcessSession makes session the owner of the WebRTC process
+// reference. A new stream always wins, so a supervisor left over from the previous
+// stream can no longer install or clear a process.
+func (s *Service) claimWebRTCProcessSession(session ingest.Session) {
 	s.webRTCProcessMu.Lock()
 	defer s.webRTCProcessMu.Unlock()
+	s.webRTCProcessSession = session
+	s.webRTCProcess = nil
+}
+
+// registerWebRTCTranscoder installs tr only while session still owns the reference
+// and has not been cancelled. The ownership check and the assignment share one
+// critical section, so a supervisor cannot pass the check and then overwrite a
+// reference installed by a newer session in between.
+func (s *Service) registerWebRTCTranscoder(session ingest.Session, tr *transcoder.Transcoder) bool {
+	if session == nil {
+		return false
+	}
+
+	select {
+	case <-session.Done():
+		return false
+	default:
+	}
+
+	s.webRTCProcessMu.Lock()
+	defer s.webRTCProcessMu.Unlock()
+
+	if s.webRTCProcessSession != session {
+		return false
+	}
 	s.webRTCProcess = tr
+
+	return true
 }
 
 // clearWebRTCTranscoder forgets the process reference only while it still belongs
@@ -188,6 +238,9 @@ func (s *Service) clearWebRTCTranscoder(tr *transcoder.Transcoder) {
 	defer s.webRTCProcessMu.Unlock()
 	if s.webRTCProcess == tr {
 		s.webRTCProcess = nil
+	}
+	if s.webRTCProcess == nil {
+		s.webRTCProcessSession = nil
 	}
 }
 

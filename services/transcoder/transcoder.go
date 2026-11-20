@@ -67,6 +67,8 @@ type Transcoder struct {
 
 	// commandExecMu guards commandExec, which Stop reads while Start sets it.
 	commandExecMu sync.Mutex
+	// stopRequested records a Stop that arrived before the child existed.
+	stopRequested bool
 	// commandExec holds the live ffmpeg child process while the
 	// transcoder is running. Set in Start, killed in Stop.
 	commandExec *exec.Cmd
@@ -199,6 +201,9 @@ func (t *Transcoder) Stop() {
 	log.Traceln("Transcoder STOP requested.")
 
 	t.commandExecMu.Lock()
+	// Record the request even when there is no process yet: Start checks this after
+	// cmd.Start and kills the child it just created.
+	t.stopRequested = true
 	cmd := t.commandExec
 	t.commandExecMu.Unlock()
 	if cmd == nil {
@@ -228,32 +233,37 @@ func (t *Transcoder) Start(shouldLog bool) {
 	cmd := exec.Command(flags.binPath, flags.command...) // nolint: gosec
 	configureProcessGroup(cmd)
 
-	// The ingest side is fed from a goroutine rather than handed to os/exec
-	// directly; see startStdinCopy.
-	var stdinDone <-chan struct{}
-	if t.stdin != nil {
-		done, stdinErr := startStdinCopy(cmd, t.stdin)
-		if stdinErr != nil {
-			log.Errorln("transcoder: unable to open the ffmpeg stdin pipe:", stdinErr)
-			t.finishWithError(stdinErr)
+	// The stdin pipe has to exist before Start, but it must not be fed until the
+	// process does. Creating the copy first left a goroutine parked on a pipe whose
+	// process never existed, and the pipe itself open, whenever start failed.
+	stdinPipe, stdinErr := t.prepareStdinPipe(cmd)
+	if stdinErr != nil {
+		log.Errorln("transcoder: unable to open the ffmpeg stdin pipe:", stdinErr)
+		t.finishWithError(stdinErr)
 
-			return
+		return
+	}
+
+	// failStart closes everything created for this launch before reporting the
+	// failure, so a start error cannot leak a pipe or a callback.
+	failStart := func(err error, message string) {
+		log.Errorln(message, err)
+		if stdinPipe != nil {
+			_ = stdinPipe.Close()
 		}
-		stdinDone = done
+		t.finishWithError(err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Errorln("transcoder: unable to capture ffmpeg progress output:", err)
-		t.finishWithError(err)
+		failStart(err, "transcoder: unable to capture ffmpeg progress output:")
 
 		return
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		log.Errorln("transcoder: unable to capture ffmpeg stderr:", err)
-		t.finishWithError(err)
+		failStart(err, "transcoder: unable to capture ffmpeg stderr:")
 
 		return
 	}
@@ -264,10 +274,16 @@ func (t *Transcoder) Start(shouldLog bool) {
 
 	if err := cmd.Start(); err != nil {
 		log.Errorln("Transcoder error. See", logging.GetTranscoderLogFilePath(t.cfg.LogDirectory), "for full output to debug.")
-		log.Errorln("transcoder: ffmpeg failed to start:", err)
-		t.finishWithError(err)
+		failStart(err, "transcoder: ffmpeg failed to start:")
 
 		return
+	}
+
+	t.stopIfRequested(cmd)
+
+	var stdinDone <-chan struct{}
+	if stdinPipe != nil {
+		stdinDone = startStdinCopy(stdinPipe, t.stdin)
 	}
 
 	// Record the exact argv and process identity for the admin FFmpeg panel.
@@ -771,20 +787,42 @@ func (t *Transcoder) SetInput(input string) {
 	t.input = input
 }
 
-// startStdinCopy feeds the command's stdin from reader on its own goroutine and
-// returns a channel closed when the copy finishes.
+// prepareStdinPipe creates the child's stdin pipe when the transcoder has an input
+// reader. It exists before Start but is not fed until the process is running.
+func (t *Transcoder) prepareStdinPipe(cmd *exec.Cmd) (io.WriteCloser, error) {
+	if t.stdin == nil {
+		return nil, nil
+	}
+
+	return cmd.StdinPipe()
+}
+
+// stopIfRequested honours a Stop that arrived before the child existed: it could
+// not signal anything then, and leaving it running would leave an unowned encoder
+// for the rest of the stream.
+func (t *Transcoder) stopIfRequested(cmd *exec.Cmd) {
+	t.commandExecMu.Lock()
+	requested := t.stopRequested
+	t.commandExecMu.Unlock()
+
+	if !requested {
+		return
+	}
+	if err := killProcessGroup(cmd); err != nil {
+		log.Debugln("transcoder stop after start:", err)
+	}
+}
+
+// startStdinCopy feeds an already-created stdin pipe from reader on its own
+// goroutine and returns a channel closed when the copy finishes. It is called only
+// after the process started, so a failed start never leaves the copy running.
 //
 // Handing the reader to exec.Cmd.Stdin instead makes Wait wait for the copy that
 // os/exec starts itself, so a child that exits while the ingest side still holds
 // the pipe open leaves Wait parked until more bytes arrive: the completion
 // callback that tears the stream down never runs. Copying here keeps Wait tied to
 // the process alone.
-func startStdinCopy(cmd *exec.Cmd, reader io.Reader) (<-chan struct{}, error) {
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-
+func startStdinCopy(stdin io.WriteCloser, reader io.Reader) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -793,7 +831,7 @@ func startStdinCopy(cmd *exec.Cmd, reader io.Reader) (<-chan struct{}, error) {
 		_ = stdin.Close()
 	}()
 
-	return done, nil
+	return done
 }
 
 // releaseStdinCopy waits for the copy to drain. A normal end of input returns

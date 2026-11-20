@@ -383,7 +383,15 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 	// so a concurrent DELETE/janitor cannot close it before its goroutines are
 	// tracked by the WaitGroup.
 	sess.startRTCPDrains()
-	s.sessions.add(sess)
+	if !s.registerSession(sess) {
+		// The variant was withdrawn between negotiation and registration, so the
+		// tracks this session was built on are gone. The deferred close releases the
+		// engine entries and the reservation, and the viewer gets the same error an
+		// unknown variant produces.
+		sess.close("variant withdrawn")
+
+		return nil, nil, fmt.Errorf("%w: %d", ErrVariantNotFound, variantIndex)
+	}
 	if err := s.capacity.activate(reservation, sess.id); err != nil {
 		s.sessions.remove(sess.id)
 		sess.close("capacity activation failed")
