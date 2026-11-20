@@ -85,7 +85,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 
 		select {
 		case err := <-completed:
-			s.setWebRTCTranscoder(nil)
+			s.clearWebRTCTranscoder(tr)
 			if err == nil {
 				log.Traceln("isolated webrtc process exited cleanly")
 				return
@@ -102,11 +102,19 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 				attempt+1, webRTCProcessMaxRestarts, backoff, err)
 			// Rebase the forwarder when the replacement producer starts.
 			s.markWebRTCLegsRestart()
-			time.Sleep(backoff)
+			// Wait for the backoff or for the session to end, whichever comes first.
+			// Sleeping outright let a finished session start a replacement process
+			// that then wrote into the next stream's media legs.
+			select {
+			case <-session.Done():
+				s.clearWebRTCTranscoder(tr)
+				return
+			case <-time.After(backoff):
+			}
 			backoff *= 2
 		case <-session.Done():
 			tr.Stop()
-			s.setWebRTCTranscoder(nil)
+			s.clearWebRTCTranscoder(tr)
 			return
 		}
 	}
@@ -170,6 +178,17 @@ func (s *Service) setWebRTCTranscoder(tr *transcoder.Transcoder) {
 	s.webRTCProcessMu.Lock()
 	defer s.webRTCProcessMu.Unlock()
 	s.webRTCProcess = tr
+}
+
+// clearWebRTCTranscoder forgets the process reference only while it still belongs
+// to the caller. A supervisor from a session that already ended must not clear the
+// reference a newer session installed.
+func (s *Service) clearWebRTCTranscoder(tr *transcoder.Transcoder) {
+	s.webRTCProcessMu.Lock()
+	defer s.webRTCProcessMu.Unlock()
+	if s.webRTCProcess == tr {
+		s.webRTCProcess = nil
+	}
 }
 
 // getWebRTCTranscoder returns the isolated WebRTC-only FFmpeg process, if any.

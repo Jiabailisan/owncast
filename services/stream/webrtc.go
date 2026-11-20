@@ -41,6 +41,9 @@ type WebRTCProvider interface {
 	OpenMediaLeg(variantIndex int) (WebRTCMediaLeg, error)
 	// CloseMediaLeg tears the variant leg down.
 	CloseMediaLeg(variantIndex int) error
+	// DisableVariants withdraws variants whose media leg could not be opened so
+	// WHEP cannot hand a viewer a rendition that has no media behind it.
+	DisableVariants(variantIndices []int)
 }
 
 // effectiveWebRTCVariants resolves the output variants WebRTC should deliver.
@@ -247,7 +250,9 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 		return nil
 	}
 
-	outputs, warnings := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, warnings)
+	outputs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, warnings)
+	// A variant whose leg failed must not stay selectable over WHEP.
+	s.webRTC.DisableVariants(failed)
 	s.setWebRTCWarnings(warnings)
 
 	return outputs

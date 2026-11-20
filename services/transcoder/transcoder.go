@@ -24,6 +24,12 @@ import (
 // ffmpegFlagMap is the ffmpeg stream selection flag.
 const ffmpegFlagMap = "-map"
 
+// transcoderStdinDrainGrace bounds how long the stdin copy may stay parked after
+// the child has exited before the source is closed underneath it. A normal end of
+// input returns from the copy immediately, so the grace only applies to the case
+// where the process died first.
+const transcoderStdinDrainGrace = 2 * time.Second
+
 type execInfo struct {
 	binPath string
 	command []string
@@ -222,8 +228,18 @@ func (t *Transcoder) Start(shouldLog bool) {
 	cmd := exec.Command(flags.binPath, flags.command...) // nolint: gosec
 	configureProcessGroup(cmd)
 
+	// The ingest side is fed from a goroutine rather than handed to os/exec
+	// directly; see startStdinCopy.
+	var stdinDone <-chan struct{}
 	if t.stdin != nil {
-		cmd.Stdin = t.stdin
+		done, stdinErr := startStdinCopy(cmd, t.stdin)
+		if stdinErr != nil {
+			log.Errorln("transcoder: unable to open the ffmpeg stdin pipe:", stdinErr)
+			t.finishWithError(stdinErr)
+
+			return
+		}
+		stdinDone = done
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -280,6 +296,9 @@ func (t *Transcoder) Start(shouldLog bool) {
 
 	err = cmd.Wait()
 	sampler.Stop()
+
+	releaseStdinCopy(stdinDone, t.stdin)
+
 	t.recordStopped()
 	if t.TranscoderCompleted != nil {
 		t.TranscoderCompleted(err)
@@ -750,6 +769,56 @@ func normalizeSharedH264Profile(profile string) string {
 // SetInput sets the input stream on the filesystem.
 func (t *Transcoder) SetInput(input string) {
 	t.input = input
+}
+
+// startStdinCopy feeds the command's stdin from reader on its own goroutine and
+// returns a channel closed when the copy finishes.
+//
+// Handing the reader to exec.Cmd.Stdin instead makes Wait wait for the copy that
+// os/exec starts itself, so a child that exits while the ingest side still holds
+// the pipe open leaves Wait parked until more bytes arrive: the completion
+// callback that tears the stream down never runs. Copying here keeps Wait tied to
+// the process alone.
+func startStdinCopy(cmd *exec.Cmd, reader io.Reader) (<-chan struct{}, error) {
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Drains normally when the ingest side closes the branch.
+		_, _ = io.Copy(stdin, reader)
+		_ = stdin.Close()
+	}()
+
+	return done, nil
+}
+
+// releaseStdinCopy waits for the copy to drain. A normal end of input returns
+// immediately; when the process died first the copy is parked in Read on a pipe
+// the ingest side still owns, so the source is closed underneath it.
+func releaseStdinCopy(done <-chan struct{}, reader io.Reader) {
+	if done == nil {
+		return
+	}
+
+	select {
+	case <-done:
+		return
+	case <-time.After(transcoderStdinDrainGrace):
+	}
+
+	if closer, ok := reader.(io.Closer); ok {
+		_ = closer.Close()
+	}
+
+	select {
+	case <-done:
+	case <-time.After(transcoderStdinDrainGrace):
+		log.Debugln("transcoder: stdin copy still parked after the process exited")
+	}
 }
 
 // SetStdin sets the Stdin of the ffmpeg command.

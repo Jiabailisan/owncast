@@ -90,9 +90,11 @@ func (s *Service) openWebRTCLegs(
 	decisions map[int]webrtc.LegDecision,
 	webrtcConfig models.WebRTCConfig,
 	warnings []models.StatusWarning,
-) ([]transcoder.RTPOutput, []models.StatusWarning) {
+) ([]transcoder.RTPOutput, []models.StatusWarning, []int) {
 	videoCodec := s.configRepository.GetVideoCodec()
 	outputs := make([]transcoder.RTPOutput, 0, len(decisions))
+	// Variants whose leg could not be opened are withdrawn from WHEP afterwards.
+	failed := make([]int, 0)
 
 	for index := range webrtcVariants {
 		variant := webrtcVariants[index]
@@ -113,6 +115,7 @@ func (s *Service) openWebRTCLegs(
 			}
 
 			warnings = append(warnings, models.StatusWarning{Code: "webrtc_media_leg", Message: err.Error()})
+			failed = append(failed, index)
 
 			continue
 		}
@@ -145,5 +148,5 @@ func (s *Service) openWebRTCLegs(
 		})
 	}
 
-	return outputs, warnings
+	return outputs, warnings, failed
 }

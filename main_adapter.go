@@ -28,6 +28,11 @@ func (a webRTCStreamAdapter) OpenMediaLeg(variantIndex int) (stream.WebRTCMediaL
 	return leg, nil
 }
 
+// DisableVariants implements stream.WebRTCProvider.
+func (a webRTCStreamAdapter) DisableVariants(variantIndices []int) {
+	a.service.DisableVariants(variantIndices)
+}
+
 // CloseMediaLeg implements stream.WebRTCProvider.
 func (a webRTCStreamAdapter) CloseMediaLeg(variantIndex int) error {
 	return a.service.CloseMediaLeg(variantIndex)

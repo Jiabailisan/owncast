@@ -340,6 +340,29 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 	return nil
 }
 
+// DisableVariants removes published variants whose media leg could not be opened,
+// so WHEP never offers a rendition it cannot deliver. The remaining variants keep
+// their configured indices, an explicit request for a disabled one is answered
+// with ErrVariantNotFound, and the default selection falls through to the lowest
+// index that is still available.
+func (s *Service) DisableVariants(indices []int) {
+	if len(indices) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	for _, index := range indices {
+		delete(s.variants, index)
+	}
+	s.mu.Unlock()
+
+	for _, sess := range s.sessions.all() {
+		if _, ok := s.variantFor(sess.variant.variant.Index); !ok {
+			s.dropSession(sess, "media leg unavailable")
+		}
+	}
+}
+
 // Variants returns the WebRTC-enabled variants in index order.
 func (s *Service) Variants() []Variant {
 	s.mu.RLock()

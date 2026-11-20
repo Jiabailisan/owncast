@@ -363,10 +363,13 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 	if err != nil {
 		return nil, nil, err
 	}
+	// Every path that fails before the session owns the connection has to release
+	// the engine's per-viewer entries too, not just close the connection.
 	owned := true
 	defer func() {
 		if owned {
 			_ = peer.pc.Close()
+			eng.release(peer.pc)
 		}
 	}()
 
@@ -428,12 +431,17 @@ func (s *Service) negotiate(eng *engine, tracks *variantTracks, pruned prunedOff
 	peer := &negotiatedPeer{pc: pc, getter: getter, estimator: estimator}
 
 	if err := addVariantTracks(peer, tracks); err != nil {
+		// The engine registered a stats getter and a bandwidth estimator for this
+		// connection; closing it without releasing them leaked both for the life of
+		// the process.
 		_ = pc.Close()
+		eng.release(pc)
 
 		return nil, err
 	}
 	if err := answerOffer(peer, pruned); err != nil {
 		_ = pc.Close()
+		eng.release(pc)
 
 		return nil, err
 	}
