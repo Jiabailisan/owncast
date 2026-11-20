@@ -177,3 +177,79 @@ func TestStopBeforeStartStopsTheProcessOnceItStarts(t *testing.T) {
 		t.Fatal("a Stop issued before Start did not stop the process that started afterwards")
 	}
 }
+
+// Stop racing Start must never read a half-initialised cmd.Process and must still
+// terminate the child. Run under -race.
+func TestStopDuringStartStopsTheProcess(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		tr := newStartTestTranscoder(t)
+		tr.ffmpegPath = writeSleepingFakeFFmpeg(t)
+
+		completed := make(chan error, 1)
+		tr.TranscoderCompleted = func(err error) { completed <- err }
+
+		go tr.Start(false)
+		tr.Stop()
+
+		select {
+		case err := <-completed:
+			// "signal: killed" proves the child started and was signalled; a start
+			// failure would report a different error and would not exercise the race.
+			if err == nil || !strings.Contains(err.Error(), "killed") {
+				t.Fatalf("iteration %d: the child was not stopped after a racing Stop: %v", i, err)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("iteration %d: a Stop racing Start did not stop the process", i)
+		}
+	}
+}
+
+// A Stop after the child is running must stop it through the published reference.
+func TestStopAfterStartStopsTheProcess(t *testing.T) {
+	tr := newStartTestTranscoder(t)
+	tr.ffmpegPath = writeSleepingFakeFFmpeg(t)
+
+	completed := make(chan error, 1)
+	tr.TranscoderCompleted = func(err error) { completed <- err }
+
+	go tr.Start(false)
+
+	// Wait until the process is published and running before stopping it.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		tr.commandExecMu.Lock()
+		published := tr.commandExec != nil
+		tr.commandExecMu.Unlock()
+		if published {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the process was never published")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	tr.Stop()
+
+	select {
+	case err := <-completed:
+		if err == nil || !strings.Contains(err.Error(), "killed") {
+			t.Fatalf("the running child was not stopped: %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("a Stop after Start did not stop the running process")
+	}
+}
+
+// writeSleepingFakeFFmpeg writes an executable that ignores its arguments and
+// sleeps, so a launched child stays alive until it is stopped.
+func writeSleepingFakeFFmpeg(t *testing.T) string {
+	t.Helper()
+
+	script := filepath.Join(t.TempDir(), "fake-ffmpeg")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
+		t.Fatalf("write fake ffmpeg: %v", err)
+	}
+
+	return script
+}

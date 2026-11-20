@@ -340,15 +340,13 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 	return nil
 }
 
-// registerSession publishes sess only while the variant it was negotiated against
-// is still the published one. Variant withdrawal mutates s.variants under the same
-// lock, so a withdrawal that races the negotiation is caught here: either it lands
-// first and the session is refused, or it lands afterwards and DisableVariants
-// drops the session. Without this the session became reachable while the tracks it
-// was built on were no longer published.
-func (s *Service) registerSession(sess *session) bool {
+// registerSessionWithCapacity validates the negotiated tracks, takes the capacity
+// slot and publishes the session in one critical section. A variant withdrawal
+// mutates s.variants under the same lock, so it cannot land between the check and
+// the registration, and a session can never be reachable without an active slot.
+func (s *Service) registerSessionWithCapacity(sess *session, reservationID string) error {
 	if sess == nil || sess.variant == nil {
-		return false
+		return ErrVariantNotFound
 	}
 
 	s.mu.Lock()
@@ -356,11 +354,14 @@ func (s *Service) registerSession(sess *session) bool {
 
 	current, ok := s.variants[sess.variant.variant.Index]
 	if !ok || current != sess.variant {
-		return false
+		return fmt.Errorf("%w: %d", ErrVariantNotFound, sess.variant.variant.Index)
+	}
+	if err := s.capacity.activate(reservationID, sess.id); err != nil {
+		return err
 	}
 	s.sessions.add(sess)
 
-	return true
+	return nil
 }
 
 // DisableVariants removes published variants whose media leg could not be opened,

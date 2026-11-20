@@ -268,10 +268,8 @@ func (t *Transcoder) Start(shouldLog bool) {
 		return
 	}
 
-	t.commandExecMu.Lock()
-	t.commandExec = cmd
-	t.commandExecMu.Unlock()
-
+	// cmd is published only after Start: Stop reads cmd.Process, and exec writes it
+	// while starting the child, so publishing early is a data race on that field.
 	if err := cmd.Start(); err != nil {
 		log.Errorln("Transcoder error. See", logging.GetTranscoderLogFilePath(t.cfg.LogDirectory), "for full output to debug.")
 		failStart(err, "transcoder: ffmpeg failed to start:")
@@ -279,7 +277,7 @@ func (t *Transcoder) Start(shouldLog bool) {
 		return
 	}
 
-	t.stopIfRequested(cmd)
+	t.publishProcess(cmd)
 
 	var stdinDone <-chan struct{}
 	if stdinPipe != nil {
@@ -797,11 +795,12 @@ func (t *Transcoder) prepareStdinPipe(cmd *exec.Cmd) (io.WriteCloser, error) {
 	return cmd.StdinPipe()
 }
 
-// stopIfRequested honours a Stop that arrived before the child existed: it could
-// not signal anything then, and leaving it running would leave an unowned encoder
-// for the rest of the stream.
-func (t *Transcoder) stopIfRequested(cmd *exec.Cmd) {
+// publishProcess records the started child and applies a Stop that arrived while it
+// was starting. Publication and the stop check share one critical section, and both
+// happen after Start, so Stop never reads cmd.Process while exec is writing it.
+func (t *Transcoder) publishProcess(cmd *exec.Cmd) {
 	t.commandExecMu.Lock()
+	t.commandExec = cmd
 	requested := t.stopRequested
 	t.commandExecMu.Unlock()
 

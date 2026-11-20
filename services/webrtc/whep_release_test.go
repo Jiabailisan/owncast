@@ -87,16 +87,27 @@ func TestRegisterSessionRefusesAWithdrawnVariant(t *testing.T) {
 	svc, tracks0, _ := newVariantTestService(t)
 	sess := newSession("s1", tracks0, nil, nil, nil, "127.0.0.1", "ua", nil, nil)
 
+	reservation, err := svc.capacity.reserve("127.0.0.1")
+	require.NoError(t, err)
+
 	// The withdrawal lands between negotiation and registration.
 	svc.DisableVariants([]int{0})
 
-	assert.False(t, svc.registerSession(sess), "a withdrawn variant must not be published")
+	err = svc.registerSessionWithCapacity(sess, reservation)
+	require.ErrorIs(t, err, ErrVariantNotFound, "a withdrawn variant must not be published")
 	assert.Empty(t, svc.sessions.all(), "the refused session must not be registered")
 
 	svc.capacity.mu.Lock()
 	active, holding := len(svc.capacity.active), len(svc.capacity.holding)
 	svc.capacity.mu.Unlock()
 	assert.Zero(t, active, "the refused session must not hold an active slot")
+	assert.Equal(t, 1, holding, "the reservation must still be held for the caller to release")
+
+	// The caller's deferred release is what frees it.
+	svc.capacity.releaseReservation(reservation)
+	svc.capacity.mu.Lock()
+	holding = len(svc.capacity.holding)
+	svc.capacity.mu.Unlock()
 	assert.Zero(t, holding, "the refused session must not leave a reservation")
 
 	first, ok := svc.firstVariant()
@@ -111,10 +122,22 @@ func TestDisableVariantsDropsAnAlreadyRegisteredSession(t *testing.T) {
 	svc, tracks0, _ := newVariantTestService(t)
 	sess := newSession("s2", tracks0, nil, nil, nil, "127.0.0.1", "ua", nil, nil)
 
-	require.True(t, svc.registerSession(sess), "the ready variant must accept a session")
+	reservation, err := svc.capacity.reserve("127.0.0.1")
+	require.NoError(t, err)
+	require.NoError(t, svc.registerSessionWithCapacity(sess, reservation), "the ready variant must accept a session")
 	require.Len(t, svc.sessions.all(), 1)
+
+	svc.capacity.mu.Lock()
+	active := len(svc.capacity.active)
+	svc.capacity.mu.Unlock()
+	assert.Equal(t, 1, active, "the registered session must hold its slot")
 
 	svc.DisableVariants([]int{0})
 
 	assert.Empty(t, svc.sessions.all(), "the session on the withdrawn variant must be dropped")
+
+	svc.capacity.mu.Lock()
+	active = len(svc.capacity.active)
+	svc.capacity.mu.Unlock()
+	assert.Zero(t, active, "dropping the session must free its slot")
 }
