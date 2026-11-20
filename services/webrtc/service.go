@@ -59,6 +59,9 @@ type Service struct {
 	capacity *capacityGate
 	limiter  *signalingLimiter
 	sessions *sessionRegistry
+	// variantGeneration identifies the published variant set. DisableVariants only
+	// acts on the generation the caller published.
+	variantGeneration uint64
 
 	runCtx context.Context
 	cancel context.CancelFunc
@@ -323,6 +326,7 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 		}
 	}
 	s.variants = next
+	s.variantGeneration++
 	s.mu.Unlock()
 
 	for _, sess := range s.sessions.all() {
@@ -369,12 +373,19 @@ func (s *Service) registerSessionWithCapacity(sess *session, reservationID strin
 // their configured indices, an explicit request for a disabled one is answered
 // with ErrVariantNotFound, and the default selection falls through to the lowest
 // index that is still available.
-func (s *Service) DisableVariants(indices []int) {
+func (s *Service) DisableVariants(generation uint64, indices []int) {
 	if len(indices) == 0 {
 		return
 	}
 
 	s.mu.Lock()
+	if generation != s.variantGeneration {
+		// A supervisor from an earlier stream must not withdraw the variants the
+		// current stream published at the same indices.
+		s.mu.Unlock()
+
+		return
+	}
 	for _, index := range indices {
 		delete(s.variants, index)
 	}
@@ -385,6 +396,21 @@ func (s *Service) DisableVariants(indices []int) {
 			s.dropSession(sess, "media leg unavailable")
 		}
 	}
+	for _, index := range indices {
+		if err := s.CloseMediaLeg(index); err != nil {
+			log.Debugf("webrtc: closing media leg for withdrawn variant %d: %v", index, err)
+		}
+	}
+}
+
+// VariantGeneration identifies the current set of published variants. A caller
+// captures it when it publishes and hands it back to DisableVariants, so cleanup
+// from a finished stream cannot withdraw a later stream's variants.
+func (s *Service) VariantGeneration() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.variantGeneration
 }
 
 // Variants returns the WebRTC-enabled variants in index order.

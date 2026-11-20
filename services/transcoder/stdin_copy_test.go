@@ -253,3 +253,84 @@ func writeSleepingFakeFFmpeg(t *testing.T) string {
 
 	return script
 }
+
+// Once the child has been reaped, Stop must not signal the pid again: the kernel may
+// have reused it. The reaped flag is set under the same lock Stop uses.
+func TestStopAfterExitDoesNotSignalAgain(t *testing.T) {
+	tr := newStartTestTranscoder(t)
+	tr.ffmpegPath = writeSleepingFakeFFmpeg(t)
+
+	completed := make(chan error, 1)
+	tr.TranscoderCompleted = func(err error) { completed <- err }
+
+	go tr.Start(false)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		tr.commandExecMu.Lock()
+		published := tr.commandExec != nil
+		tr.commandExecMu.Unlock()
+		if published {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the process was never published")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	tr.Stop()
+
+	select {
+	case <-completed:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the process was not stopped")
+	}
+
+	// The reference is retired after Wait, and a later Stop is a no-op.
+	tr.commandExecMu.Lock()
+	reaped, ref := tr.processReaped, tr.commandExec
+	tr.commandExecMu.Unlock()
+	if !reaped || ref != nil {
+		t.Fatalf("the process reference was not retired (reaped=%v ref=%v)", reaped, ref)
+	}
+
+	tr.Stop()
+}
+
+// Stop racing the natural exit of the child must not signal a reaped pid and must
+// not deadlock. Run under -race.
+func TestStopRacingExit(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		tr := newStartTestTranscoder(t)
+		// Exits immediately on its own, so Stop races the reap.
+		tr.ffmpegPath = writeExitFakeFFmpeg(t)
+
+		completed := make(chan error, 1)
+		tr.TranscoderCompleted = func(err error) { completed <- err }
+
+		go tr.Start(false)
+		tr.Stop()
+
+		select {
+		case <-completed:
+		case <-time.After(15 * time.Second):
+			t.Fatalf("iteration %d: Stop racing the exit did not complete", i)
+		}
+
+		tr.Stop()
+	}
+}
+
+// writeExitFakeFFmpeg writes an executable that exits immediately, so a Stop races
+// the natural exit and the reap.
+func writeExitFakeFFmpeg(t *testing.T) string {
+	t.Helper()
+
+	script := filepath.Join(t.TempDir(), "fake-ffmpeg")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake ffmpeg: %v", err)
+	}
+
+	return script
+}

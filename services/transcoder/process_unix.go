@@ -27,6 +27,12 @@ func killProcessGroup(cmd *exec.Cmd) error {
 	if pid <= 0 {
 		return nil
 	}
+	// Probe through os.Process first: once Wait has reaped the child, Signal reports
+	// os.ErrProcessDone and the raw group kill below is skipped. Without the probe a
+	// late Stop could signal a pid the kernel has already reused.
+	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+		return nil
+	}
 	// Negative pid signals the whole process group created by Setpgid.
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err == nil {
 		return nil

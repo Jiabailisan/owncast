@@ -69,6 +69,9 @@ type Transcoder struct {
 	commandExecMu sync.Mutex
 	// stopRequested records a Stop that arrived before the child existed.
 	stopRequested bool
+	// processReaped is set once Wait returned for the published command, so Stop
+	// does not signal a pid the kernel may already have reused.
+	processReaped bool
 	// commandExec holds the live ffmpeg child process while the
 	// transcoder is running. Set in Start, killed in Stop.
 	commandExec *exec.Cmd
@@ -200,13 +203,19 @@ func (v *VideoSize) getString() string {
 func (t *Transcoder) Stop() {
 	log.Traceln("Transcoder STOP requested.")
 
+	// The whole signal operation runs under commandExecMu, the same lock Start takes
+	// to publish the process and to retire it after Wait. A concurrent Stop can
+	// therefore never take the reference out and signal it after the child was
+	// reaped.
 	t.commandExecMu.Lock()
+	defer t.commandExecMu.Unlock()
+
 	// Record the request even when there is no process yet: Start checks this after
 	// cmd.Start and kills the child it just created.
 	t.stopRequested = true
+
 	cmd := t.commandExec
-	t.commandExecMu.Unlock()
-	if cmd == nil {
+	if cmd == nil || t.processReaped {
 		return
 	}
 
@@ -310,6 +319,15 @@ func (t *Transcoder) Start(shouldLog bool) {
 
 	err = cmd.Wait()
 	sampler.Stop()
+
+	// Retire the reference under the lock that guards signalling: from here on Stop
+	// sees either no process or a reaped one and does not signal it.
+	t.commandExecMu.Lock()
+	t.processReaped = true
+	if t.commandExec == cmd {
+		t.commandExec = nil
+	}
+	t.commandExecMu.Unlock()
 
 	releaseStdinCopy(stdinDone, t.stdin)
 
@@ -801,6 +819,7 @@ func (t *Transcoder) prepareStdinPipe(cmd *exec.Cmd) (io.WriteCloser, error) {
 func (t *Transcoder) publishProcess(cmd *exec.Cmd) {
 	t.commandExecMu.Lock()
 	t.commandExec = cmd
+	t.processReaped = false
 	requested := t.stopRequested
 	t.commandExecMu.Unlock()
 

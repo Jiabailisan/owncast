@@ -64,6 +64,10 @@ export interface WHEPSessionHandle {
 }
 
 const DEFAULT_OFFER_TIMEOUT_MS = 4000;
+// SESSION_DELETE_TIMEOUT_MS bounds the best-effort DELETE of a session that was
+// created but never became usable.
+const SESSION_DELETE_TIMEOUT_MS = 5000;
+
 const DEFAULT_FIRST_TRACK_TIMEOUT_MS = 10000;
 
 export function toRTCIceServers(iceServers?: WHEPIceServer[]): RTCIceServer[] {
@@ -254,6 +258,10 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
 
   const pc = factory({ iceServers: toRTCIceServers(iceServers) });
   let streamWaiter: RemoteStreamWaiter | null = null;
+  // Set as soon as the server reports a session. A failure after that point has to
+  // delete the session it created, otherwise the server keeps the capacity slot and
+  // the connection until it expires.
+  let createdSessionUrl: string | null = null;
 
   try {
     pc.addTransceiver('video', { direction: 'recvonly' });
@@ -301,6 +309,7 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
     if (!sessionUrl) {
       throw new WHEPError('signaling', 'The WebRTC endpoint did not return a session Location');
     }
+    createdSessionUrl = sessionUrl;
 
     const iceServersFromLink = parseIceServersFromLinkHeader(response.headers.get('Link'));
 
@@ -344,6 +353,21 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
       pc.close();
     } catch {
       // Ignore close failures while surfacing the original error.
+    }
+    if (createdSessionUrl) {
+      // The request signal may be the one that was cancelled, so the cleanup uses a
+      // signal of its own. Teardown is best effort and must never replace the
+      // playback error that caused it.
+      try {
+        await fetchImpl(createdSessionUrl, {
+          method: 'DELETE',
+          ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? { signal: AbortSignal.timeout(SESSION_DELETE_TIMEOUT_MS) }
+            : {}),
+        });
+      } catch {
+        // The server expires the session on its own.
+      }
     }
     if (error instanceof WHEPError) throw error;
     throw new WHEPError('signaling', (error as Error)?.message || 'WebRTC session failed', {

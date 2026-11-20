@@ -182,6 +182,77 @@ describe('whep client', () => {
     expect(unknown.code).toBe('signaling');
   });
 
+  test('deletes the session when initialisation fails after the Location', async () => {
+    const pc = new FakePeerConnection();
+    pc.setRemoteDescription.mockRejectedValueOnce(new Error('sdp rejected'));
+    const fetchMock = jest.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'DELETE'
+        ? makeResponse('', { status: 200, headers: {} })
+        : makeResponse('answer-sdp', {
+            status: 201,
+            headers: { Location: '/webrtc/whep/session/abc' },
+          }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      connectWHEP({
+        whepUrl: '/webrtc/whep',
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        pcFactory: () => asPeerConnection(pc),
+      }),
+    ).rejects.toThrow();
+
+    const deletes = fetchMock.mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+    );
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0][0]).toBe('/webrtc/whep/session/abc');
+    expect(pc.closed).toBe(true);
+  });
+
+  test('does not delete a session that initialised successfully', async () => {
+    const pc = new FakePeerConnection();
+    const fetchMock = jest.fn(async () =>
+      makeResponse('answer-sdp', {
+        status: 201,
+        headers: { Location: '/webrtc/whep/session/abc' },
+      }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await connectWHEP({
+      whepUrl: '/webrtc/whep',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      pcFactory: () => asPeerConnection(pc),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failed cleanup keeps the original error', async () => {
+    const pc = new FakePeerConnection();
+    pc.setRemoteDescription.mockRejectedValueOnce(new Error('sdp rejected'));
+    const fetchMock = jest.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        throw new Error('delete failed');
+      }
+      return makeResponse('answer-sdp', {
+        status: 201,
+        headers: { Location: '/webrtc/whep/session/abc' },
+      });
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      connectWHEP({
+        whepUrl: '/webrtc/whep',
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        pcFactory: () => asPeerConnection(pc),
+      }),
+    ).rejects.toThrow(/sdp rejected/);
+  });
+
   test('fails when the response is missing the session Location', async () => {
     const fetchMock = jest.fn(async () => makeResponse('answer-sdp', { status: 201 }));
     global.fetch = fetchMock as unknown as typeof fetch;

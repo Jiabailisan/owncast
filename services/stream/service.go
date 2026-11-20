@@ -147,6 +147,10 @@ type Service struct {
 	// supervisor from an older session must not install or clear a reference that
 	// a newer session owns, so ownership is recorded with the reference.
 	webRTCProcessSession ingest.Session
+	// webRTCVariantGen is the generation of the variant set this stream published.
+	// Cleanup uses it so a finished stream cannot withdraw the next stream's
+	// variants at the same indices.
+	webRTCVariantGen uint64
 	// webRTCMu guards webRTCWarnings.
 	webRTCMu sync.RWMutex
 	// webRTCWarnings are the leg-planning warnings for the current stream.

@@ -50,7 +50,7 @@ func TestDisableVariantsWithdrawsUnreadyVariants(t *testing.T) {
 		variants: map[int]*variantTracks{0: tracks0, 1: tracks1},
 	}
 
-	svc.DisableVariants([]int{1})
+	svc.DisableVariants(svc.VariantGeneration(), []int{1})
 
 	_, ok := svc.variantFor(1)
 	assert.False(t, ok, "a variant whose leg failed must not be offered over WHEP")
@@ -91,7 +91,7 @@ func TestRegisterSessionRefusesAWithdrawnVariant(t *testing.T) {
 	require.NoError(t, err)
 
 	// The withdrawal lands between negotiation and registration.
-	svc.DisableVariants([]int{0})
+	svc.DisableVariants(svc.VariantGeneration(), []int{0})
 
 	err = svc.registerSessionWithCapacity(sess, reservation)
 	require.ErrorIs(t, err, ErrVariantNotFound, "a withdrawn variant must not be published")
@@ -132,7 +132,7 @@ func TestDisableVariantsDropsAnAlreadyRegisteredSession(t *testing.T) {
 	svc.capacity.mu.Unlock()
 	assert.Equal(t, 1, active, "the registered session must hold its slot")
 
-	svc.DisableVariants([]int{0})
+	svc.DisableVariants(svc.VariantGeneration(), []int{0})
 
 	assert.Empty(t, svc.sessions.all(), "the session on the withdrawn variant must be dropped")
 
@@ -140,4 +140,46 @@ func TestDisableVariantsDropsAnAlreadyRegisteredSession(t *testing.T) {
 	active = len(svc.capacity.active)
 	svc.capacity.mu.Unlock()
 	assert.Zero(t, active, "dropping the session must free its slot")
+}
+
+// A partial leg failure withdraws only the affected variant: the others stay
+// selectable, the indices do not move, and the default falls through to the lowest
+// one that is still available.
+func TestDisableVariantsWithdrawsOnlyTheAffectedVariant(t *testing.T) {
+	svc, _, _ := newVariantTestService(t)
+	generation := svc.VariantGeneration()
+
+	svc.DisableVariants(generation, []int{0})
+
+	_, ok := svc.variantFor(0)
+	assert.False(t, ok, "the failed variant must not be offered")
+	_, ok = svc.variantFor(1)
+	assert.True(t, ok, "the variant that bound must stay available")
+
+	first, ok := svc.firstVariant()
+	assert.True(t, ok)
+	assert.Equal(t, 1, first, "the default must fall through to the available variant")
+
+	// Publishing again keeps the index of the surviving variant.
+	svc.DisableVariants(svc.VariantGeneration(), []int{1})
+	_, ok = svc.firstVariant()
+	assert.False(t, ok, "no variant is left, so the default selection has no candidate")
+}
+
+// Cleanup from a finished stream must not withdraw the variants the current stream
+// published at the same indices.
+func TestDisableVariantsIgnoresAStaleGeneration(t *testing.T) {
+	svc, _, _ := newVariantTestService(t)
+	stale := svc.VariantGeneration()
+
+	// A new stream publishes its own variants, which bumps the generation.
+	svc.mu.Lock()
+	svc.variantGeneration++
+	svc.mu.Unlock()
+
+	svc.DisableVariants(stale, []int{0})
+
+	if _, ok := svc.variantFor(0); !ok {
+		t.Fatal("a stale generation withdrew the current stream's variant")
+	}
 }

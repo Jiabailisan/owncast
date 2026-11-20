@@ -47,7 +47,7 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 
 	go tee.Run()
 	go hls.Start(true)
-	go s.superviseWebRTCProcess(tee, session, rtpOutputs)
+	go s.superviseWebRTCProcess(tee, session, rtpOutputs, s.webRTCVariantGen)
 }
 
 // superviseWebRTCProcess runs the WebRTC-only FFmpeg process with a bounded
@@ -57,7 +57,7 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 // process. It is replaced on every supervised restart.
 const webRTCBranchName = "webrtc"
 
-func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session, rtpOutputs []transcoder.RTPOutput) {
+func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session, rtpOutputs []transcoder.RTPOutput, variantGen uint64) {
 	backoff := webRTCProcessBackoff
 
 	for attempt := 0; ; attempt++ {
@@ -107,6 +107,10 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			}
 			if attempt >= webRTCProcessMaxRestarts {
 				log.Errorln("isolated webrtc process failed; WebRTC legs disabled for this stream:", err)
+				// Withdraw this stream's variants so WHEP stops offering renditions the
+				// dead process was feeding, and tear down their sessions and legs. The
+				// generation check keeps this from touching a later stream.
+				s.webRTC.DisableVariants(variantGen, variantIndices(rtpOutputs))
 				s.setWebRTCWarnings(append(s.WebRTCWarnings(), models.StatusWarning{
 					Code:    "webrtc_process_failed",
 					Message: "The WebRTC process failed repeatedly; WebRTC delivery is disabled for this stream while HLS continues.",
@@ -144,6 +148,16 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			return
 		}
 	}
+}
+
+// variantIndices lists the variant indices a set of RTP outputs feeds.
+func variantIndices(outputs []transcoder.RTPOutput) []int {
+	indices := make([]int, 0, len(outputs))
+	for _, output := range outputs {
+		indices = append(indices, output.VariantIndex)
+	}
+
+	return indices
 }
 
 // markWebRTCLegsRestart tells the WebRTC media legs a new RTP producer starts.
