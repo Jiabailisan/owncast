@@ -245,6 +245,11 @@ func (s *Service) setCurrentSession(session ingest.Session) bool {
 	defer s.sessionMu.Unlock()
 
 	if session != nil {
+		if s.tearingDown.Load() {
+			// The previous broadcast is still being cleaned up; its shared state must
+			// not interleave with this publish.
+			return false
+		}
 		if ingestSessionClosed(session) {
 			return false
 		}
@@ -363,30 +368,43 @@ func (s *Service) applyStreamOnline() {
 // check and the decision share the session lock, so a completion that arrives after a
 // newer session took over does nothing at all.
 func (s *Service) streamDisconnectedFor(session ingest.Session, err error) {
-	s.sessionMu.RLock()
+	// Identity check and the offline commit share the lock that guards publishing, so
+	// a new session can neither be published in the middle of this teardown nor be
+	// cleared by it.
+	s.sessionMu.Lock()
 	current := s.currentSession
-	s.sessionMu.RUnlock()
-
 	if session != nil && current != session {
+		s.sessionMu.Unlock()
 		log.Debugln("stream: ignoring a completion from a session that no longer owns the broadcast")
 
 		return
 	}
+	// Published to the ingest accept path for the whole teardown, so a publisher that
+	// reconnects immediately waits for this session to be fully gone.
+	s.tearingDown.Store(true)
+	s.sessionMu.Unlock()
 
-	s.StreamDisconnected(err)
+	defer s.tearingDown.Store(false)
+
+	if err != nil {
+		log.Debugln("stream: broadcast ended:", err)
+	}
+
+	s.applyStreamOffline(session)
+	s.currentBroadcast = nil
 }
 
 // StreamDisconnected records a broadcast ending and clears the in-flight
 // broadcast settings. Implements StreamEvents; the local engine calls it when
 // the transcoder exits, a remote engine when its stream goes offline.
-func (s *Service) StreamDisconnected(_ error) {
-	// Published to the ingest accept path for the whole teardown, so a publisher
-	// that reconnects immediately waits for this session to be fully gone.
-	s.tearingDown.Store(true)
-	defer s.tearingDown.Store(false)
+func (s *Service) StreamDisconnected(err error) {
+	// A remote engine reports the end without naming a session, so it is attributed to
+	// whoever owns the broadcast; the local paths pass the session explicitly.
+	s.sessionMu.RLock()
+	session := s.currentSession
+	s.sessionMu.RUnlock()
 
-	s.applyStreamOffline()
-	s.currentBroadcast = nil
+	s.streamDisconnectedFor(session, err)
 }
 
 // IsStreamBusy reports whether a stream is live or still being torn down. The
@@ -396,13 +414,7 @@ func (s *Service) IsStreamBusy() bool {
 }
 
 // applyStreamOffline handles the always-on cleanup when a live stream ends.
-func (s *Service) applyStreamOffline() {
-	// The session this teardown belongs to, read once so the withdrawal below can be
-	// matched by identity instead of disconnecting whoever is current by then.
-	s.sessionMu.RLock()
-	owner := s.currentSession
-	s.sessionMu.RUnlock()
-
+func (s *Service) applyStreamOffline(session ingest.Session) {
 	// The engine teardown has to run on every exit path. It used to sit after the
 	// offline-clip render, so a clip that could not be written left the publisher
 	// connected, the media legs open and the variants advertised for a stream that
@@ -419,7 +431,7 @@ func (s *Service) applyStreamOffline() {
 			s.thumbnailGen.Stop()
 		}
 		if s.sessions != nil {
-			s.sessions.DisconnectIf(owner, errStreamOffline)
+			s.sessions.DisconnectIf(session, errStreamOffline)
 		}
 		s.stopWebRTCProcess()
 		s.closeIngestTee()
