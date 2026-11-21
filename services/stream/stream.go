@@ -317,7 +317,13 @@ func ingestSessionClosed(session ingest.Session) bool {
 // go-live side effects. Implements StreamEvents; the local engine calls it
 // in-process, a remote engine over its signaling channel.
 func (s *Service) StreamConnected(broadcast *models.CurrentBroadcast) {
+	// The broadcast settings are read by the playlist, metrics and admin paths while
+	// a stream goes live or offline, so they are published under the same lock that
+	// guards publishing.
+	s.sessionMu.Lock()
 	s.currentBroadcast = broadcast
+	s.sessionMu.Unlock()
+
 	s.applyStreamOnline()
 }
 
@@ -408,7 +414,10 @@ func (s *Service) streamDisconnectedFor(session ingest.Session, err error) {
 	}
 
 	s.applyStreamOffline(session)
+
+	s.sessionMu.Lock()
 	s.currentBroadcast = nil
+	s.sessionMu.Unlock()
 }
 
 // StreamDisconnected records a broadcast ending and clears the in-flight
@@ -489,17 +498,22 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 		s.yp.Stop()
 	}
 
+	// One consistent snapshot: the settings cannot change underneath this teardown.
+	s.sessionMu.RLock()
+	broadcast := s.currentBroadcast
+	s.sessionMu.RUnlock()
+
 	// If there is no current broadcast available the previous stream
 	// likely failed for some reason. Don't try to append to it. Just
 	// transition to offline.
-	if s.currentBroadcast == nil {
+	if broadcast == nil {
 		s.stopOnlineCleanupTimer()
 		s.transitionToOfflineVideoStreamContent()
 		log.Errorln("unexpected nil currentBroadcast")
 		return
 	}
 
-	for index := range s.currentBroadcast.OutputSettings {
+	for index := range broadcast.OutputSettings {
 		s.makeVariantIndexOffline(index, offlineFilePath, offlineFilename)
 	}
 

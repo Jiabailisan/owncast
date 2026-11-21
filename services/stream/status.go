@@ -75,6 +75,9 @@ func (s *Service) GetStatus() models.Status {
 // GetCurrentBroadcast returns the in-flight broadcast settings, or nil
 // if no stream is currently live.
 func (s *Service) GetCurrentBroadcast() *models.CurrentBroadcast {
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+
 	return s.currentBroadcast
 }
 
