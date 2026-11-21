@@ -99,14 +99,9 @@ func clientHopFromChain(forwarded string) string {
 		return NormalizeIP(hop)
 	}
 
-	// Every hop was one of our own proxies: report the leftmost address we have.
-	for index := 0; index < len(hops); index++ {
-		hop := strings.TrimSpace(hops[index])
-		if net.ParseIP(hop) != nil {
-			return NormalizeIP(hop)
-		}
-	}
-
+	// Every hop was one of our own proxies, so the chain says nothing about the
+	// client. The caller falls back to the connection peer rather than to the
+	// leftmost value, which is the one a client controls.
 	return ""
 }
 
