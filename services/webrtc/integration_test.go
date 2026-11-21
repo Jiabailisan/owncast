@@ -18,7 +18,13 @@ import (
 // requiring FFmpeg.
 func TestEndToEndMediaDelivery(t *testing.T) {
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	require.NoError(t, setVariants(svc, testWebRTCVariants(1)))
+
+	// A variant is only admissible once its media leg is open, so the leg is created
+	// before the WHEP request.
+	leg, err := svc.OpenMediaLeg(0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = svc.CloseMediaLeg(0) })
 
 	clientPC, offer := testBrowserOfferWithCandidates(t)
 
@@ -55,10 +61,6 @@ func TestEndToEndMediaDelivery(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return clientPC.ConnectionState() == webrtc.PeerConnectionStateConnected
 	}, 10*time.Second, 20*time.Millisecond, "viewer PeerConnection did not connect")
-
-	leg, err := svc.OpenMediaLeg(0)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = svc.CloseMediaLeg(0) })
 
 	// Feed a few frames through the loopback sockets, exactly as FFmpeg would.
 	stapA := []byte{nalTypeSTAPA, 0, 4, nalTypeSPS, 0x42, 0xc0, 0x1f, 0, 2, nalTypePPS, 0xce}

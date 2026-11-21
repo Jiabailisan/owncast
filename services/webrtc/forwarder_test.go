@@ -187,7 +187,7 @@ func TestForwarderReorderWindow(t *testing.T) {
 
 func TestMediaLegLifecycleAndStats(t *testing.T) {
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	require.NoError(t, setVariants(svc, testWebRTCVariants(1)))
 
 	leg, err := svc.OpenMediaLeg(0)
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestMediaLegLifecycleAndStats(t *testing.T) {
 
 func TestMediaLegPacketSizeConfiguration(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) { cfg.RTPPacketSize = 800 })
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	require.NoError(t, setVariants(svc, testWebRTCVariants(1)))
 
 	leg, err := svc.OpenMediaLeg(0)
 	require.NoError(t, err)

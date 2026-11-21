@@ -67,18 +67,18 @@ func TestServiceSetVariantsReusesUnchangedTracks(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, svc.Stop(context.Background())) })
 
 	variants := testWebRTCVariants(2)
-	require.NoError(t, svc.SetVariants(variants))
+	require.NoError(t, setVariants(svc, variants))
 	first, ok := svc.variantFor(0)
 	require.True(t, ok)
 	require.Len(t, svc.Variants(), 2)
 
-	require.NoError(t, svc.SetVariants(variants))
+	require.NoError(t, setVariants(svc, variants))
 	second, ok := svc.variantFor(0)
 	require.True(t, ok)
 	assert.Same(t, first, second, "unchanged variant must reuse its shared tracks")
 
 	// Dropping a variant removes its tracks.
-	require.NoError(t, svc.SetVariants(variants[:1]))
+	require.NoError(t, setVariants(svc, variants[:1]))
 	_, ok = svc.variantFor(1)
 	assert.False(t, ok)
 }
@@ -87,7 +87,7 @@ func TestServiceSetVariantsInvalidProfile(t *testing.T) {
 	// The profile is validated both at Start and when variants are built; an
 	// invalid profile must not panic or create tracks.
 	svc := New(Deps{Config: testWebRTCConfig(func(cfg *models.WebRTCConfig) { cfg.H264Profile = "bogus" })})
-	require.ErrorIs(t, svc.SetVariants(testWebRTCVariants(1)), ErrInvalidConfig)
+	require.ErrorIs(t, setVariants(svc, testWebRTCVariants(1)), ErrInvalidConfig)
 	require.ErrorIs(t, svc.Start(context.Background()), ErrInvalidConfig)
 }
 
@@ -102,7 +102,7 @@ func TestServiceDisabledHasNoEngine(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, svc.Stop(context.Background())) })
 
 	assert.Nil(t, svc.engineInstance())
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	require.NoError(t, setVariants(svc, testWebRTCVariants(1)))
 	assert.Len(t, svc.Variants(), 1)
 }
 

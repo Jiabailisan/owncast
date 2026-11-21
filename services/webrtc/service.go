@@ -282,13 +282,13 @@ func (s *Service) UpdateConfig(cfg models.WebRTCConfig) ([]string, error) {
 // variants. Track sets with unchanged delivery parameters are reused so
 // existing viewers stay connected across plan rebuilds. Sessions and media legs
 // attached to a removed or changed variant are closed.
-func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
+func (s *Service) SetVariants(variants []models.StreamOutputVariant) (uint64, error) {
 	s.applyDeferredRestartIfIdle()
 
 	cfg := s.Config()
 	h264Fmtp, err := canonicalH264Fmtp(cfg.H264Profile, cfg.H264Level)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	s.mu.Lock()
@@ -315,7 +315,7 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 		if trackErr != nil {
 			s.mu.Unlock()
 
-			return fmt.Errorf("webrtc: creating tracks for variant %d: %w", index, trackErr)
+			return 0, fmt.Errorf("webrtc: creating tracks for variant %d: %w", index, trackErr)
 		}
 		next[index] = tracks
 		changedVariants = append(changedVariants, index)
@@ -327,6 +327,10 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 	}
 	s.variants = next
 	s.variantGeneration++
+	generation := s.variantGeneration
+	// Detach the legs of changed variants under the same lock that replaced the
+	// tracks, so a newer publication cannot adopt a leg we are about to close.
+	detachedLegs := s.detachLegsLocked(changedVariants)
 	s.mu.Unlock()
 
 	for _, sess := range s.sessions.all() {
@@ -335,13 +339,13 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) error {
 			s.dropSession(sess, "variant reconfigured")
 		}
 	}
-	for _, index := range changedVariants {
-		if err := s.CloseMediaLeg(index); err != nil {
-			log.Warnf("webrtc: closing media leg for changed variant %d: %v", index, err)
+	for _, leg := range detachedLegs {
+		if err := leg.Close(); err != nil {
+			log.Warnf("webrtc: closing media leg for changed variant %d: %v", leg.VariantIndex(), err)
 		}
 	}
 
-	return nil
+	return generation, nil
 }
 
 // registerSessionWithCapacity validates the negotiated tracks, takes the capacity
@@ -386,21 +390,74 @@ func (s *Service) DisableVariants(generation uint64, indices []int) {
 
 		return
 	}
+	// Detach this publication's tracks and legs while the lock is held and close them
+	// by object afterwards: a newer publication may adopt a different leg at the same
+	// index in the meantime, and that one must survive.
+	detachedTracks := make([]*variantTracks, 0, len(indices))
+	detachedLegs := make([]*MediaLeg, 0, len(indices))
 	for _, index := range indices {
-		delete(s.variants, index)
+		if tracks, ok := s.variants[index]; ok {
+			detachedTracks = append(detachedTracks, tracks)
+			delete(s.variants, index)
+		}
+		if leg, ok := s.legs[index]; ok {
+			detachedLegs = append(detachedLegs, leg)
+			delete(s.legs, index)
+		}
 	}
 	s.mu.Unlock()
 
+	// Sessions are matched by the track instance they were negotiated against.
 	for _, sess := range s.sessions.all() {
-		if _, ok := s.variantFor(sess.variant.variant.Index); !ok {
-			s.dropSession(sess, "media leg unavailable")
+		for _, tracks := range detachedTracks {
+			if sess.variant == tracks {
+				s.dropSession(sess, "media leg unavailable")
+
+				break
+			}
 		}
 	}
+	for _, leg := range detachedLegs {
+		if err := leg.Close(); err != nil {
+			log.Debugf("webrtc: closing withdrawn media leg for variant %d: %v", leg.VariantIndex(), err)
+		}
+	}
+}
+
+// detachLegsLocked removes the legs of the given indices and returns them so the
+// caller can close them after unlocking. The caller must hold s.mu.
+func (s *Service) detachLegsLocked(indices []int) []*MediaLeg {
+	legs := make([]*MediaLeg, 0, len(indices))
 	for _, index := range indices {
-		if err := s.CloseMediaLeg(index); err != nil {
-			log.Debugf("webrtc: closing media leg for withdrawn variant %d: %v", index, err)
+		if leg, ok := s.legs[index]; ok {
+			legs = append(legs, leg)
+			delete(s.legs, index)
 		}
 	}
+
+	return legs
+}
+
+// deliverableVariant reports whether a variant is published and fed by the leg that
+// belongs to that same publication.
+func (s *Service) deliverableVariant(index int) (*variantTracks, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.deliverableVariantLocked(index)
+}
+
+func (s *Service) deliverableVariantLocked(index int) (*variantTracks, bool) {
+	tracks, ok := s.variants[index]
+	if !ok {
+		return nil, false
+	}
+	leg, ok := s.legs[index]
+	if !ok || leg == nil || leg.tracks != tracks {
+		return nil, false
+	}
+
+	return tracks, true
 }
 
 // VariantGeneration identifies the current set of published variants. A caller
@@ -728,17 +785,18 @@ func (s *Service) variantFor(index int) (*variantTracks, bool) {
 func (s *Service) firstVariant() (int, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	best := -1
 	for index := range s.variants {
+		if _, ok := s.deliverableVariantLocked(index); !ok {
+			continue
+		}
 		if best == -1 || index < best {
 			best = index
 		}
 	}
-	if best == -1 {
-		return 0, false
-	}
 
-	return best, true
+	return best, best != -1
 }
 
 func listeningAddress(cfg models.WebRTCConfig) string {

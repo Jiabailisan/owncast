@@ -41,7 +41,7 @@ func decodeBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]st
 
 func TestWHEPPostCreatesSession(t *testing.T) {
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	recorder := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -63,7 +63,7 @@ func TestWHEPPostCreatesSession(t *testing.T) {
 
 func TestWHEPDeleteIsIdempotent(t *testing.T) {
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	created := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -80,7 +80,7 @@ func TestWHEPDeleteIsIdempotent(t *testing.T) {
 
 func TestWHEPPatchTrickle(t *testing.T) {
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	created := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -100,7 +100,7 @@ func TestWHEPPatchTrickle(t *testing.T) {
 
 func TestWHEPDisabled(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) { cfg.Enabled = false })
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	recorder := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -110,7 +110,7 @@ func TestWHEPDisabled(t *testing.T) {
 
 func TestWHEPBadRequests(t *testing.T) {
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	malformed := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", "this is not sdp", nil)
 	assert.Equal(t, http.StatusBadRequest, malformed.Code)
@@ -131,7 +131,7 @@ func TestWHEPBadRequests(t *testing.T) {
 
 func TestWHEPCapacityGate(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) { cfg.MaxViewers = 1 })
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	first := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -145,7 +145,7 @@ func TestWHEPCapacityGate(t *testing.T) {
 
 func TestWHEPSignalingRateLimit(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) { cfg.SignalingRateLimit = 1 })
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	first := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -161,7 +161,7 @@ func TestWHEPStrictDomain(t *testing.T) {
 		cfg.Domain = "live.example.com"
 		cfg.StrictDomain = true
 	})
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	mismatched := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -180,7 +180,7 @@ func TestWHEPSameOriginAcceptedByDefault(t *testing.T) {
 	// configuration (no domain, strictDomain=false, empty allowedOrigins) the
 	// same-origin viewer page must be able to POST its offer.
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	sameOrigin := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, func(req *http.Request) {
@@ -202,7 +202,7 @@ func TestWHEPAllowedOriginsPermitCrossOrigin(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) {
 		cfg.AllowedOrigins = []string{"http://embed.example.com"}
 	})
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	allowed := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, func(req *http.Request) {
@@ -217,7 +217,7 @@ func TestWHEPCORS(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) {
 		cfg.AllowedOrigins = []string{"https://embed.example.com"}
 	})
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	preflight := whepRequest(t, svc, http.MethodOptions, "/webrtc/whep", "", "", func(req *http.Request) {
 		req.Header.Set("Origin", "https://embed.example.com")
@@ -247,7 +247,7 @@ func TestWHEPLinkHeaders(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) {
 		cfg.TURNServers = []models.TURNServer{{URL: "turn:turn.example.org:3478?transport=udp", Username: "u", Credential: "c"}}
 	})
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 
 	_, offer := testBrowserOffer(t)
 	recorder := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
@@ -260,13 +260,13 @@ func TestWHEPLinkHeaders(t *testing.T) {
 
 func TestWHEPClientReportAndLiveViewers(t *testing.T) {
 	svc := testService(t, nil)
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(0)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(0))
 
 	viewerID := "0123456789abcdef0123456789abcdef"
 	assert.False(t, svc.ApplyClientReport(viewerID, ClientReport{FPS: 30}))
 
 	// Create a real session so the registry has a row to enrich.
-	require.NoError(t, svc.SetVariants(testWebRTCVariants(1)))
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
 	_, offer := testBrowserOffer(t)
 	created := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
 	require.Equal(t, http.StatusCreated, created.Code)
@@ -317,7 +317,7 @@ func TestWHEPClientReportAndLiveViewers(t *testing.T) {
 
 func TestWHEPDisabledSnapshotAndWarnings(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) { cfg.Enabled = false })
-	_ = svc.SetVariants(testWebRTCVariants(1))
+	_, _ = svc.SetVariants(testWebRTCVariants(1))
 
 	snapshot := svc.Snapshot()
 	assert.False(t, snapshot.Enabled)

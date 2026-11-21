@@ -15,7 +15,7 @@ type webRTCStreamAdapter struct {
 var _ stream.WebRTCProvider = webRTCStreamAdapter{}
 
 // SetVariants implements stream.WebRTCProvider.
-func (a webRTCStreamAdapter) SetVariants(variants []models.StreamOutputVariant) error {
+func (a webRTCStreamAdapter) SetVariants(variants []models.StreamOutputVariant) (uint64, error) {
 	return a.service.SetVariants(variants)
 }
 

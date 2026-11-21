@@ -339,7 +339,7 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 	if err != nil {
 		return nil, nil, err
 	}
-	tracks, ok := s.variantFor(variantIndex)
+	tracks, ok := s.deliverableVariant(variantIndex)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: %d", ErrVariantNotFound, variantIndex)
 	}

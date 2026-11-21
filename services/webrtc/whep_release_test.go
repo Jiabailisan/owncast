@@ -75,7 +75,11 @@ func newVariantTestService(t *testing.T) (*Service, *variantTracks, *variantTrac
 		sessions: newSessionRegistry(),
 		variants: map[int]*variantTracks{0: tracks0, 1: tracks1},
 		capacity: newCapacityGate(10, 5, time.Minute, nil),
+		legs:     map[int]*MediaLeg{},
 	}
+	// Both variants start deliverable; the tests withdraw them explicitly.
+	markDeliverable(svc, 0)
+	markDeliverable(svc, 1)
 
 	return svc, tracks0, tracks1
 }
@@ -181,5 +185,32 @@ func TestDisableVariantsIgnoresAStaleGeneration(t *testing.T) {
 
 	if _, ok := svc.variantFor(0); !ok {
 		t.Fatal("a stale generation withdrew the current stream's variant")
+	}
+}
+
+// A leg that finishes opening after the publication it was created for has been
+// replaced must not be adopted: publishLeg checks the tracks it feeds under the lock
+// that replaced them.
+func TestLateOpenMediaLegIsNotAdoptedAfterRepublish(t *testing.T) {
+	svc, tracks0, _ := newVariantTestService(t)
+
+	// A leg opened for an older publication of index 0.
+	stale := &MediaLeg{service: svc, variant: 0, tracks: tracks0}
+
+	// The current publication of index 0 uses different tracks.
+	replacement, err := newVariantTracks(Variant{Index: 0, Name: "v0b", Width: 640, Height: 360, FPS: 30},
+		"profile-level-id=42e01f;packetization-mode=1")
+	require.NoError(t, err)
+	svc.mu.Lock()
+	svc.variants[0] = replacement
+	svc.variantGeneration++
+	svc.mu.Unlock()
+
+	if svc.publishLeg(0, stale) {
+		t.Fatal("a leg for a replaced publication was adopted")
+	}
+
+	if _, ok := svc.deliverableVariant(0); ok {
+		t.Fatal("the stale leg made the variant deliverable")
 	}
 }

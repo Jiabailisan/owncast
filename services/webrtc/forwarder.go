@@ -293,6 +293,12 @@ type MediaLeg struct {
 	service *Service
 	variant int
 	cfg     models.WebRTCConfig
+	// tracks is the published track set this leg feeds. Readiness compares it with
+	// s.variants[variant]: a leg opened for a different publication must not admit
+	// viewers, even at the same index.
+	tracks *variantTracks
+	// generation is the publication the sockets were opened for.
+	generation uint64
 
 	videoConn *net.UDPConn
 	audioConn *net.UDPConn
@@ -315,6 +321,9 @@ func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %d", ErrVariantNotFound, variantIndex)
 	}
+	// Capture the publication the sockets are opened for; publishLeg re-checks both
+	// the tracks and this generation once the sockets exist.
+	generation := s.VariantGeneration()
 
 	cfg := s.Config()
 	videoConn, err := listenLoopbackUDP()
@@ -329,11 +338,13 @@ func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	}
 
 	leg := &MediaLeg{
-		service:   s,
-		variant:   variantIndex,
-		cfg:       cfg,
-		videoConn: videoConn,
-		audioConn: audioConn,
+		service:    s,
+		variant:    variantIndex,
+		cfg:        cfg,
+		tracks:     tracks,
+		generation: generation,
+		videoConn:  videoConn,
+		audioConn:  audioConn,
 	}
 
 	fps := tracks.variant.FPS
@@ -393,6 +404,14 @@ func (s *Service) publishLeg(variantIndex int, leg *MediaLeg) bool {
 		return false
 	}
 
+	// The publication may have been replaced while the sockets were being bound. A
+	// leg for tracks nobody publishes any more must not be adopted.
+	if current, ok := s.variants[variantIndex]; !ok || current != leg.tracks {
+		s.mu.Unlock()
+
+		return false
+	}
+
 	previous := s.legs[variantIndex]
 	s.legs[variantIndex] = leg
 	s.mu.Unlock()
@@ -442,6 +461,11 @@ func (l *MediaLeg) MarkRestart() {
 
 // Stats returns the health snapshot of the leg for the admin UI.
 func (l *MediaLeg) Stats() MediaLegStats {
+	if l.videoForwarder == nil || l.audioForwarder == nil {
+		// A leg that never finished opening has nothing to report.
+		return MediaLegStats{Variant: l.variant}
+	}
+
 	videoPackets, videoBytes, videoParseErrors, videoPTMismatch, videoWriteErrors, videoRebases,
 		videoSeq, videoTS, videoLastPacket := l.videoForwarder.stats()
 	audioPackets, audioBytes, audioParseErrors, audioPTMismatch, audioWriteErrors, audioRebases,
@@ -483,9 +507,17 @@ func (l *MediaLeg) Stats() MediaLegStats {
 // Close closes both sockets (unblocking the forwarders) and waits for them.
 func (l *MediaLeg) Close() error {
 	l.closeOnce.Do(func() {
-		l.service.forgetLeg(l.variant, l)
-		_ = l.videoConn.Close()
-		_ = l.audioConn.Close()
+		// A leg that never finished opening has no service, sockets or forwarders.
+		// Close is the failure path as well as the teardown path, so it tolerates them.
+		if l.service != nil {
+			l.service.forgetLeg(l.variant, l)
+		}
+		if l.videoConn != nil {
+			_ = l.videoConn.Close()
+		}
+		if l.audioConn != nil {
+			_ = l.audioConn.Close()
+		}
 		l.wg.Wait()
 		log.Infof("webrtc: media leg for variant %d closed", l.variant)
 	})

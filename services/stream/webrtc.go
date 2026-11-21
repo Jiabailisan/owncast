@@ -35,7 +35,7 @@ type WebRTCMediaLeg interface {
 type WebRTCProvider interface {
 	// SetVariants publishes the variants WebRTC delivery should expose. The
 	// slice position is the variant index used by WHEP and the FFmpeg plan.
-	SetVariants(variants []models.StreamOutputVariant) error
+	SetVariants(variants []models.StreamOutputVariant) (uint64, error)
 	// OpenMediaLeg allocates the Go-owned loopback sockets for a variant and
 	// starts the RTP forwarder.
 	OpenMediaLeg(variantIndex int) (WebRTCMediaLeg, error)
@@ -246,14 +246,14 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 		return nil
 	}
 
-	if err := s.webRTC.SetVariants(webrtcVariants); err != nil {
+	generation, err := s.webRTC.SetVariants(webrtcVariants)
+	if err != nil {
 		log.Errorln("webrtc: unable to publish variants; continuing with HLS only:", err)
 		warnings = append(warnings, models.StatusWarning{Code: "webrtc_variants", Message: err.Error()})
 		s.setWebRTCWarnings(warnings)
 		return nil
 	}
 
-	generation := s.webRTC.VariantGeneration()
 	s.webRTCVariantGen = generation
 
 	outputs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, warnings)
@@ -293,6 +293,6 @@ func (s *Service) closeWebRTC() {
 		_ = s.webRTC.CloseMediaLeg(index)
 	}
 	s.clearWebRTCLegs()
-	_ = s.webRTC.SetVariants(nil)
+	_, _ = s.webRTC.SetVariants(nil)
 	s.setWebRTCWarnings(nil)
 }
