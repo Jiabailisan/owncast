@@ -344,6 +344,7 @@ func (s *Service) applyStreamOnline() {
 	now := utils.NullTime{Time: time.Now(), Valid: true}
 	s.statsMu.Lock()
 	s.stats.StreamConnected = true
+	s.broadcastEpoch++
 	s.stats.LastDisconnectTime = nil
 	s.stats.LastConnectTime = &now
 	s.stats.SessionMaxViewerCount = 0

@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/persistence/configrepository"
 	"github.com/owncast/owncast/services/geoip"
 )
 
@@ -85,18 +86,50 @@ func (s *Service) RemoveChatClient(clientID string) {
 
 // SetViewerActive marks a viewer as currently watching and updates the
 // session/overall peak counters. Silent no-op while no stream is live.
-func (s *Service) SetViewerActive(viewer *models.Viewer) {
-	if s.stats == nil || !s.stats.StreamConnected {
-		return
-	}
+// LiveSnapshot is one consistent view of the live state: whether a stream is
+// connected, the settings it started with, and an identity that distinguishes one
+// broadcast from the next.
+type LiveSnapshot struct {
+	Connected bool
+	Broadcast *models.CurrentBroadcast
+	Epoch     uint64
+}
+
+// LiveSnapshot returns the current live state. The broadcast settings and the
+// identity are read under the locks that publish them, so the caller can register a
+// viewer against exactly the broadcast it observed.
+func (s *Service) LiveSnapshot() LiveSnapshot {
+	s.sessionMu.RLock()
+	broadcast := s.currentBroadcast
+	s.sessionMu.RUnlock()
 
 	s.statsMu.Lock()
 	defer s.statsMu.Unlock()
 
-	// Asynchronously, optionally, fetch GeoIP info. The lookup can be slow,
-	// so it lands on the stored viewer later, under the same lock every
-	// other reader takes.
-	go func(clientID, ipAddress string) {
+	return LiveSnapshot{
+		Connected: s.stats != nil && s.stats.StreamConnected,
+		Broadcast: broadcast,
+		Epoch:     s.broadcastEpoch,
+	}
+}
+
+func (s *Service) SetViewerActive(viewer *models.Viewer) {
+	s.SetViewerActiveForSnapshot(viewer, s.LiveSnapshot())
+}
+
+// SetViewerActiveForSnapshot registers a viewer only while the broadcast the caller
+// observed is still the live one. The connectivity check, the epoch check and the
+// write all happen under statsMu, so a request that started against the previous
+// broadcast cannot add itself to the next one.
+func (s *Service) SetViewerActiveForSnapshot(viewer *models.Viewer, snapshot LiveSnapshot) {
+	if s.stats == nil {
+		return
+	}
+
+	// Asynchronously, optionally, fetch GeoIP info. The lookup can be slow, so it
+	// lands on the stored viewer later, and only if the same broadcast is still live:
+	// a late result must not overwrite the next broadcast's viewer.
+	go func(clientID, ipAddress string, epoch uint64) {
 		var geo *geoip.GeoDetails
 		if s.geoIPClient != nil {
 			geo = s.geoIPClient.GetGeoFromIP(ipAddress)
@@ -104,12 +137,22 @@ func (s *Service) SetViewerActive(viewer *models.Viewer) {
 
 		s.statsMu.Lock()
 		defer s.statsMu.Unlock()
+		if s.broadcastEpoch != epoch {
+			return
+		}
 		// A failed lookup (database reload, transient error) must not erase a
 		// location that was already resolved.
 		if stored, ok := s.stats.Viewers[clientID]; ok && geo != nil {
 			stored.Geo = geo
 		}
-	}(viewer.ClientID, viewer.IPAddress)
+	}(viewer.ClientID, viewer.IPAddress, snapshot.Epoch)
+
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+
+	if !s.stats.StreamConnected || s.broadcastEpoch != snapshot.Epoch {
+		return
+	}
 
 	if stored, exists := s.stats.Viewers[viewer.ClientID]; exists {
 		stored.LastSeen = time.Now()
@@ -158,18 +201,24 @@ func mergeViewerReport(stored, reported *models.Viewer) {
 // or non-HLS variant index still records the viewer as active but leaves the
 // quality fields untouched: quality is never invented.
 func (s *Service) SetViewerActiveWithVariant(viewer *models.Viewer, variantIndex int) {
-	if s.stats == nil || !s.stats.StreamConnected {
+	s.SetViewerActiveWithVariantForSnapshot(viewer, variantIndex, s.LiveSnapshot())
+}
+
+// SetViewerActiveWithVariantForSnapshot records the quality the player is consuming
+// from the same snapshot the connectivity and identity checks use.
+func (s *Service) SetViewerActiveWithVariantForSnapshot(viewer *models.Viewer, variantIndex int, snapshot LiveSnapshot) {
+	if s.stats == nil {
 		return
 	}
 
-	s.applyViewerQuality(viewer, variantIndex)
-	s.SetViewerActive(viewer)
+	s.applyViewerQuality(viewer, variantIndex, snapshot.Broadcast)
+	s.SetViewerActiveForSnapshot(viewer, snapshot)
 }
 
 // applyViewerQuality fills a request's viewer record with the advertised
 // quality of the active output variant at variantIndex.
-func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int) {
-	variants := s.activeOutputVariants()
+func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, broadcast *models.CurrentBroadcast) {
+	variants := outputVariantsFrom(broadcast, s.configRepository)
 	if variantIndex < 0 || variantIndex >= len(variants) {
 		return
 	}
@@ -189,14 +238,24 @@ func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int) {
 // falling back to the persisted configuration when no broadcast snapshot is
 // held (offline, tests).
 func (s *Service) activeOutputVariants() []models.StreamOutputVariant {
-	if s.currentBroadcast != nil && len(s.currentBroadcast.OutputSettings) > 0 {
-		return s.currentBroadcast.OutputSettings
+	s.sessionMu.RLock()
+	broadcast := s.currentBroadcast
+	s.sessionMu.RUnlock()
+
+	return outputVariantsFrom(broadcast, s.configRepository)
+}
+
+// outputVariantsFrom returns the output settings of a broadcast snapshot, falling
+// back to the persisted configuration when the snapshot holds none.
+func outputVariantsFrom(broadcast *models.CurrentBroadcast, repository configrepository.ConfigRepository) []models.StreamOutputVariant {
+	if broadcast != nil && len(broadcast.OutputSettings) > 0 {
+		return broadcast.OutputSettings
 	}
-	if s.configRepository == nil {
+	if repository == nil {
 		return nil
 	}
 
-	return s.configRepository.GetStreamOutputVariants()
+	return repository.GetStreamOutputVariants()
 }
 
 // sourceStreamDetails returns the ingress source properties, or nil when no
