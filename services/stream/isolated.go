@@ -100,26 +100,24 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			s.clearWebRTCTranscoder(tr)
 			if err == nil {
 				log.Traceln("isolated webrtc process exited cleanly")
-				// The process is gone, so its branch must stop queueing for it.
-				s.releaseWebRTCProcessSession(session)
-				tee.RemoveBranch(webRTCBranchName)
+				// The process is gone, so the renditions it fed cannot be delivered any
+				// more: withdraw them through the same path the exhausted case uses.
+				s.withdrawWebRTCVariants(tee, session, variantGen, rtpOutputs)
 
 				return
 			}
 			if attempt >= webRTCProcessMaxRestarts {
 				log.Errorln("isolated webrtc process failed; WebRTC legs disabled for this stream:", err)
-				// Withdraw this stream's variants so WHEP stops offering renditions the
-				// dead process was feeding, and tear down their sessions and legs. The
-				// generation check keeps this from touching a later stream.
-				s.webRTC.DisableVariants(variantGen, variantIndices(rtpOutputs))
-				s.setWebRTCWarnings(append(s.WebRTCWarnings(), models.StatusWarning{
+				// Withdraw this stream's renditions and tear down the sessions and legs
+				// they fed. The generation check inside keeps this from touching a later
+				// stream.
+				s.withdrawWebRTCVariants(tee, session, variantGen, rtpOutputs)
+				// The warning belongs to the failure case only, and only while this
+				// stream still owns the WebRTC state.
+				s.setWebRTCWarningsForGeneration(variantGen, append(s.WebRTCWarnings(), models.StatusWarning{
 					Code:    "webrtc_process_failed",
 					Message: "The WebRTC process failed repeatedly; WebRTC delivery is disabled for this stream while HLS continues.",
 				}))
-				// No replacement will be started; release the dead branch so the tee
-				// stops queueing into it for the rest of the stream.
-				s.releaseWebRTCProcessSession(session)
-				tee.RemoveBranch(webRTCBranchName)
 
 				return
 			}
@@ -159,6 +157,32 @@ func variantIndices(outputs []transcoder.RTPOutput) []int {
 	}
 
 	return indices
+}
+
+// withdrawWebRTCVariants removes this stream's renditions from WHEP and tears down the
+// sessions and legs they fed. It is the single path for both a clean exit and an
+// exhausted retry budget: either way the process that fed those renditions is gone, and
+// the generation check inside DisableVariants keeps a finished stream from touching the
+// next one.
+func (s *Service) withdrawWebRTCVariants(tee *ingestTee, session ingest.Session, variantGen uint64, rtpOutputs []transcoder.RTPOutput) {
+	s.webRTC.DisableVariants(variantGen, variantIndices(rtpOutputs))
+	s.releaseWebRTCProcessSession(session)
+	tee.RemoveBranch(webRTCBranchName)
+}
+
+// setWebRTCWarningsForGeneration records warnings only while the given publication is
+// still the current one, so a supervisor from a finished stream cannot add warnings to
+// the next stream's status.
+func (s *Service) setWebRTCWarningsForGeneration(generation uint64, warnings []models.StatusWarning) {
+	s.webRTCMu.Lock()
+	current := s.webRTCVariantGen
+	s.webRTCMu.Unlock()
+
+	if generation != current {
+		return
+	}
+
+	s.setWebRTCWarnings(warnings)
 }
 
 // markWebRTCLegsRestart tells the WebRTC media legs a new RTP producer starts.

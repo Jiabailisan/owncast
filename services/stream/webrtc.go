@@ -254,7 +254,9 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 		return nil
 	}
 
+	s.webRTCMu.Lock()
 	s.webRTCVariantGen = generation
+	s.webRTCMu.Unlock()
 
 	outputs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, generation, warnings)
 	// A variant whose leg failed must not stay selectable over WHEP.
