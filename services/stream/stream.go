@@ -173,7 +173,13 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 		LatencyLevel:   s.configRepository.GetStreamLatencyLevel(),
 		OutputSettings: s.configRepository.GetStreamOutputVariants(),
 	}
-	s.setCurrentSession(session)
+	// Commit the publish at the hand-off boundary: if the session already ended or a
+	// newer publisher owns the slot, nothing is announced and no transcoder starts.
+	if !s.setCurrentSession(session) {
+		log.Debugln("stream: refusing to publish an ingest session that already ended or lost the publisher slot")
+
+		return
+	}
 	s.StreamConnected(broadcast)
 
 	// For an SRT stream with a pending copy decision, read ahead so the
@@ -228,11 +234,55 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	s.thumbnailGen.Start(segmentPath, selectedThumbnailVideoQualityIndex, isVideoPassthrough)
 }
 
-// setCurrentSession replaces the active ingest session under the lock.
-func (s *Service) setCurrentSession(session ingest.Session) {
+// setCurrentSession publishes the session as the live one, but only while it is still
+// open and still owns the single publisher slot. It reports whether it was published:
+// a cancellation or a takeover that landed first wins, and the caller must not
+// announce the stream or start a transcoder.
+func (s *Service) setCurrentSession(session ingest.Session) bool {
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
+
+	if session != nil {
+		if ingestSessionClosed(session) {
+			return false
+		}
+		if s.sessions != nil && s.sessions.Current() != session {
+			return false
+		}
+	}
 	s.currentSession = session
+
+	return true
+}
+
+// clearCurrentSessionIfStale forgets the active session only when it is no longer a
+// live publisher. A late offline from a finished stream must not clear the session a
+// newer stream already published.
+func (s *Service) clearCurrentSessionIfStale() {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+
+	if s.currentSession == nil {
+		return
+	}
+	if ingestSessionClosed(s.currentSession) {
+		s.currentSession = nil
+
+		return
+	}
+	if s.sessions != nil && s.sessions.Current() != s.currentSession {
+		s.currentSession = nil
+	}
+}
+
+// ingestSessionClosed reports whether the session already terminated.
+func ingestSessionClosed(session ingest.Session) bool {
+	select {
+	case <-session.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // StreamConnected records a broadcast going live and runs the always-on
@@ -338,7 +388,7 @@ func (s *Service) applyStreamOffline() {
 		s.stopWebRTCProcess()
 		s.closeIngestTee()
 		s.closeWebRTC()
-		s.setCurrentSession(nil)
+		s.clearCurrentSessionIfStale()
 	}()
 	_ = s.chat.SendSystemAction("The stream is ending.", true)
 
