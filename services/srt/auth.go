@@ -80,6 +80,15 @@ func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 		return nil, false
 	}
 
+	// The IP rate limit runs before the stream ID is parsed and before the passphrase
+	// is verified: a throttled peer must not be able to make the server do that work,
+	// and the failure counters stay reserved for real authentication attempts.
+	if !s.limits.Allow(ip) {
+		fields["reason"] = reasonRateLimited
+		s.reject(req, wireRejectGeneric, reasonRateLimited, fields)
+		return nil, false
+	}
+
 	parsed, err := ParseStreamID(req.StreamId(), auth.formats)
 	if err != nil {
 		reason := streamIDFailureReason(err, auth.requireStreamID)
@@ -105,12 +114,6 @@ func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 		return nil, false
 	}
 	fields["encrypted"] = req.IsEncrypted()
-
-	if !s.limits.Allow(ip) {
-		fields["reason"] = reasonRateLimited
-		s.reject(req, wireRejectGeneric, reasonRateLimited, fields)
-		return nil, false
-	}
 
 	keyID, valid := s.deps.StreamKeys.ValidateKey(parsed.Key)
 	if !valid {
