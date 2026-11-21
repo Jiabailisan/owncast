@@ -288,6 +288,23 @@ func (t *Transcoder) Start(shouldLog bool) {
 
 	t.publishProcess(cmd)
 
+	// Observe the exit without reaping it. WNOWAIT keeps the child waitable, so the
+	// process group identity stays valid until cmd.Wait below reaps it exactly once,
+	// and a Stop that arrives in that window cannot signal a reused pid. Observation
+	// does not hold the lock Stop signals under.
+	go func() {
+		if err := observeExit(cmd.Process.Pid); err != nil {
+			// Fall back to the Signal(0) probe; the window stays open on this path.
+			return
+		}
+		t.commandExecMu.Lock()
+		if t.commandExec == cmd {
+			t.commandExec = nil
+			t.processReaped = true
+		}
+		t.commandExecMu.Unlock()
+	}()
+
 	var stdinDone <-chan struct{}
 	if stdinPipe != nil {
 		stdinDone = startStdinCopy(stdinPipe, t.stdin)
