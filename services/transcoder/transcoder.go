@@ -69,9 +69,12 @@ type Transcoder struct {
 	commandExecMu sync.Mutex
 	// stopRequested records a Stop that arrived before the child existed.
 	stopRequested bool
-	// processReaped is set once Wait returned for the published command, so Stop
-	// does not signal a pid the kernel may already have reused.
+	// processReaped is set once the exit was observed or Wait returned, so Stop does
+	// not signal a pid the kernel may already have reused.
 	processReaped bool
+	// pgidUnsafe is set when the process group identity could not be verified, so Stop
+	// kills the process itself instead of signalling a raw PGID.
+	pgidUnsafe bool
 	// commandExec holds the live ffmpeg child process while the
 	// transcoder is running. Set in Start, killed in Stop.
 	commandExec *exec.Cmd
@@ -219,6 +222,17 @@ func (t *Transcoder) Stop() {
 		return
 	}
 
+	if t.pgidUnsafe {
+		// The group identity could not be verified: kill the process itself, which
+		// os.Process guards against a reaped pid, and accept that its descendants are
+		// not signalled on this path.
+		if err := cmd.Process.Kill(); err != nil {
+			log.Debugln("transcoder stop (process only):", err)
+		}
+
+		return
+	}
+
 	if err := killProcessGroup(cmd); err != nil {
 		log.Debugln("transcoder stop:", err)
 	}
@@ -288,8 +302,6 @@ func (t *Transcoder) Start(shouldLog bool) {
 
 	t.publishProcess(cmd)
 
-	t.observeExitAsync(cmd)
-
 	var stdinDone <-chan struct{}
 	if stdinPipe != nil {
 		stdinDone = startStdinCopy(stdinPipe, t.stdin)
@@ -318,6 +330,17 @@ func (t *Transcoder) Start(shouldLog bool) {
 			}
 		}
 	}()
+
+	// Observe the exit without reaping it, so the process group identity stays valid
+	// until the single Wait below reaps the child. Observation does not hold the lock
+	// Stop signals under.
+	observeErr := observeExit(cmd.Process.Pid)
+
+	// Withdraw the signalable reference under that same lock, before the reap: a Stop
+	// arriving now cannot signal a pid the kernel is about to reuse. When observation
+	// failed the reference is withdrawn with the group path disabled, so Stop still
+	// stops a running child through os.Process but never through a raw PGID.
+	t.disarmSignalPath(cmd, observeErr != nil)
 
 	err = cmd.Wait()
 	sampler.Stop()
@@ -815,24 +838,19 @@ func (t *Transcoder) prepareStdinPipe(cmd *exec.Cmd) (io.WriteCloser, error) {
 	return cmd.StdinPipe()
 }
 
-// observeExitAsync withdraws the signalable reference once the child has exited,
-// without reaping it: waitid(WNOWAIT) keeps the child waitable, so the group identity
-// stays valid until the single cmd.Wait reaps it and Stop cannot signal a reused pid.
-// The observation does not hold the lock Stop signals under, and when observation is
-// impossible the previous Signal(0) probe remains the only guard.
-func (t *Transcoder) observeExitAsync(cmd *exec.Cmd) {
-	go func() {
-		if err := observeExit(cmd.Process.Pid); err != nil {
-			return
-		}
+// disarmSignalPath withdraws the signalable reference for cmd under the lock Stop
+// signals under. unsafePGID records that the process group identity could not be
+// verified, so Stop must fall back to killing the process itself.
+func (t *Transcoder) disarmSignalPath(cmd *exec.Cmd, unsafePGID bool) {
+	t.commandExecMu.Lock()
+	defer t.commandExecMu.Unlock()
 
-		t.commandExecMu.Lock()
-		if t.commandExec == cmd {
-			t.commandExec = nil
-			t.processReaped = true
-		}
-		t.commandExecMu.Unlock()
-	}()
+	if t.commandExec != cmd {
+		return
+	}
+	t.commandExec = nil
+	t.processReaped = true
+	t.pgidUnsafe = unsafePGID
 }
 
 // publishProcess records the started child and applies a Stop that arrived while it
