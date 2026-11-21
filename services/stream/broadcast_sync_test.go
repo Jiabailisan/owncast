@@ -18,13 +18,13 @@ func TestBroadcastReadsAreSynchronised(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 2000; i++ {
-			svc.sessionMu.Lock()
+			svc.statsMu.Lock()
 			svc.currentBroadcast = &models.CurrentBroadcast{}
-			svc.sessionMu.Unlock()
+			svc.statsMu.Unlock()
 
-			svc.sessionMu.Lock()
+			svc.statsMu.Lock()
 			svc.currentBroadcast = nil
-			svc.sessionMu.Unlock()
+			svc.statsMu.Unlock()
 		}
 	}()
 

@@ -317,14 +317,7 @@ func ingestSessionClosed(session ingest.Session) bool {
 // go-live side effects. Implements StreamEvents; the local engine calls it
 // in-process, a remote engine over its signaling channel.
 func (s *Service) StreamConnected(broadcast *models.CurrentBroadcast) {
-	// The broadcast settings are read by the playlist, metrics and admin paths while
-	// a stream goes live or offline, so they are published under the same lock that
-	// guards publishing.
-	s.sessionMu.Lock()
-	s.currentBroadcast = broadcast
-	s.sessionMu.Unlock()
-
-	s.applyStreamOnline()
+	s.applyStreamOnline(broadcast)
 }
 
 // applyStreamOnline runs the always-on side effects of a stream going live:
@@ -332,7 +325,7 @@ func (s *Service) StreamConnected(broadcast *models.CurrentBroadcast) {
 // federation go-live announcements. It deliberately excludes the transcoder
 // and thumbnail pipeline (engine work), so a remote engine can drive just
 // these reactions through StreamConnected.
-func (s *Service) applyStreamOnline() {
+func (s *Service) applyStreamOnline(broadcast *models.CurrentBroadcast) {
 	// Cache the warm-up window here: IsStreamConnected is called for every HLS
 	// segment request and used to read the latency level from the datastore.
 	waitSeconds := s.configRepository.GetStreamLatencyLevel().SecondsPerSegment * 3
@@ -342,7 +335,11 @@ func (s *Service) applyStreamOnline() {
 	s.onlineWaitNanos.Store(int64(time.Duration(waitSeconds) * time.Second))
 
 	now := utils.NullTime{Time: time.Now(), Valid: true}
+	// One critical section publishes the settings, the broadcast identity and the
+	// connectivity, so a snapshot cannot combine the previous settings with the new
+	// epoch.
 	s.statsMu.Lock()
+	s.currentBroadcast = broadcast
 	s.stats.StreamConnected = true
 	s.broadcastEpoch++
 	s.stats.LastDisconnectTime = nil
@@ -415,10 +412,6 @@ func (s *Service) streamDisconnectedFor(session ingest.Session, err error) {
 	}
 
 	s.applyStreamOffline(session)
-
-	s.sessionMu.Lock()
-	s.currentBroadcast = nil
-	s.sessionMu.Unlock()
 }
 
 // StreamDisconnected records a broadcast ending and clears the in-flight
@@ -470,6 +463,7 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 	now := utils.NullTime{Time: time.Now(), Valid: true}
 	s.statsMu.Lock()
 	s.stats.StreamConnected = false
+	s.currentBroadcast = nil
 	s.stats.LastDisconnectTime = &now
 	s.stats.LastConnectTime = nil
 	s.statsMu.Unlock()
@@ -500,9 +494,9 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 	}
 
 	// One consistent snapshot: the settings cannot change underneath this teardown.
-	s.sessionMu.RLock()
+	s.statsMu.Lock()
 	broadcast := s.currentBroadcast
-	s.sessionMu.RUnlock()
+	s.statsMu.Unlock()
 
 	// If there is no current broadcast available the previous stream
 	// likely failed for some reason. Don't try to append to it. Just
