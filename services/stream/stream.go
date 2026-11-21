@@ -433,6 +433,25 @@ func (s *Service) IsStreamBusy() bool {
 	return s.tearingDown.Load() || s.IsStreamConnected()
 }
 
+// beginOffline captures the broadcast settings this stream started with and publishes
+// the offline state, both under statsMu. Callers see the stream as offline immediately;
+// the teardown keeps using the returned settings to write the per-variant offline
+// content.
+func (s *Service) beginOffline() *models.CurrentBroadcast {
+	now := utils.NullTime{Time: time.Now(), Valid: true}
+
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+
+	broadcast := s.currentBroadcast
+	s.stats.StreamConnected = false
+	s.currentBroadcast = nil
+	s.stats.LastDisconnectTime = &now
+	s.stats.LastConnectTime = nil
+
+	return broadcast
+}
+
 // applyStreamOffline handles the always-on cleanup when a live stream ends.
 func (s *Service) applyStreamOffline(session ingest.Session) {
 	// The engine teardown has to run on every exit path. It used to sit after the
@@ -460,13 +479,10 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 	}()
 	_ = s.chat.SendSystemAction("The stream is ending.", true)
 
-	now := utils.NullTime{Time: time.Now(), Valid: true}
-	s.statsMu.Lock()
-	s.stats.StreamConnected = false
-	s.currentBroadcast = nil
-	s.stats.LastDisconnectTime = &now
-	s.stats.LastConnectTime = nil
-	s.statsMu.Unlock()
+	// Capture the settings this broadcast started with and publish the offline state
+	// in the same critical section: every other reader sees the stream as offline
+	// immediately, while the cleanup below keeps working from the captured settings.
+	broadcast := s.beginOffline()
 	s.broadcaster = nil
 
 	// Stop the federated stream-ping ticker so we don't keep advertising
@@ -492,11 +508,6 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 	if s.yp != nil {
 		s.yp.Stop()
 	}
-
-	// One consistent snapshot: the settings cannot change underneath this teardown.
-	s.statsMu.Lock()
-	broadcast := s.currentBroadcast
-	s.statsMu.Unlock()
 
 	// If there is no current broadcast available the previous stream
 	// likely failed for some reason. Don't try to append to it. Just
