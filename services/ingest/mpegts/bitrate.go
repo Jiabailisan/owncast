@@ -28,6 +28,11 @@ const (
 	adtsHeaderLength = 7
 	// maxAudioESBuffer caps the retained audio elementary-stream tail.
 	maxAudioESBuffer = 1 << 20
+	// maxBitrateSamples caps the retained samples independently of PTS. A stalled
+	// timestamp stops the media-time trim from firing, and a large jump leaves a
+	// backlog behind it; without a hard cap both the memory and the per-sample walk in
+	// rateKbps would grow with the stream duration.
+	maxBitrateSamples = 4096
 )
 
 // sourceBitrateTracker accumulates PES payload sample sizes with their
@@ -56,9 +61,20 @@ func (b *sourceBitrateTracker) add(pts int64, payloadBytes int) {
 		b.primed = true
 	}
 
-	// Bound memory: retain at most two windows of samples.
-	for len(b.samples) > 1 && b.ageTicks(b.samples[0].pts) > 2*bitrateWindowTicks {
-		b.samples = b.samples[1:]
+	// Bound memory by media time first. The whole stale prefix is dropped at once:
+	// after a timestamp jump every older sample is out of the window, and removing one
+	// per arrival would leave a backlog that grows with the jump.
+	cut := 0
+	for cut < len(b.samples)-1 && b.ageTicks(b.samples[cut].pts) > 2*bitrateWindowTicks {
+		cut++
+	}
+	if cut > 0 {
+		b.samples = append(b.samples[:0], b.samples[cut:]...)
+	}
+
+	// Hard cap, independent of PTS: a stalled timestamp never ages out.
+	if len(b.samples) > maxBitrateSamples {
+		b.samples = append(b.samples[:0], b.samples[len(b.samples)-maxBitrateSamples:]...)
 	}
 }
 
