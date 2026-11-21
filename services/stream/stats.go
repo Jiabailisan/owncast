@@ -234,17 +234,6 @@ func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, br
 	viewer.BitrateKbps, viewer.Resolution, viewer.FPS = hlsVariantPlaybackQuality(variant, s.sourceStreamDetails())
 }
 
-// activeOutputVariants returns the output settings of the current broadcast,
-// falling back to the persisted configuration when no broadcast snapshot is
-// held (offline, tests).
-func (s *Service) activeOutputVariants() []models.StreamOutputVariant {
-	s.sessionMu.RLock()
-	broadcast := s.currentBroadcast
-	s.sessionMu.RUnlock()
-
-	return outputVariantsFrom(broadcast, s.configRepository)
-}
-
 // outputVariantsFrom returns the output settings of a broadcast snapshot, falling
 // back to the persisted configuration when the snapshot holds none.
 func outputVariantsFrom(broadcast *models.CurrentBroadcast, repository configrepository.ConfigRepository) []models.StreamOutputVariant {
