@@ -300,16 +300,19 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
       );
     }
 
-    const answerSdp = await response.text();
-    if (!answerSdp) {
-      throw new WHEPError('signaling', 'The WebRTC endpoint returned an empty answer');
-    }
-
+    // The server created the session before it wrote this response, so the Location
+    // is recorded first: reading the body can still fail, and the session must be
+    // released in that case too.
     const sessionUrl = response.headers.get('Location');
     if (!sessionUrl) {
       throw new WHEPError('signaling', 'The WebRTC endpoint did not return a session Location');
     }
     createdSessionUrl = sessionUrl;
+
+    const answerSdp = await response.text();
+    if (!answerSdp) {
+      throw new WHEPError('signaling', 'The WebRTC endpoint returned an empty answer');
+    }
 
     const iceServersFromLink = parseIceServersFromLinkHeader(response.headers.get('Link'));
 

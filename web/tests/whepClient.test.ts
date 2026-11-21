@@ -253,6 +253,60 @@ describe('whep client', () => {
     ).rejects.toThrow(/sdp rejected/);
   });
 
+  test('deletes the session when reading the answer body fails', async () => {
+    const pc = new FakePeerConnection();
+    const sessionResponse = {
+      ...makeResponse('', { status: 201, headers: { Location: '/webrtc/whep/session/abc' } }),
+      text: async () => {
+        throw new Error('body read failed');
+      },
+    };
+    const fetchMock = jest.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'DELETE'
+        ? makeResponse('', { status: 200 })
+        : (sessionResponse as unknown as FetchResponseLike),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      connectWHEP({
+        whepUrl: '/webrtc/whep',
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        pcFactory: () => asPeerConnection(pc),
+      }),
+    ).rejects.toThrow(/body read failed/);
+
+    const deletes = fetchMock.mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+    );
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0][0]).toBe('/webrtc/whep/session/abc');
+  });
+
+  test('deletes the session when the answer body is empty', async () => {
+    const pc = new FakePeerConnection();
+    const fetchMock = jest.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'DELETE'
+        ? makeResponse('', { status: 200 })
+        : makeResponse('', { status: 201, headers: { Location: '/webrtc/whep/session/abc' } }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      connectWHEP({
+        whepUrl: '/webrtc/whep',
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        pcFactory: () => asPeerConnection(pc),
+      }),
+    ).rejects.toThrow(/empty answer/);
+
+    const deletes = fetchMock.mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+    );
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0][0]).toBe('/webrtc/whep/session/abc');
+  });
+
   test('fails when the response is missing the session Location', async () => {
     const fetchMock = jest.fn(async () => makeResponse('answer-sdp', { status: 201 }));
     global.fetch = fetchMock as unknown as typeof fetch;
