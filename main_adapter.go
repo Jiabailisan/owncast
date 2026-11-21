@@ -20,8 +20,8 @@ func (a webRTCStreamAdapter) SetVariants(variants []models.StreamOutputVariant) 
 }
 
 // OpenMediaLeg implements stream.WebRTCProvider.
-func (a webRTCStreamAdapter) OpenMediaLeg(variantIndex int) (stream.WebRTCMediaLeg, error) {
-	leg, err := a.service.OpenMediaLeg(variantIndex)
+func (a webRTCStreamAdapter) OpenMediaLeg(variantIndex int, generation uint64) (stream.WebRTCMediaLeg, error) {
+	leg, err := a.service.OpenMediaLeg(variantIndex, generation)
 	if err != nil {
 		return nil, err
 	}

@@ -22,7 +22,7 @@ func TestEndToEndMediaDelivery(t *testing.T) {
 
 	// A variant is only admissible once its media leg is open, so the leg is created
 	// before the WHEP request.
-	leg, err := svc.OpenMediaLeg(0)
+	leg, err := svc.OpenMediaLeg(0, svc.VariantGeneration())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = svc.CloseMediaLeg(0) })
 

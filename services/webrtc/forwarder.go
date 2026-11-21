@@ -313,7 +313,7 @@ type MediaLeg struct {
 // OpenMediaLeg binds the two loopback UDP sockets for one WebRTC variant and
 // starts the forwarders. It replaces and closes any previous leg for the same
 // variant index.
-func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
+func (s *Service) OpenMediaLeg(variantIndex int, generation uint64) (*MediaLeg, error) {
 	if !s.Enabled() {
 		return nil, ErrDisabled
 	}
@@ -321,9 +321,8 @@ func (s *Service) OpenMediaLeg(variantIndex int) (*MediaLeg, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %d", ErrVariantNotFound, variantIndex)
 	}
-	// Capture the publication the sockets are opened for; publishLeg re-checks both
-	// the tracks and this generation once the sockets exist.
-	generation := s.VariantGeneration()
+	// generation is the publication the caller published; publishLeg re-checks it
+	// together with the tracks once the sockets exist.
 
 	cfg := s.Config()
 	videoConn, err := listenLoopbackUDP()
@@ -406,6 +405,11 @@ func (s *Service) publishLeg(variantIndex int, leg *MediaLeg) bool {
 
 	// The publication may have been replaced while the sockets were being bound. A
 	// leg for tracks nobody publishes any more must not be adopted.
+	if leg.generation != s.variantGeneration {
+		s.mu.Unlock()
+
+		return false
+	}
 	if current, ok := s.variants[variantIndex]; !ok || current != leg.tracks {
 		s.mu.Unlock()
 

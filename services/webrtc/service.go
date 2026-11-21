@@ -331,13 +331,15 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) (uint64, er
 	// Detach the legs of changed variants under the same lock that replaced the
 	// tracks, so a newer publication cannot adopt a leg we are about to close.
 	detachedLegs := s.detachLegsLocked(changedVariants)
+	// Sessions are snapshotted while the lock still guards s.variants: after the
+	// unlock, DisableVariants may delete entries from the very map we published, and
+	// reading it there raced with that write. Only the tracks this publication
+	// retired are affected, so a session on a reused track set keeps playing.
+	retiredSessions := s.retiredSessionsLocked(previous, next)
 	s.mu.Unlock()
 
-	for _, sess := range s.sessions.all() {
-		current := next[sess.variant.variant.Index]
-		if current == nil || current != sess.variant {
-			s.dropSession(sess, "variant reconfigured")
-		}
+	for _, sess := range retiredSessions {
+		s.dropSession(sess, "variant reconfigured")
 	}
 	for _, leg := range detachedLegs {
 		if err := leg.Close(); err != nil {
@@ -346,6 +348,27 @@ func (s *Service) SetVariants(variants []models.StreamOutputVariant) (uint64, er
 	}
 
 	return generation, nil
+}
+
+// retiredSessionsLocked returns the sessions negotiated against track sets this
+// publication replaced. The caller must hold s.mu, and must not read s.variants after
+// unlocking: DisableVariants mutates it.
+func (s *Service) retiredSessionsLocked(previous, next map[int]*variantTracks) []*session {
+	retired := make(map[*variantTracks]struct{}, len(previous))
+	for index, tracks := range previous {
+		if next[index] != tracks {
+			retired[tracks] = struct{}{}
+		}
+	}
+
+	sessions := make([]*session, 0)
+	for _, sess := range s.sessions.all() {
+		if _, ok := retired[sess.variant]; ok {
+			sessions = append(sessions, sess)
+		}
+	}
+
+	return sessions
 }
 
 // registerSessionWithCapacity validates the negotiated tracks, takes the capacity
@@ -360,8 +383,9 @@ func (s *Service) registerSessionWithCapacity(sess *session, reservationID strin
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	current, ok := s.variants[sess.variant.variant.Index]
-	if !ok || current != sess.variant {
+	// Final readiness check: the tracks must still be the published ones and the leg
+	// feeding them must still be installed, all under the lock that guards both.
+	if current, ok := s.deliverableVariantLocked(sess.variant.variant.Index); !ok || current != sess.variant {
 		return fmt.Errorf("%w: %d", ErrVariantNotFound, sess.variant.variant.Index)
 	}
 	if err := s.capacity.activate(reservationID, sess.id); err != nil {

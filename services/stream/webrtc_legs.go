@@ -89,6 +89,7 @@ func (s *Service) openWebRTCLegs(
 	webrtcVariants []models.StreamOutputVariant,
 	decisions map[int]webrtc.LegDecision,
 	webrtcConfig models.WebRTCConfig,
+	generation uint64,
 	warnings []models.StatusWarning,
 ) ([]transcoder.RTPOutput, []models.StatusWarning, []int) {
 	videoCodec := s.configRepository.GetVideoCodec()
@@ -103,7 +104,7 @@ func (s *Service) openWebRTCLegs(
 			continue
 		}
 
-		leg, err := s.webRTC.OpenMediaLeg(index)
+		leg, err := s.webRTC.OpenMediaLeg(index, generation)
 		if err != nil {
 			// Delivery being switched off is a configuration, not a failure: logging
 			// it as an error made every stream start look broken on installs that do

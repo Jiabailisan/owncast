@@ -38,7 +38,7 @@ type WebRTCProvider interface {
 	SetVariants(variants []models.StreamOutputVariant) (uint64, error)
 	// OpenMediaLeg allocates the Go-owned loopback sockets for a variant and
 	// starts the RTP forwarder.
-	OpenMediaLeg(variantIndex int) (WebRTCMediaLeg, error)
+	OpenMediaLeg(variantIndex int, generation uint64) (WebRTCMediaLeg, error)
 	// CloseMediaLeg tears the variant leg down.
 	CloseMediaLeg(variantIndex int) error
 	// VariantGeneration identifies the variant set the caller published.
@@ -256,7 +256,7 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 
 	s.webRTCVariantGen = generation
 
-	outputs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, warnings)
+	outputs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, generation, warnings)
 	// A variant whose leg failed must not stay selectable over WHEP.
 	s.webRTC.DisableVariants(generation, failed)
 	s.setWebRTCWarnings(warnings)

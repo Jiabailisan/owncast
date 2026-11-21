@@ -193,24 +193,97 @@ func TestDisableVariantsIgnoresAStaleGeneration(t *testing.T) {
 // that replaced them.
 func TestLateOpenMediaLegIsNotAdoptedAfterRepublish(t *testing.T) {
 	svc, tracks0, _ := newVariantTestService(t)
+	svc.started = true
 
-	// A leg opened for an older publication of index 0.
-	stale := &MediaLeg{service: svc, variant: 0, tracks: tracks0}
+	oldGeneration := svc.VariantGeneration()
 
-	// The current publication of index 0 uses different tracks.
-	replacement, err := newVariantTracks(Variant{Index: 0, Name: "v0b", Width: 640, Height: 360, FPS: 30},
-		"profile-level-id=42e01f;packetization-mode=1")
-	require.NoError(t, err)
+	// The republished variant reuses the same track set, so only the generation
+	// tells the two publications apart.
 	svc.mu.Lock()
-	svc.variants[0] = replacement
 	svc.variantGeneration++
+	currentGeneration := svc.variantGeneration
 	svc.mu.Unlock()
 
-	if svc.publishLeg(0, stale) {
-		t.Fatal("a leg for a replaced publication was adopted")
-	}
+	current := &MediaLeg{service: svc, variant: 0, tracks: tracks0, generation: currentGeneration}
+	require.True(t, svc.publishLeg(0, current), "the current publication's leg must be adopted")
+
+	stale := &MediaLeg{service: svc, variant: 0, tracks: tracks0, generation: oldGeneration}
+	require.False(t, svc.publishLeg(0, stale), "a leg for an older generation must be rejected")
+
+	svc.mu.RLock()
+	installed := svc.legs[0]
+	svc.mu.RUnlock()
+	require.Same(t, current, installed, "the installed leg must not be replaced by the stale one")
+}
+
+// Republishing retires only the sessions whose tracks it replaced. A session on a
+// reused track set keeps playing, and the capacity count follows.
+func TestSetVariantsRetiresOnlyReplacedSessions(t *testing.T) {
+	svc := testService(t, nil)
+	svc.started = true
+
+	require.NoError(t, setVariants(svc, testWebRTCVariants(2)))
+	require.True(t, markDeliverable(svc, 0))
+	require.True(t, markDeliverable(svc, 1))
+
+	tracks0, ok := svc.variantFor(0)
+	require.True(t, ok)
+	tracks1, ok := svc.variantFor(1)
+	require.True(t, ok)
+
+	kept := newSession("kept", tracks0, nil, nil, nil, "127.0.0.1", "ua", nil, nil)
+	retired := newSession("retired", tracks1, nil, nil, nil, "127.0.0.1", "ua", nil, nil)
+	svc.sessions.add(kept)
+	svc.sessions.add(retired)
+
+	// The second publication drops index 1 and keeps index 0's tracks.
+	require.NoError(t, setVariants(svc, testWebRTCVariants(1)))
+
+	_, keptStill := svc.sessions.get(kept.id)
+	_, retiredStill := svc.sessions.get(retired.id)
+	assert.True(t, keptStill, "a session on a reused track set must keep playing")
+	assert.False(t, retiredStill, "a session on a retired track set must be dropped")
+}
+
+// A leg that is closed between negotiation and registration makes the final check
+// fail, and no capacity slot is consumed.
+func TestRegisterSessionRefusesAVariantWhoseLegWasClosed(t *testing.T) {
+	svc, tracks0, _ := newVariantTestService(t)
+
+	reservation, err := svc.capacity.reserve("127.0.0.1")
+	require.NoError(t, err)
+
+	// The leg is closed, the tracks stay published.
+	svc.mu.Lock()
+	delete(svc.legs, 0)
+	svc.mu.Unlock()
+
+	sess := newSession("s", tracks0, nil, nil, nil, "127.0.0.1", "ua", nil, nil)
+	err = svc.registerSessionWithCapacity(sess, reservation)
+	require.ErrorIs(t, err, ErrVariantNotFound)
+
+	assert.Empty(t, svc.sessions.all(), "the refused session must not be registered")
+
+	svc.capacity.mu.Lock()
+	active := len(svc.capacity.active)
+	svc.capacity.mu.Unlock()
+	assert.Zero(t, active, "a refused registration must not consume a slot")
+}
+
+// An explicit request for a variant without a leg is refused, while the default
+// selection still finds the other ready variant.
+func TestExplicitSelectionRefusesAnUnreadyVariant(t *testing.T) {
+	svc, _, _ := newVariantTestService(t)
+
+	svc.mu.Lock()
+	delete(svc.legs, 0)
+	svc.mu.Unlock()
 
 	if _, ok := svc.deliverableVariant(0); ok {
-		t.Fatal("the stale leg made the variant deliverable")
+		t.Fatal("a variant without a leg must not be deliverable")
 	}
+
+	first, ok := svc.firstVariant()
+	assert.True(t, ok, "the default selection must still find a ready variant")
+	assert.Equal(t, 1, first)
 }

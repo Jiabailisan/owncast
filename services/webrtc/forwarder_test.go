@@ -189,7 +189,7 @@ func TestMediaLegLifecycleAndStats(t *testing.T) {
 	svc := testService(t, nil)
 	require.NoError(t, setVariants(svc, testWebRTCVariants(1)))
 
-	leg, err := svc.OpenMediaLeg(0)
+	leg, err := svc.OpenMediaLeg(0, svc.VariantGeneration())
 	require.NoError(t, err)
 	assert.EqualValues(t, 96, PayloadTypeVideo)
 	assert.EqualValues(t, 111, PayloadTypeAudio)
@@ -224,7 +224,7 @@ func TestMediaLegLifecycleAndStats(t *testing.T) {
 	require.NoError(t, svc.CloseMediaLeg(0))
 	require.NoError(t, svc.CloseMediaLeg(0))
 
-	_, err = svc.OpenMediaLeg(3)
+	_, err = svc.OpenMediaLeg(3, svc.VariantGeneration())
 	require.ErrorIs(t, err, ErrVariantNotFound)
 }
 
@@ -232,7 +232,7 @@ func TestMediaLegPacketSizeConfiguration(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) { cfg.RTPPacketSize = 800 })
 	require.NoError(t, setVariants(svc, testWebRTCVariants(1)))
 
-	leg, err := svc.OpenMediaLeg(0)
+	leg, err := svc.OpenMediaLeg(0, svc.VariantGeneration())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = svc.CloseMediaLeg(0) })
 	assert.Contains(t, leg.VideoURL(), "?pkt_size=800")
