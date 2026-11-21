@@ -275,6 +275,13 @@ func (s *Service) sessionClosed(sess *session, reason error) {
 // startSession starts the statistics sampler, publishes the active-session
 // snapshot and hands the session to the ingest handler.
 func (s *Service) startSession(sess *session) {
+	// Commit the start against Close before registering anything. A session that
+	// closed first never starts a sampler, never becomes active and never reaches
+	// the handler.
+	if !sess.beginStart() {
+		return
+	}
+
 	s.mu.Lock()
 	ctx := s.ctx
 	peerIdleTimeout := msDuration(s.cfg.PeerIdleTimeoutMs)
@@ -292,9 +299,28 @@ func (s *Service) startSession(sess *session) {
 	}
 	sess.startSampler(ctx, s.spawn, peerIdleTimeout, debugInterval, s.logger)
 
-	s.activeMu.Lock()
-	s.active = sess
-	s.activeMu.Unlock()
+	// Publish the active snapshot only while the session is still open. If Close won
+	// the race, the sampler it just started must not outlive the cleanup.
+	published := sess.publishActive(func() {
+		s.activeMu.Lock()
+		s.active = sess
+		s.activeMu.Unlock()
+	})
+	if !published {
+		sess.stopSampler()
+		sess.Close(ErrSessionClosed)
+
+		return
+	}
+
+	// The handler is the hand-off to the stream service. A Close that landed in
+	// between is a normal cancellation: the session must not be published as the
+	// current stream.
+	if sess.isClosed() {
+		sess.Close(ErrSessionClosed)
+
+		return
+	}
 
 	if err := s.deps.Handler(sess); err != nil {
 		s.logger.WithError(err).Error("SRT ingest handler failed")

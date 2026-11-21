@@ -40,17 +40,17 @@ type session struct {
 	lastRead  atomic.Int64
 	inspector *mpegts.Inspector
 
-	samplerMu sync.Mutex
-	sampler   *statsSampler
+	sampler *statsSampler
 
 	sourceMu      sync.Mutex
 	lastSourceKey string
 
-	// connMu guards conn and connClosed. bind and Close take it so a connection
-	// accepted after the session was closed is refused instead of leaked, and Close
-	// still closes a connection bound before it.
-	connMu     sync.Mutex
-	connClosed bool
+	// stateMu guards conn, closed and started. bind, Close and the start commit share
+	// it, so a session cannot register resources after Close finished and Close can
+	// always see what the start path registered.
+	stateMu sync.Mutex
+	closed  bool
+	started bool
 
 	closeOnce sync.Once
 }
@@ -75,34 +75,64 @@ func newSession(remote net.Addr, keyID string, version uint32, encrypted bool, o
 // reader goroutine starts. It reports false when the session was already closed, in
 // which case the late connection has been closed and the caller must stop.
 func (s *session) bind(conn gosrt.Conn) bool {
-	s.connMu.Lock()
-	if s.connClosed {
-		s.connMu.Unlock()
+	s.stateMu.Lock()
+	if s.closed {
+		s.stateMu.Unlock()
 		// Closing the network connection is not done under the lock.
 		_ = conn.Close()
 
 		return false
 	}
 	s.conn = conn
-	s.connMu.Unlock()
+	s.stateMu.Unlock()
 
 	return true
 }
 
 // connection returns the bound connection, if any.
 func (s *session) connection() gosrt.Conn {
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.conn
 }
 
 // isClosed reports whether Close already ran.
 func (s *session) isClosed() bool {
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
-	return s.connClosed
+	return s.closed
+}
+
+// beginStart commits the session to starting. It reports false when Close already
+// ran, in which case the caller must not register a sampler, publish an active
+// snapshot or invoke the ingest handler.
+func (s *session) beginStart() bool {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	if s.closed {
+		return false
+	}
+	s.started = true
+
+	return true
+}
+
+// publishActive runs publish only while the session is still open, under the lock
+// Close takes. It reports false when Close already ran, so nothing registered after
+// the cleanup survives.
+func (s *session) publishActive(publish func()) bool {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	if s.closed {
+		return false
+	}
+	publish()
+
+	return true
 }
 
 // Reader implements ingest.Session.
@@ -149,13 +179,18 @@ func remoteCloseReason(err error) error {
 // channel) exactly once.
 func (s *session) Close(reason error) {
 	s.closeOnce.Do(func() {
-		s.connMu.Lock()
-		s.connClosed = true
+		s.stateMu.Lock()
+		s.closed = true
 		conn := s.conn
-		s.connMu.Unlock()
+		sampler := s.sampler
+		s.sampler = nil
+		s.stateMu.Unlock()
 
-		s.stopSampler()
-		// Network close and the external callback run outside the lock.
+		// Stopping the sampler, closing the network connection and running the
+		// external callback all happen outside the lock.
+		if sampler != nil {
+			sampler.stop()
+		}
 		if conn != nil {
 			_ = conn.Close()
 		}
@@ -166,12 +201,15 @@ func (s *session) Close(reason error) {
 // startSampler starts the per-session statistics sampler through the service
 // spawn function. It is idempotent.
 func (s *session) startSampler(parent context.Context, spawn func(func()) bool, idleTimeout, debugInterval time.Duration, logger *log.Logger) {
-	s.samplerMu.Lock()
-	defer s.samplerMu.Unlock()
-	if s.sampler != nil || s.conn == nil {
+	// Installing the sampler shares the lock Close takes, so either the sampler is
+	// registered first and Close stops it, or Close ran first and nothing is started.
+	s.stateMu.Lock()
+	if s.closed || s.sampler != nil || s.conn == nil {
+		s.stateMu.Unlock()
+
 		return
 	}
-	s.sampler = newStatsSampler(
+	sampler := newStatsSampler(
 		s.conn,
 		s.SessionBase,
 		s.PayloadBytes,
@@ -182,14 +220,25 @@ func (s *session) startSampler(parent context.Context, spawn func(func()) bool, 
 		func(reason error) { s.Close(reason) },
 		s.refreshSourceMetadata,
 	)
-	s.sampler.start(parent, spawn)
+	s.sampler = sampler
+	s.stateMu.Unlock()
+
+	sampler.start(parent, spawn)
+}
+
+// takeSampler detaches the sampler so the caller can stop it outside the lock.
+func (s *session) takeSampler() *statsSampler {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	sampler := s.sampler
+	s.sampler = nil
+
+	return sampler
 }
 
 func (s *session) stopSampler() {
-	s.samplerMu.Lock()
-	sampler := s.sampler
-	s.samplerMu.Unlock()
-	if sampler != nil {
+	if sampler := s.takeSampler(); sampler != nil {
 		sampler.stop()
 	}
 }
