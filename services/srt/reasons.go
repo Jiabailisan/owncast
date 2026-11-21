@@ -53,6 +53,8 @@ var (
 	// ErrSessionNotBound is returned when the media reader is used before the
 	// SRT connection is bound to the session.
 	ErrSessionNotBound = errors.New("srt session is not bound")
+	// ErrSessionClosed means the session ended before it was handed to the stream.
+	ErrSessionClosed = errors.New("srt session closed before it started")
 	// ErrNoHandler is returned by Start when no ingest handler was injected.
 	ErrNoHandler = errors.New("srt handler is not configured")
 	// ErrServiceNotRunning is returned by operations that require a listener.

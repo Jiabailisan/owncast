@@ -122,6 +122,31 @@ func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 	}
 	fields["key_id"] = keyID
 
+	sess, ok := s.reservePublisher(req, remote, keyID, fields)
+	if !ok {
+		return nil, false
+	}
+
+	conn, err := req.Accept()
+	if err != nil {
+		s.deps.Sessions.Release(sess)
+		s.logger.WithError(err).WithFields(fields).Warn("SRT accept failed")
+		return nil, false
+	}
+
+	if !s.attachConnection(sess, conn, fields) {
+		return nil, false
+	}
+
+	fields["session_id"] = sess.ID()
+	fields["version"] = req.Version()
+	s.logger.WithFields(fields).Info("SRT session accepted")
+	return sess, true
+}
+
+// reservePublisher creates the session and takes the single-publisher slot. It
+// reports false after rejecting the request.
+func (s *Service) reservePublisher(req gosrt.ConnRequest, remote net.Addr, keyID string, fields log.Fields) (*session, bool) {
 	var sess *session
 	sess = newSession(remote, keyID, req.Version(), req.IsEncrypted(), func(reason error) {
 		s.sessionClosed(sess, reason)
@@ -135,25 +160,41 @@ func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 		if errors.Is(err, ingest.ErrPublisherActive) {
 			fields["reason"] = reasonPublisherActive
 			s.reject(req, wireRejectResource, reasonPublisherActive, fields)
+
 			return nil, false
 		}
 		fields["reason"] = reasonInternal
 		s.reject(req, wireRejectSystem, reasonInternal, fields)
+
 		return nil, false
 	}
 
-	conn, err := req.Accept()
-	if err != nil {
-		s.deps.Sessions.Release(sess)
-		s.logger.WithError(err).WithFields(fields).Warn("SRT accept failed")
-		return nil, false
-	}
-
-	sess.bind(conn)
-	fields["session_id"] = sess.ID()
-	fields["version"] = req.Version()
-	s.logger.WithFields(fields).Info("SRT session accepted")
 	return sess, true
+}
+
+// attachConnection binds the accepted connection and confirms the session can still
+// start. It reports false when the session ended first, in which case the caller must
+// stop and the late connection is already closed.
+func (s *Service) attachConnection(sess *session, conn gosrt.Conn, fields log.Fields) bool {
+	if !sess.bind(conn) {
+		// Closed between Accept and bind; bind closed the late connection. Releasing
+		// is a no-op unless this session still owns the slot.
+		s.deps.Sessions.Release(sess)
+		s.logger.WithFields(fields).Warn("SRT session closed before its connection was bound")
+
+		return false
+	}
+
+	if sess.isClosed() || s.deps.Sessions.Current() != sess {
+		// Closed after bind, or the slot already moved on. Handing it to the stream
+		// would start a sampler and process it as the live publisher.
+		sess.Close(ErrSessionClosed)
+		s.logger.WithFields(fields).Warn("SRT session ended before it started")
+
+		return false
+	}
+
+	return true
 }
 
 // publisherInProgress rejects a caller while a stream is live or still tearing

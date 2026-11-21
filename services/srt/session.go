@@ -46,6 +46,12 @@ type session struct {
 	sourceMu      sync.Mutex
 	lastSourceKey string
 
+	// connMu guards conn and connClosed. bind and Close take it so a connection
+	// accepted after the session was closed is refused instead of leaked, and Close
+	// still closes a connection bound before it.
+	connMu     sync.Mutex
+	connClosed bool
+
 	closeOnce sync.Once
 }
 
@@ -66,9 +72,37 @@ func newSession(remote net.Addr, keyID string, version uint32, encrypted bool, o
 }
 
 // bind attaches the accepted gosrt connection. It must be called before any
-// reader goroutine starts.
-func (s *session) bind(conn gosrt.Conn) {
+// reader goroutine starts. It reports false when the session was already closed, in
+// which case the late connection has been closed and the caller must stop.
+func (s *session) bind(conn gosrt.Conn) bool {
+	s.connMu.Lock()
+	if s.connClosed {
+		s.connMu.Unlock()
+		// Closing the network connection is not done under the lock.
+		_ = conn.Close()
+
+		return false
+	}
 	s.conn = conn
+	s.connMu.Unlock()
+
+	return true
+}
+
+// connection returns the bound connection, if any.
+func (s *session) connection() gosrt.Conn {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	return s.conn
+}
+
+// isClosed reports whether Close already ran.
+func (s *session) isClosed() bool {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	return s.connClosed
 }
 
 // Reader implements ingest.Session.
@@ -80,11 +114,12 @@ func (s *session) Reader() io.Reader {
 // (the displayed ingest bitrate is payload-only; gosrt byte counters include
 // protocol headers) and closes the session when the connection fails.
 func (s *session) Read(buffer []byte) (int, error) {
-	if s.conn == nil {
+	conn := s.connection()
+	if conn == nil {
 		return 0, ErrSessionNotBound
 	}
 
-	n, err := s.conn.Read(buffer)
+	n, err := conn.Read(buffer)
 	if n > 0 {
 		s.payload.Add(int64(n))
 		s.lastRead.Store(time.Now().UnixNano())
@@ -114,9 +149,15 @@ func remoteCloseReason(err error) error {
 // channel) exactly once.
 func (s *session) Close(reason error) {
 	s.closeOnce.Do(func() {
+		s.connMu.Lock()
+		s.connClosed = true
+		conn := s.conn
+		s.connMu.Unlock()
+
 		s.stopSampler()
-		if s.conn != nil {
-			_ = s.conn.Close()
+		// Network close and the external callback run outside the lock.
+		if conn != nil {
+			_ = conn.Close()
 		}
 		s.SessionBase.Close(reason)
 	})

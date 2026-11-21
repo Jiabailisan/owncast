@@ -22,6 +22,7 @@ type fakeConn struct {
 	data    []byte
 	readErr error
 	closed  bool
+	closes  int
 	stats   gosrt.Statistics
 }
 
@@ -47,7 +48,17 @@ func (c *fakeConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.closed = true
+	c.closes++
+
 	return nil
+}
+
+// closeCount reports how many times Close was called.
+func (c *fakeConn) closeCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.closes
 }
 
 func (c *fakeConn) LocalAddr() net.Addr { return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1} }
@@ -221,5 +232,84 @@ func TestSessionRefreshSourceMetadataPopulatesMediaDetails(t *testing.T) {
 	}
 	if details.VideoCodec != "H.264" || details.AudioCodec != "AAC" {
 		t.Errorf("codec labels = %q/%q", details.VideoCodec, details.AudioCodec)
+	}
+}
+
+// A connection accepted after the session was closed must be refused and closed by
+// bind, so the caller can stop instead of leaking it.
+func TestBindAfterCloseClosesTheLateConnection(t *testing.T) {
+	sess := newSession(nil, "key", 0, false, nil)
+	sess.Close(ErrSessionClosed)
+
+	conn := &fakeConn{}
+	if sess.bind(conn) {
+		t.Fatal("bind must refuse a session that was already closed")
+	}
+	if !conn.closed {
+		t.Fatal("the late connection must be closed by bind")
+	}
+	if got := conn.closeCount(); got != 1 {
+		t.Fatalf("the late connection was closed %d times, want 1", got)
+	}
+}
+
+// A connection bound before Close is closed exactly once by Close.
+func TestCloseAfterBindClosesTheConnectionOnce(t *testing.T) {
+	sess := newSession(nil, "key", 0, false, nil)
+	conn := &fakeConn{data: []byte("payload")}
+
+	if !sess.bind(conn) {
+		t.Fatal("bind must accept a live session")
+	}
+	sess.Close(ErrRemoteClosed)
+	sess.Close(ErrRemoteClosed)
+
+	if !conn.closed {
+		t.Fatal("Close must close the bound connection")
+	}
+	if got := conn.closeCount(); got != 1 {
+		t.Fatalf("the connection was closed %d times, want 1", got)
+	}
+}
+
+// The normal path still reads through the bound connection.
+func TestReadUsesTheBoundConnection(t *testing.T) {
+	sess := newSession(nil, "key", 0, false, nil)
+	conn := &fakeConn{data: []byte("abc")}
+	if !sess.bind(conn) {
+		t.Fatal("bind must accept a live session")
+	}
+
+	buffer := make([]byte, 8)
+	n, err := sess.Read(buffer)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(buffer[:n]) != "abc" {
+		t.Fatalf("read %q, want %q", buffer[:n], "abc")
+	}
+	if conn.closed {
+		t.Fatal("a successful read must not close the connection")
+	}
+}
+
+// Releasing a finished session must not free the slot a newer session owns.
+func TestReleaseOfAnOldSessionKeepsTheNewOwner(t *testing.T) {
+	arbiter := ingest.NewArbiter()
+	old := newSession(nil, "old", 0, false, nil)
+	fresh := newSession(nil, "new", 0, false, nil)
+
+	if err := arbiter.TryAcquire(old); err != nil {
+		t.Fatalf("acquire old: %v", err)
+	}
+	old.Close(ErrRemoteClosed)
+	if err := arbiter.TryAcquire(fresh); err != nil {
+		t.Fatalf("acquire new: %v", err)
+	}
+
+	arbiter.Release(old)
+
+	if current := arbiter.Current(); current == nil || current.ID() != fresh.ID() {
+		t.Fatalf("releasing the old session cleared the new owner: %v", current)
 	}
 }
