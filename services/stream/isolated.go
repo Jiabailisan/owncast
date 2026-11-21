@@ -34,8 +34,19 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	hls.SetInputFormat(session.InputFormat())
 	hls.SetStdin(tee.AddBranch("hls", true, nil))
 	hls.TranscoderCompleted = func(err error) {
+		// Session-scoped: a completion from a stream that already lost the broadcast
+		// must not tear down the tee and WebRTC process a newer stream installed.
+		s.sessionMu.RLock()
+		owned := s.currentSession == session
+		s.sessionMu.RUnlock()
+		if !owned {
+			log.Debugln("stream: ignoring a completion from a session that no longer owns the broadcast")
+
+			return
+		}
+
 		s.StreamDisconnected(err)
-		s.setTranscoder(nil)
+		s.clearTranscoder(hls)
 		s.stopWebRTCProcess()
 		s.closeIngestTee()
 	}

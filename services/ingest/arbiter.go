@@ -48,6 +48,28 @@ func (a *Arbiter) Release(s Session) {
 	}
 }
 
+// DisconnectIf frees the slot and closes s only while s still owns it, in one
+// critical section, and reports whether it acted. A late offline from a finished
+// session therefore cannot close the publisher that replaced it.
+func (a *Arbiter) DisconnectIf(s Session, reason error) bool {
+	if s == nil {
+		return false
+	}
+
+	a.mu.Lock()
+	if a.current == nil || a.current.ID() != s.ID() {
+		a.mu.Unlock()
+
+		return false
+	}
+	a.current = nil
+	a.mu.Unlock()
+
+	s.Close(reason)
+
+	return true
+}
+
 // Current returns the active session, or nil.
 func (a *Arbiter) Current() Session {
 	a.mu.Lock()

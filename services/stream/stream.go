@@ -219,8 +219,10 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 		}
 		tr.SetPurpose(purpose)
 		tr.TranscoderCompleted = func(err error) {
-			s.StreamDisconnected(err)
-			s.setTranscoder(nil)
+			// Session-scoped: a completion from a stream that already lost the
+			// broadcast must not stop the resources a newer stream installed.
+			s.streamDisconnectedFor(session, err)
+			s.clearTranscoder(tr)
 		}
 		tr.SetStdin(mediaReader)
 		tr.SetInputFormat(session.InputFormat())
@@ -253,6 +255,17 @@ func (s *Service) setCurrentSession(session ingest.Session) bool {
 	s.currentSession = session
 
 	return true
+}
+
+// clearTranscoder forgets the transcoder reference only while it still belongs to the
+// caller. A completion from a finished stream must not clear the transcoder a newer
+// stream installed.
+func (s *Service) clearTranscoder(tr *transcoder.Transcoder) {
+	s.transcoderMu.Lock()
+	defer s.transcoderMu.Unlock()
+	if s.transcoder == tr {
+		s.transcoder = nil
+	}
 }
 
 // clearCurrentSessionIfStale forgets the active session only when it is no longer a
@@ -346,6 +359,23 @@ func (s *Service) applyStreamOnline() {
 	}
 }
 
+// streamDisconnectedFor ends the broadcast on behalf of one session. The ownership
+// check and the decision share the session lock, so a completion that arrives after a
+// newer session took over does nothing at all.
+func (s *Service) streamDisconnectedFor(session ingest.Session, err error) {
+	s.sessionMu.RLock()
+	current := s.currentSession
+	s.sessionMu.RUnlock()
+
+	if session != nil && current != session {
+		log.Debugln("stream: ignoring a completion from a session that no longer owns the broadcast")
+
+		return
+	}
+
+	s.StreamDisconnected(err)
+}
+
 // StreamDisconnected records a broadcast ending and clears the in-flight
 // broadcast settings. Implements StreamEvents; the local engine calls it when
 // the transcoder exits, a remote engine when its stream goes offline.
@@ -367,6 +397,12 @@ func (s *Service) IsStreamBusy() bool {
 
 // applyStreamOffline handles the always-on cleanup when a live stream ends.
 func (s *Service) applyStreamOffline() {
+	// The session this teardown belongs to, read once so the withdrawal below can be
+	// matched by identity instead of disconnecting whoever is current by then.
+	s.sessionMu.RLock()
+	owner := s.currentSession
+	s.sessionMu.RUnlock()
+
 	// The engine teardown has to run on every exit path. It used to sit after the
 	// offline-clip render, so a clip that could not be written left the publisher
 	// connected, the media legs open and the variants advertised for a stream that
@@ -383,7 +419,7 @@ func (s *Service) applyStreamOffline() {
 			s.thumbnailGen.Stop()
 		}
 		if s.sessions != nil {
-			s.sessions.DisconnectCurrent(errStreamOffline)
+			s.sessions.DisconnectIf(owner, errStreamOffline)
 		}
 		s.stopWebRTCProcess()
 		s.closeIngestTee()
