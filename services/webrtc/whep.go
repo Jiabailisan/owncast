@@ -90,7 +90,12 @@ func (h *whepHandler) serveWHEP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.service.limiter.allow(h.service.clientIP(r)) {
+	// Resolve the client address once: the rate limit, the capacity slot and the
+	// session record must all use the same value, or one client could be counted
+	// under two keys.
+	clientIP := h.service.clientIP(r)
+
+	if !h.service.limiter.allow(clientIP) {
 		retryAfter := 60 / max(1, cfg.SignalingRateLimit)
 		h.writeError(w, r, http.StatusTooManyRequests, CodeRateLimited, "signaling rate limit exceeded", retryAfter)
 
@@ -111,7 +116,7 @@ func (h *whepHandler) serveWHEP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, answer, err := h.service.createViewerSession(r, variantIndex, string(offer))
+	sess, answer, err := h.service.createViewerSession(r, clientIP, variantIndex, string(offer))
 	if err != nil {
 		h.writeSessionError(w, r, err)
 
@@ -337,7 +342,7 @@ type negotiatedPeer struct {
 	answer      *webrtc.SessionDescription
 }
 
-func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer string) (*session, *webrtc.SessionDescription, error) {
+func (s *Service) createViewerSession(r *http.Request, clientIP string, variantIndex int, offer string) (*session, *webrtc.SessionDescription, error) {
 	pruned, err := pruneOffer(offer, s.Config())
 	if err != nil {
 		return nil, nil, err
@@ -351,7 +356,7 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 		return nil, nil, ErrDisabled
 	}
 
-	reservation, err := s.capacity.reserve(s.clientIP(r))
+	reservation, err := s.capacity.reserve(clientIP)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -381,7 +386,7 @@ func (s *Service) createViewerSession(r *http.Request, variantIndex int, offer s
 		return nil, nil, err
 	}
 	sess := newSession(sessionID, tracks, peer.pc, peer.getter, peer.estimator,
-		s.clientIP(r), r.UserAgent(), peer.videoSender, peer.audioSender)
+		clientIP, r.UserAgent(), peer.videoSender, peer.audioSender)
 	// Start the drains before the session becomes reachable through the registry
 	// so a concurrent DELETE/janitor cannot close it before its goroutines are
 	// tracked by the WaitGroup.

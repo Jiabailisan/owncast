@@ -38,21 +38,22 @@ func GenerateClientIDFromRequest(req *http.Request) string {
 // peer keeps its real address, so the headers cannot be used to forge it.
 func GetIPAddressFromRequest(req *http.Request) string {
 	peer := NormalizeIP(hostOnly(req.RemoteAddr))
-	if isTrustedProxyPeer(peer) {
-		if cloudflare := strings.TrimSpace(req.Header.Get("CF-Connecting-IP")); cloudflare != "" {
+	policy := TrustedProxyPolicy()
+	if peerIsTrusted(peer) {
+		if cloudflare := strings.TrimSpace(req.Header.Get("CF-Connecting-IP")); policy.cloudflare && cloudflare != "" {
 			if net.ParseIP(cloudflare) != nil {
 				return NormalizeIP(cloudflare)
 			}
 		}
 		// X-Real-IP is set by several proxies and, unlike the X-Forwarded-For
 		// chain, cannot carry a client-supplied list.
-		if realIP := strings.TrimSpace(req.Header.Get("X-Real-IP")); realIP != "" {
+		if realIP := strings.TrimSpace(req.Header.Get("X-Real-IP")); policy.realIP && realIP != "" {
 			if net.ParseIP(realIP) != nil {
 				return NormalizeIP(realIP)
 			}
 		}
 
-		if forwarded := req.Header.Get("X-Forwarded-For"); forwarded != "" {
+		if forwarded := req.Header.Get("X-Forwarded-For"); policy.forwardedFor && forwarded != "" {
 			if hop := clientHopFromChain(forwarded); hop != "" {
 				return hop
 			}
@@ -91,7 +92,7 @@ func clientHopFromChain(forwarded string) string {
 
 		// Skip the proxies we already know; the first address past them is the
 		// client that reached the outermost proxy.
-		if isTrustedProxyPeer(hop) {
+		if peerIsTrusted(hop) {
 			continue
 		}
 
