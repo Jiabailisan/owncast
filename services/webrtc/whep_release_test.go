@@ -2,6 +2,8 @@ package webrtc
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -275,15 +277,24 @@ func TestRegisterSessionRefusesAVariantWhoseLegWasClosed(t *testing.T) {
 func TestExplicitSelectionRefusesAnUnreadyVariant(t *testing.T) {
 	svc, _, _ := newVariantTestService(t)
 
+	// Index 0 is published but its RTP leg is not ready.
 	svc.mu.Lock()
 	delete(svc.legs, 0)
 	svc.mu.Unlock()
 
-	if _, ok := svc.deliverableVariant(0); ok {
-		t.Fatal("a variant without a leg must not be deliverable")
-	}
+	handler := &whepHandler{service: svc}
 
-	first, ok := svc.firstVariant()
-	assert.True(t, ok, "the default selection must still find a ready variant")
-	assert.Equal(t, 1, first)
+	explicitUnready := httptest.NewRequest(http.MethodPost, "/webrtc/whep?variant=0", nil)
+	_, err := handler.selectedVariant(explicitUnready)
+	require.Error(t, err, "an explicit request for a variant without a leg must be refused")
+
+	explicitReady := httptest.NewRequest(http.MethodPost, "/webrtc/whep?variant=1", nil)
+	index, err := handler.selectedVariant(explicitReady)
+	require.NoError(t, err)
+	assert.Equal(t, 1, index)
+
+	defaulted := httptest.NewRequest(http.MethodPost, "/webrtc/whep", nil)
+	index, err = handler.selectedVariant(defaulted)
+	require.NoError(t, err)
+	assert.Equal(t, 1, index, "the default selection must skip the unready variant")
 }

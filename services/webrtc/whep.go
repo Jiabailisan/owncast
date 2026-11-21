@@ -229,7 +229,9 @@ func (h *whepHandler) selectedVariant(r *http.Request) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("invalid variant %q", raw)
 	}
-	if _, ok := h.service.variantFor(index); !ok {
+	// A variant that is configured but whose RTP leg is not ready is refused here,
+	// on the same predicate the default selection and the final registration use.
+	if _, ok := h.service.deliverableVariant(index); !ok {
 		return 0, fmt.Errorf("variant %d is not webrtc-enabled", index)
 	}
 
