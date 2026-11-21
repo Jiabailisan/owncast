@@ -25,6 +25,11 @@ var (
 	// errStreamOffline is the session close reason used when the live stream
 	// ended.
 	errStreamOffline = errors.New("stream went offline")
+	// errPublishRefused reports that an ingest session could not be published; the
+	// caller closes that session so its slot and sampler are released.
+	errPublishRefused = errors.New("the ingest session could not be published")
+	// errNoIngestSession reports a missing session from an ingest listener.
+	errNoIngestSession = errors.New("no ingest session")
 )
 
 // Start brings up the storage backend, transcoder, ingest listeners, chat,
@@ -164,9 +169,9 @@ func (s *Service) resetDirectories() {
 // every ingest listener (RTMP and SRT). It reports the broadcast online
 // (StreamConnected) and then spins up the in-process transcoder + thumbnail
 // generator fed by the session's media bytes and input format.
-func (s *Service) HandleIngestSession(session ingest.Session) {
+func (s *Service) HandleIngestSession(session ingest.Session) error {
 	if session == nil {
-		return
+		return errNoIngestSession
 	}
 
 	broadcast := &models.CurrentBroadcast{
@@ -176,9 +181,12 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	// Commit the publish at the hand-off boundary: if the session already ended or a
 	// newer publisher owns the slot, nothing is announced and no transcoder starts.
 	if !s.setCurrentSession(session) {
-		log.Debugln("stream: refusing to publish an ingest session that already ended or lost the publisher slot")
+		// The caller closes the session it was refused: its sampler stops and its
+		// publisher slot is released by the normal close path, so a later publisher
+		// can take over.
+		log.Debugln("stream: refusing to publish an ingest session that already ended, lost the publisher slot or arrived during a teardown")
 
-		return
+		return errPublishRefused
 	}
 	s.StreamConnected(broadcast)
 
@@ -234,6 +242,8 @@ func (s *Service) HandleIngestSession(session ingest.Session) {
 	selectedThumbnailVideoQualityIndex, isVideoPassthrough := s.configRepository.FindHighestVideoQualityIndex(broadcast.OutputSettings)
 	s.thumbnailGen = transcoder.NewThumbnailGenerator(s.cfg, s.configRepository)
 	s.thumbnailGen.Start(segmentPath, selectedThumbnailVideoQualityIndex, isVideoPassthrough)
+
+	return nil
 }
 
 // setCurrentSession publishes the session as the live one, but only while it is still
@@ -379,8 +389,15 @@ func (s *Service) streamDisconnectedFor(session ingest.Session, err error) {
 
 		return
 	}
-	// Published to the ingest accept path for the whole teardown, so a publisher that
-	// reconnects immediately waits for this session to be fully gone.
+	// Only the call that commits the offline state runs the teardown. A second
+	// completion for the same broadcast finds it already committed and does nothing,
+	// so the shared cleanup and the gate release happen exactly once.
+	if s.tearingDown.Load() {
+		s.sessionMu.Unlock()
+		log.Debugln("stream: a teardown for this broadcast is already running")
+
+		return
+	}
 	s.tearingDown.Store(true)
 	s.sessionMu.Unlock()
 

@@ -2,6 +2,7 @@ package srt
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -274,5 +275,42 @@ func TestRefusedScheduleReleasesTheSampler(t *testing.T) {
 
 	if got := conn.readCount(); got != 0 {
 		t.Fatalf("a refused sampler read the connection %d times, want 0", got)
+	}
+}
+
+// A handler that refuses the session must close it: the sampler stops, the publisher
+// slot is released and a later publisher can take over. This is the path the stream
+// service drives when it refuses to publish during a teardown.
+func TestRefusedHandlerReleasesTheSession(t *testing.T) {
+	svc := newStartTestService(t, func(ingest.Session) error {
+		return errors.New("publish refused")
+	})
+
+	conn := &fakeConn{}
+	var sess *session
+	sess = newSession(nil, "key", 0, false, func(reason error) { svc.sessionClosed(sess, reason) })
+	if !sess.bind(conn) {
+		t.Fatal("bind must accept a live session")
+	}
+	if err := svc.deps.Sessions.TryAcquire(sess); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	svc.startSession(sess)
+
+	if got := conn.closeCount(); got != 1 {
+		t.Fatalf("the refused session closed its connection %d times, want 1", got)
+	}
+	if samplerStarted(sess) {
+		t.Fatal("a refused session must not leave a sampler running")
+	}
+	if current := svc.deps.Sessions.Current(); current != nil {
+		t.Fatal("a refused session must release the publisher slot")
+	}
+
+	// A later publisher can take the slot.
+	next := newSession(nil, "next", 0, false, func(error) {})
+	if err := svc.deps.Sessions.TryAcquire(next); err != nil {
+		t.Fatalf("a later publisher must be able to acquire the slot: %v", err)
 	}
 }

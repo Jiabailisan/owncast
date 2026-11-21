@@ -233,8 +233,15 @@ func New(deps Deps) *Service {
 	// when enabled) and routes inbound sessions back through the service's
 	// StreamEvents handlers.
 	s.engine = &localStreamEngine{
-		listeners:     deps.Ingest,
-		onConnect:     s.HandleIngestSession,
+		listeners: deps.Ingest,
+		// The engine callback has no result, so a refused publish closes the session
+		// here: the listener then stops reading and the slot is released by the normal
+		// close path.
+		onConnect: func(session ingest.Session) {
+			if err := s.HandleIngestSession(session); err != nil {
+				session.Close(err)
+			}
+		},
 		onBroadcaster: s.BroadcasterSet,
 	}
 	return s

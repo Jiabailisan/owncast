@@ -337,8 +337,7 @@ func main() {
 			if streamSvc == nil {
 				return errStreamNotReady
 			}
-			streamSvc.HandleIngestSession(session)
-			return nil
+			return streamSvc.HandleIngestSession(session)
 		},
 	})
 
