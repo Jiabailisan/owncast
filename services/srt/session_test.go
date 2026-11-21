@@ -23,12 +23,14 @@ type fakeConn struct {
 	readErr error
 	closed  bool
 	closes  int
+	reads   int
 	stats   gosrt.Statistics
 }
 
 func (c *fakeConn) Read(buffer []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.reads++
 	if len(c.data) > 0 {
 		n := copy(buffer, c.data)
 		c.data = c.data[n:]
@@ -51,6 +53,14 @@ func (c *fakeConn) Close() error {
 	c.closes++
 
 	return nil
+}
+
+// readCount reports how many times Read was called.
+func (c *fakeConn) readCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.reads
 }
 
 // closeCount reports how many times Close was called.

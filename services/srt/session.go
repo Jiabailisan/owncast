@@ -210,6 +210,7 @@ func (s *session) startSampler(parent context.Context, spawn func(func()) bool, 
 		return
 	}
 	sampler := newStatsSampler(
+		parent,
 		s.conn,
 		s.SessionBase,
 		s.PayloadBytes,
@@ -223,7 +224,7 @@ func (s *session) startSampler(parent context.Context, spawn func(func()) bool, 
 	s.sampler = sampler
 	s.stateMu.Unlock()
 
-	sampler.start(parent, spawn)
+	sampler.start(spawn)
 }
 
 // takeSampler detaches the sampler so the caller can stop it outside the lock.

@@ -36,11 +36,13 @@ type statsSampler struct {
 	onIdle        func(error)
 	onSample      func()
 
+	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
 }
 
 func newStatsSampler(
+	parent context.Context,
 	conn gosrt.Conn,
 	base *ingest.SessionBase,
 	payloadBytes func() int64,
@@ -51,7 +53,11 @@ func newStatsSampler(
 	onIdle func(error),
 	onSample func(),
 ) *statsSampler {
+	ctx, cancel := context.WithCancel(parent)
+
 	return &statsSampler{
+		ctx:           ctx,
+		cancel:        cancel,
 		conn:          conn,
 		base:          base,
 		payloadBytes:  payloadBytes,
@@ -68,15 +74,17 @@ func newStatsSampler(
 // start launches the sampler through the service spawn function so the
 // goroutine is tracked by the service lifecycle. It is a no-op when the
 // sampler has no connection.
-func (s *statsSampler) start(parent context.Context, spawn func(func()) bool) {
+// start schedules the sampler with the context it was created with. The context and
+// its cancellation exist before the sampler is registered, so a Close that lands
+// between registration and scheduling is always seen, and a spawn that refuses the
+// task releases the cancellation instead of leaking it.
+func (s *statsSampler) start(spawn func(func()) bool) {
 	if s == nil || s.conn == nil || spawn == nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(parent)
-	s.cancel = cancel
-	spawn(func() {
-		s.run(ctx)
-	})
+	if !spawn(func() { s.run(s.ctx) }) {
+		s.stop()
+	}
 }
 
 // stop cancels the sampler. It does not wait for the goroutine because stop is
@@ -91,6 +99,12 @@ func (s *statsSampler) stop() {
 func (s *statsSampler) run(ctx context.Context) {
 	defer close(s.done)
 
+	// A sampler cancelled between registration and scheduling must exit before it
+	// reads the connection for the first time.
+	if ctx.Err() != nil {
+		return
+	}
+
 	var previous gosrt.Statistics
 	previousPayload := int64(0)
 	previousAt := time.Now()
@@ -104,6 +118,9 @@ func (s *statsSampler) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
 			var current gosrt.Statistics
 			s.conn.Stats(&current)
 

@@ -187,3 +187,92 @@ func TestStaleCleanupKeepsTheNewSession(t *testing.T) {
 		t.Fatal("the stale cleanup freed the new session's arbiter slot")
 	}
 }
+
+// A Close that lands after the sampler is registered but before its task is scheduled
+// must still stop it before it reads the connection.
+func TestCloseBetweenRegistrationAndScheduleSkipsTheSampler(t *testing.T) {
+	svc := newStartTestService(t, func(ingest.Session) error { return nil })
+
+	conn := &fakeConn{}
+	var sess *session
+	sess = newSession(nil, "key", 0, false, func(reason error) { svc.sessionClosed(sess, reason) })
+	if !sess.bind(conn) {
+		t.Fatal("bind must accept a live session")
+	}
+
+	scheduled := make(chan struct{})
+	release := make(chan struct{})
+	spawn := func(fn func()) bool {
+		close(scheduled)
+		<-release
+		go fn()
+
+		return true
+	}
+
+	done := make(chan struct{})
+	go func() {
+		sess.startSampler(context.Background(), spawn, time.Minute, 0, svc.logger)
+		close(done)
+	}()
+
+	// Paused at "registered, not yet scheduled".
+	<-scheduled
+
+	sess.stateMu.Lock()
+	sampler := sess.sampler
+	sess.stateMu.Unlock()
+	if sampler == nil {
+		t.Fatal("the sampler must be registered before its task is scheduled")
+	}
+
+	sess.Close(ErrSessionClosed)
+	close(release)
+	<-done
+
+	select {
+	case <-sampler.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cancelled sampler did not exit")
+	}
+
+	if got := conn.readCount(); got != 0 {
+		t.Fatalf("the cancelled sampler read the connection %d times, want 0", got)
+	}
+	if got := conn.closeCount(); got != 1 {
+		t.Fatalf("the connection was closed %d times, want 1", got)
+	}
+}
+
+// A service that refuses the sampler task must release its cancellation instead of
+// leaving a context that nothing will ever cancel.
+func TestRefusedScheduleReleasesTheSampler(t *testing.T) {
+	svc := newStartTestService(t, func(ingest.Session) error { return nil })
+
+	conn := &fakeConn{}
+	var sess *session
+	sess = newSession(nil, "key", 0, false, func(reason error) { svc.sessionClosed(sess, reason) })
+	if !sess.bind(conn) {
+		t.Fatal("bind must accept a live session")
+	}
+
+	refused := func(func()) bool { return false }
+	sess.startSampler(context.Background(), refused, time.Minute, 0, svc.logger)
+
+	sess.stateMu.Lock()
+	sampler := sess.sampler
+	sess.stateMu.Unlock()
+	if sampler == nil {
+		t.Fatal("the sampler must still be registered so Close can see it")
+	}
+
+	select {
+	case <-sampler.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("a refused schedule must cancel the sampler's context")
+	}
+
+	if got := conn.readCount(); got != 0 {
+		t.Fatalf("a refused sampler read the connection %d times, want 0", got)
+	}
+}
