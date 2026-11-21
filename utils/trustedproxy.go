@@ -5,35 +5,33 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // Which forwarding headers may be trusted, and from which peers.
 //
-// The rule the code implements, and the deployment it matches:
+// Three states are distinct:
 //
-//   - A forwarding header is only read when the TCP peer is a proxy we run. By
-//     default that is loopback plus this host's own addresses, which covers both
-//     deployment shapes: cloudflared dials Owncast on loopback, and the Lucky
-//     reverse proxy on the NAS reaches Owncast from the NAS's own LAN address.
-//   - CF-Connecting-IP is trusted only from that proxy, and only because Cloudflare
-//     overwrites the header on every request, so a client value cannot survive. It
-//     is listed first: on the tunnel path it is the visitor.
-//   - X-Real-IP is trusted from the same proxy. A proxy that passes a client-supplied
-//     X-Real-IP through unchanged would defeat this, so it must be configured to set
-//     it, not forward it.
-//   - X-Forwarded-For is walked from the right, skipping only hops inside the trusted
-//     ranges. A client-supplied value sits to the left of the hops our proxies added,
-//     so it is never returned.
-//   - With no trusted peer the peer address is used, so a direct connection cannot
-//     claim another address.
+//   - OWNCAST_TRUSTED_PROXY_RANGES unset: the built-in peer check applies (loopback
+//     plus this host's own addresses), which is what the shipped deployments use.
+//   - Set to a valid CIDR list: only those peers may supply headers.
+//   - Set to something that does not parse: the configuration is reported and header
+//     trust is disabled outright. It never falls back to the built-in set, because a
+//     typo must not silently widen who can claim an address.
 //
-// Two environment variables make the policy explicit for a deployment:
+// Header selection is explicit. OWNCAST_TRUST_PROXY_HEADERS lists the headers a
+// trusted peer may supply; when it is unset or empty no header is trusted and the
+// peer address is used.
 //
-//	OWNCAST_TRUSTED_PROXY_RANGES=10.0.0.0/8,192.168.0.0/16,127.0.0.1/32
-//	    Replaces the default peer set. Leave unset to keep loopback plus this host's
-//	    own addresses, which is what the shipped deployments rely on.
-//	OWNCAST_TRUST_PROXY_HEADERS=cf-connecting-ip,x-real-ip,x-forwarded-for
-//	    The headers a trusted peer may supply. Defaults to all three.
+//	OWNCAST_TRUST_PROXY_HEADERS=cf-connecting-ip,x-forwarded-for
+//
+// CF-Connecting-IP and X-Real-IP are only safe when the proxy in front overwrites or
+// removes the client's own value for that header. Cloudflare does that for
+// CF-Connecting-IP; a reverse proxy must be configured to set X-Real-IP rather than
+// forward it. X-Forwarded-For is read from the right and only hops inside the trusted
+// ranges are skipped, so a client-supplied value at the head of the list is never
+// returned; if every hop is trusted, the peer address is used instead.
 const (
 	envTrustedProxyRanges = "OWNCAST_TRUSTED_PROXY_RANGES"
 	envTrustProxyHeaders  = "OWNCAST_TRUST_PROXY_HEADERS"
@@ -44,9 +42,11 @@ const (
 )
 
 // trustedProxyPolicy is the resolved policy. A nil Ranges slice means "use the
-// built-in peer check".
+// built-in peer check"; Invalid means the configured ranges did not parse and no
+// header may be trusted.
 type trustedProxyPolicy struct {
 	ranges       []netip.Prefix
+	invalid      bool
 	cloudflare   bool
 	realIP       bool
 	forwardedFor bool
@@ -54,70 +54,98 @@ type trustedProxyPolicy struct {
 
 var currentProxyPolicy atomic.Pointer[trustedProxyPolicy]
 
-func defaultProxyPolicy() *trustedProxyPolicy {
-	return &trustedProxyPolicy{cloudflare: true, realIP: true, forwardedFor: true}
-}
-
-// TrustedProxyPolicy returns the active policy, parsing the environment once.
+// TrustedProxyPolicy returns the active policy, resolving the environment once.
 func TrustedProxyPolicy() *trustedProxyPolicy {
 	if policy := currentProxyPolicy.Load(); policy != nil {
 		return policy
 	}
 
-	policy := defaultProxyPolicy()
-	if raw := strings.TrimSpace(os.Getenv(envTrustedProxyRanges)); raw != "" {
-		policy.ranges = parseProxyRanges(raw)
+	policy := resolveProxyPolicy()
+	if !currentProxyPolicy.CompareAndSwap(nil, policy) {
+		return currentProxyPolicy.Load()
 	}
-	if raw := strings.TrimSpace(os.Getenv(envTrustProxyHeaders)); raw != "" {
-		policy.cloudflare, policy.realIP, policy.forwardedFor = false, false, false
-		for _, name := range strings.Split(raw, ",") {
-			switch strings.ToLower(strings.TrimSpace(name)) {
-			case headerCloudflare:
-				policy.cloudflare = true
-			case headerRealIP:
-				policy.realIP = true
-			case headerForwarded:
-				policy.forwardedFor = true
-			}
+
+	return policy
+}
+
+func resolveProxyPolicy() *trustedProxyPolicy {
+	policy := &trustedProxyPolicy{}
+
+	if raw := strings.TrimSpace(os.Getenv(envTrustedProxyRanges)); raw != "" {
+		ranges, err := parseProxyRanges(raw)
+		if err != nil {
+			log.Errorf("%s is invalid (%v); forwarding headers are not trusted", envTrustedProxyRanges, err)
+			policy.invalid = true
+		} else {
+			policy.ranges = ranges
 		}
 	}
-	currentProxyPolicy.CompareAndSwap(nil, policy)
 
-	return currentProxyPolicy.Load()
+	for _, name := range strings.Split(os.Getenv(envTrustProxyHeaders), ",") {
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case headerCloudflare:
+			policy.cloudflare = true
+		case headerRealIP:
+			policy.realIP = true
+		case headerForwarded:
+			policy.forwardedFor = true
+		}
+	}
+
+	return policy
 }
 
 // SetTrustedProxyPolicy installs an explicit policy. Tests use it; production reads
-// the environment through TrustedProxyPolicy.
+// the environment. An empty range list keeps the built-in peer check, and an entry
+// that does not parse disables header trust rather than widening it.
 func SetTrustedProxyPolicy(ranges []string, cloudflare, realIP, forwardedFor bool) {
-	policy := &trustedProxyPolicy{
-		ranges:       parseProxyRanges(strings.Join(ranges, ",")),
-		cloudflare:   cloudflare,
-		realIP:       realIP,
-		forwardedFor: forwardedFor,
+	policy := &trustedProxyPolicy{cloudflare: cloudflare, realIP: realIP, forwardedFor: forwardedFor}
+	if len(ranges) > 0 {
+		parsed, err := parseProxyRanges(strings.Join(ranges, ","))
+		if err != nil {
+			policy.invalid = true
+		} else {
+			policy.ranges = parsed
+		}
 	}
 	currentProxyPolicy.Store(policy)
 }
 
-// parseProxyRanges turns a comma-separated CIDR list into prefixes. Entries that do
-// not parse are ignored rather than silently trusting a wider set.
-func parseProxyRanges(raw string) []netip.Prefix {
+// ResetTrustedProxyPolicy clears the resolved policy so the next read re-parses the
+// environment. Tests use it between cases.
+func ResetTrustedProxyPolicy() {
+	currentProxyPolicy.Store(nil)
+}
+
+// parseProxyRanges turns a comma-separated CIDR list into prefixes. Any entry that
+// does not parse fails the whole list: a partial list would trust less than intended
+// in one place and more in another.
+func parseProxyRanges(raw string) ([]netip.Prefix, error) {
 	prefixes := make([]netip.Prefix, 0)
 	for _, entry := range strings.Split(raw, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
-		if prefix, err := netip.ParsePrefix(entry); err == nil {
-			prefixes = append(prefixes, prefix.Masked())
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			return nil, err
 		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	if len(prefixes) == 0 {
+		return nil, os.ErrInvalid
 	}
 
-	return prefixes
+	return prefixes, nil
 }
 
 // peerIsTrusted reports whether a peer may supply forwarding headers.
 func peerIsTrusted(address string) bool {
 	policy := TrustedProxyPolicy()
+	if policy.invalid {
+		return false
+	}
 	if len(policy.ranges) == 0 {
 		return isTrustedProxyPeer(address)
 	}

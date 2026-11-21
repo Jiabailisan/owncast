@@ -9,6 +9,10 @@ import (
 // is the only case where the header cannot have been written by the client. These
 // cases pin that contract, including the forgery case the earlier tests missed.
 func TestGetIPAddressFromRequestTrustsHeadersOnlyFromLoopback(t *testing.T) {
+	// Forwarding headers are opt-in: this table assumes all of them are enabled.
+	SetTrustedProxyPolicy(nil, true, true, true)
+	t.Cleanup(ResetTrustedProxyPolicy)
+
 	cases := []struct {
 		name     string
 		peer     string
