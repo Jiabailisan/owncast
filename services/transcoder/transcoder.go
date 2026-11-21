@@ -334,13 +334,13 @@ func (t *Transcoder) Start(shouldLog bool) {
 	// Observe the exit without reaping it, so the process group identity stays valid
 	// until the single Wait below reaps the child. Observation does not hold the lock
 	// Stop signals under.
-	observeErr := observeExit(cmd.Process.Pid)
+	observeErr := observeExitHook(cmd.Process.Pid)
 
 	// Withdraw the signalable reference under that same lock, before the reap: a Stop
 	// arriving now cannot signal a pid the kernel is about to reuse. When observation
 	// failed the reference is withdrawn with the group path disabled, so Stop still
 	// stops a running child through os.Process but never through a raw PGID.
-	t.disarmSignalPath(cmd, observeErr != nil)
+	t.disarmSignalPath(cmd, observeErr == nil)
 
 	err = cmd.Wait()
 	sampler.Stop()
@@ -838,19 +838,32 @@ func (t *Transcoder) prepareStdinPipe(cmd *exec.Cmd) (io.WriteCloser, error) {
 	return cmd.StdinPipe()
 }
 
+// observeExitHook is the exit observation used by Start. Tests replace it to exercise
+// the fallback path where the observation fails.
+var observeExitHook = observeExit
+
 // disarmSignalPath withdraws the signalable reference for cmd under the lock Stop
-// signals under. unsafePGID records that the process group identity could not be
-// verified, so Stop must fall back to killing the process itself.
-func (t *Transcoder) disarmSignalPath(cmd *exec.Cmd, unsafePGID bool) {
+// signals under. When the exit could not be observed the reference is kept and the
+// raw PGID signal is disabled, so Stop falls back to killing the process itself.
+func (t *Transcoder) disarmSignalPath(cmd *exec.Cmd, observed bool) {
 	t.commandExecMu.Lock()
 	defer t.commandExecMu.Unlock()
 
 	if t.commandExec != cmd {
 		return
 	}
+
+	if !observed {
+		// The exit could not be observed, so the group identity is unverified: keep
+		// the reference so Stop can still kill the process itself, and disable the raw
+		// PGID signal. Wait retires the reference once it has reaped the child.
+		t.pgidUnsafe = true
+
+		return
+	}
+
 	t.commandExec = nil
 	t.processReaped = true
-	t.pgidUnsafe = unsafePGID
 }
 
 // publishProcess records the started child and applies a Stop that arrived while it
