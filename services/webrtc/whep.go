@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/utils"
 	"github.com/pion/interceptor/pkg/cc"
 	"github.com/pion/interceptor/pkg/stats"
 	"github.com/pion/webrtc/v4"
@@ -319,10 +320,10 @@ func (s *Service) clientIP(r *http.Request) string {
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
 
-	return host
+	return utils.NormalizeIP(host)
 }
 
 // negotiatedPeer is the freshly created PeerConnection plus the Pion objects a

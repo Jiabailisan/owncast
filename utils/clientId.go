@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 )
@@ -36,18 +37,18 @@ func GenerateClientIDFromRequest(req *http.Request) string {
 // is actually in front. A request arriving straight from the internet on a public
 // peer keeps its real address, so the headers cannot be used to forge it.
 func GetIPAddressFromRequest(req *http.Request) string {
-	peer := hostOnly(req.RemoteAddr)
+	peer := NormalizeIP(hostOnly(req.RemoteAddr))
 	if isTrustedProxyPeer(peer) {
 		if cloudflare := strings.TrimSpace(req.Header.Get("CF-Connecting-IP")); cloudflare != "" {
 			if net.ParseIP(cloudflare) != nil {
-				return cloudflare
+				return NormalizeIP(cloudflare)
 			}
 		}
 		// X-Real-IP is set by several proxies and, unlike the X-Forwarded-For
 		// chain, cannot carry a client-supplied list.
 		if realIP := strings.TrimSpace(req.Header.Get("X-Real-IP")); realIP != "" {
 			if net.ParseIP(realIP) != nil {
-				return realIP
+				return NormalizeIP(realIP)
 			}
 		}
 
@@ -59,6 +60,19 @@ func GetIPAddressFromRequest(req *http.Request) string {
 	}
 
 	return peer
+}
+
+// NormalizeIP returns the canonical string form of an address, so the same client is
+// keyed identically whichever textual form its proxy used: IPv4-mapped IPv6 becomes
+// plain IPv4, which keeps the WHEP rate limit and capacity counters from splitting
+// one client across two keys. Invalid input is returned unchanged.
+func NormalizeIP(address string) string {
+	addr, err := netip.ParseAddr(strings.TrimSpace(address))
+	if err != nil {
+		return address
+	}
+
+	return addr.Unmap().String()
 }
 
 // clientHopFromChain walks X-Forwarded-For from right to left and returns the
@@ -81,14 +95,14 @@ func clientHopFromChain(forwarded string) string {
 			continue
 		}
 
-		return hop
+		return NormalizeIP(hop)
 	}
 
 	// Every hop was one of our own proxies: report the leftmost address we have.
 	for index := 0; index < len(hops); index++ {
 		hop := strings.TrimSpace(hops[index])
 		if net.ParseIP(hop) != nil {
-			return hop
+			return NormalizeIP(hop)
 		}
 	}
 
