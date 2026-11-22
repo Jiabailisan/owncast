@@ -110,6 +110,30 @@ Use the example only where a trusted local proxy overwrites `X-Real-IP`. If the 
 
 **FFmpeg and container storage.** FFmpeg must be available at runtime. Verify ingest, playback and thumbnail generation with the FFmpeg build used on the deployment host. When using the repository's `Dockerfile`, ensure any bind-mounted data directory is writable by the container's Owncast user (UID `101`).
 
+### Setting this stream's title from the stream key
+
+OBS keeps one stream key field per custom server, so a title that can only be set in the
+admin UI means editing the server configuration to change the title. The key can carry an
+optional title suffix instead, and the same text works for both protocols: only the server
+address changes.
+
+| Field | RTMP | SRT |
+| --- | --- | --- |
+| Server | rtmp://192.168.1.10:1935/live | srt://192.168.1.10:1935 |
+| Stream key | TEST_KEY?title=%23GameTime | TEST_KEY?title=%23GameTime |
+
+The key is TEST_KEY; everything after ? is the title query, percent-encoded once, so
+%23GameTime becomes #GameTime. The title applies only to that publish: it is shown while the
+stream is live and the saved title returns when the stream ends. An empty, undecodable,
+non-UTF-8, control-character or over-long title is ignored and the saved title stays in
+place, and an unusable title never invalidates a correct key. A bare key with no suffix keeps
+working exactly as before.
+
+Verified with FFmpeg 8.1.3 (Jellyfin build) against a local instance with RTMP on TCP 1935 and
+SRT on UDP 1935: #GameTime and a Chinese title both reach /api/status and the HLS playlist for
+both protocols. OBS itself was not available in the build environment, so the OBS key-field
+behaviour is still to be confirmed by hand.
+
 ## Building from Source
 
 Owncast consists of two projects.
