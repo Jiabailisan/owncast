@@ -62,9 +62,10 @@ func TestSessionMetadataFeedsHLSQuality(t *testing.T) {
 func TestLiveSnapshotCarriesTheSession(t *testing.T) {
 	svc := &Service{stats: &models.Stats{Viewers: map[string]*models.Viewer{}}}
 	session := newTestIngestSession("owner")
-	svc.sessionMu.Lock()
-	svc.currentSession = session
-	svc.sessionMu.Unlock()
+	// The snapshot session is published with the broadcast, not read from the session lock.
+	svc.statsMu.Lock()
+	svc.broadcastSession = session
+	svc.statsMu.Unlock()
 
 	if got := svc.LiveSnapshot().Session; got != ingest.Session(session) {
 		t.Fatalf("snapshot session = %v, want the current session", got)

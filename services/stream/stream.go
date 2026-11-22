@@ -317,7 +317,9 @@ func ingestSessionClosed(session ingest.Session) bool {
 // go-live side effects. Implements StreamEvents; the local engine calls it
 // in-process, a remote engine over its signaling channel.
 func (s *Service) StreamConnected(broadcast *models.CurrentBroadcast) {
-	s.applyStreamOnline(broadcast)
+	// The local path published this session before announcing the stream; a remote engine
+	// has none, which the offline and snapshot paths already tolerate.
+	s.applyStreamOnline(broadcast, s.GetCurrentSession())
 }
 
 // applyStreamOnline runs the always-on side effects of a stream going live:
@@ -325,7 +327,7 @@ func (s *Service) StreamConnected(broadcast *models.CurrentBroadcast) {
 // federation go-live announcements. It deliberately excludes the transcoder
 // and thumbnail pipeline (engine work), so a remote engine can drive just
 // these reactions through StreamConnected.
-func (s *Service) applyStreamOnline(broadcast *models.CurrentBroadcast) {
+func (s *Service) applyStreamOnline(broadcast *models.CurrentBroadcast, session ingest.Session) {
 	// Cache the warm-up window here: IsStreamConnected is called for every HLS
 	// segment request and used to read the latency level from the datastore.
 	waitSeconds := s.configRepository.GetStreamLatencyLevel().SecondsPerSegment * 3
@@ -340,6 +342,7 @@ func (s *Service) applyStreamOnline(broadcast *models.CurrentBroadcast) {
 	// epoch.
 	s.statsMu.Lock()
 	s.currentBroadcast = broadcast
+	s.broadcastSession = session
 	s.stats.StreamConnected = true
 	s.broadcastEpoch++
 	s.stats.LastDisconnectTime = nil
@@ -446,6 +449,7 @@ func (s *Service) beginOffline() *models.CurrentBroadcast {
 	broadcast := s.currentBroadcast
 	s.stats.StreamConnected = false
 	s.currentBroadcast = nil
+	s.broadcastSession = nil
 	s.broadcaster = nil
 	s.broadcasterEpoch = 0
 	s.stats.LastDisconnectTime = &now

@@ -9,7 +9,7 @@ import (
 	"github.com/owncast/owncast/models"
 )
 
-func (s *Service) setCurrentBroadcasterInfo(t flvio.Tag, remoteAddr string) {
+func (s *Service) setCurrentBroadcasterInfo(session *session, t flvio.Tag, remoteAddr string) {
 	data, err := getInboundDetailsFromMetadata(t.DebugFields())
 	if err != nil {
 		log.Traceln("Unable to parse inbound broadcaster details:", err)
@@ -31,9 +31,8 @@ func (s *Service) setCurrentBroadcasterInfo(t flvio.Tag, remoteAddr string) {
 		},
 	}
 
-	// Attach the metadata to the session as well as the legacy callback so
-	// the protocol-neutral status layer can read it from the session.
-	session := s.currentSessionOrNil()
+	// The session is the source of truth: it is this connection's own session, so the
+	// metadata can never land on a session a later connection installed.
 	if session != nil {
 		session.SetBroadcaster(&broadcaster)
 	}

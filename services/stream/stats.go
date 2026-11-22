@@ -103,10 +103,6 @@ type LiveSnapshot struct {
 // identity are read under the locks that publish them, so the caller can register a
 // viewer against exactly the broadcast it observed.
 func (s *Service) LiveSnapshot() LiveSnapshot {
-	s.sessionMu.RLock()
-	session := s.currentSession
-	s.sessionMu.RUnlock()
-
 	s.statsMu.Lock()
 	defer s.statsMu.Unlock()
 
@@ -114,7 +110,7 @@ func (s *Service) LiveSnapshot() LiveSnapshot {
 		Connected: s.stats != nil && s.stats.StreamConnected,
 		Broadcast: s.currentBroadcast,
 		Epoch:     s.broadcastEpoch,
-		Session:   session,
+		Session:   s.broadcastSession,
 	}
 }
 

@@ -161,7 +161,12 @@ func (s *Service) BroadcasterSetFromSession(session ingest.Session, broadcaster 
 		}
 	}
 
-	s.BroadcasterSet(broadcaster)
+	// Published here rather than through BroadcasterSet, so the ownership check above and
+	// this write are not separated by another lookup of the current session.
+	s.statsMu.Lock()
+	s.broadcaster = &broadcaster
+	s.broadcasterEpoch = s.broadcastEpoch
+	s.statsMu.Unlock()
 }
 
 // GetBroadcaster returns the active inbound broadcaster, or nil between

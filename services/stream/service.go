@@ -165,6 +165,10 @@ type Service struct {
 	broadcastEpoch uint64
 	// broadcasterEpoch is the broadcast the service-level metadata was recorded for.
 	broadcasterEpoch uint64
+	// broadcastSession is the ingest session that owns the current broadcast. It is
+	// published with the settings, the connectivity and the epoch, so a snapshot reader
+	// gets a consistent set.
+	broadcastSession ingest.Session
 	// currentSession is the authenticated inbound session that started the
 	// current live stream (RTMP or SRT). Nil between streams.
 	currentSession ingest.Session

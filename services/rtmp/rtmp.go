@@ -113,13 +113,6 @@ func (s *Service) waitForPreviousSession() bool {
 
 // handleConn is fired when an inbound RTMP connection takes place.
 func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
-	c.LogTagEvent = func(isRead bool, t flvio.Tag) {
-		if t.Type == flvio.TAG_AMF0 {
-			log.Tracef("%+v\n", t.DebugFields())
-			s.setCurrentBroadcasterInfo(t, nc.RemoteAddr().String())
-		}
-	}
-
 	// Authenticate first: waiting before authentication let any anonymous
 	// connection park a goroutine for the whole takeover window while a stream is
 	// live.
@@ -146,6 +139,17 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 		_ = rtmpIn.Close()
 		s.sessions.Release(session)
 	})
+
+	// The metadata callback belongs to this connection and names its own session: it is
+	// installed once the session exists, so a tag can never be attributed to a session a
+	// later connection installed. A tag that arrives earlier is not buffered; RTMP sends
+	// it with the publish, which is already authenticated.
+	c.LogTagEvent = func(isRead bool, t flvio.Tag) {
+		if t.Type == flvio.TAG_AMF0 {
+			log.Tracef("%+v\n", t.DebugFields())
+			s.setCurrentBroadcasterInfo(session, t, nc.RemoteAddr().String())
+		}
+	}
 
 	if err := s.sessions.TryAcquire(session); err != nil {
 		log.Errorln("stream already running; can not overtake an existing stream from", nc.RemoteAddr().String())
