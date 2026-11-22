@@ -24,6 +24,10 @@ export interface WebRTCStatsSummary {
   transport?: 'udp' | 'tcp';
   // Inbound video bitrate measured between beacon samples (admin row bitrate).
   videoBitrateKbps?: number;
+  // latencyMs is the average jitter buffer delay (jitterBufferDelay divided by
+  // jitterBufferEmittedCount), which is the number the admin viewer list shows for a
+  // WebRTC session. It is not end-to-end latency.
+  latencyMs?: number;
 }
 
 export interface WebRTCStatsBeaconOptions {
@@ -33,6 +37,9 @@ export interface WebRTCStatsBeaconOptions {
   intervalMs?: number;
   fetchImpl?: typeof fetch;
   getStatsImpl?: () => Promise<RTCStatsReport>;
+  // token is the viewer access token; it is sent in a header so it never reaches a
+  // request body or a server log.
+  token?: string;
 }
 
 export interface WebRTCStatsBeacon {
@@ -162,6 +169,11 @@ export function summarizeWebRTCStats(
       const lossPct = packetLossPercent(packetsLost, packetsReceived);
       if (lossPct !== null) summary.packetLossPct = lossPct;
       if (typeof stat.jitter === 'number') summary.jitterMs = Math.round(stat.jitter * 10000) / 10;
+      const emitted = Number(stat.jitterBufferEmittedCount) || 0;
+      const bufferDelay = Number(stat.jitterBufferDelay) || 0;
+      if (emitted > 0 && bufferDelay > 0) {
+        summary.latencyMs = Math.round((bufferDelay / emitted) * 1000);
+      }
       reportedFrameRate = plausibleFrameRate(stat.framesPerSecond);
 
       const framesDecoded = stat.framesDecoded as number | undefined;
@@ -409,6 +421,7 @@ export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRT
     intervalMs = 5000,
     fetchImpl = fetch,
     getStatsImpl,
+    token,
   } = options;
 
   let previousVideoSample: InboundVideoSample | null = null;
@@ -425,7 +438,10 @@ export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRT
       try {
         await fetchImpl(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'X-Owncast-Access-Token': token } : {}),
+          },
           body: JSON.stringify(payload),
         });
       } catch {

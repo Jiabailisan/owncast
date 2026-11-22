@@ -196,6 +196,16 @@ func (a *Admin) ReportCustomPlayerError(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// accessTokenHeader is the header the player sends its viewer access token in, so the
+// token never appears in a request body or a log line.
+const accessTokenHeader = "X-Owncast-Access-Token"
+
+// accessTokenFromReportRequest reads the viewer access token from the header the
+// player already uses for it, so the token never appears in the body or a log line.
+func accessTokenFromReportRequest(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get(accessTokenHeader))
+}
+
 // webrtcClientReportRequest is the public WebRTC stats beacon body.
 type webrtcClientReportRequest struct {
 	SessionID        string   `json:"sessionId"`
@@ -209,6 +219,8 @@ type webrtcClientReportRequest struct {
 	RoundTripTimeMs  float64  `json:"roundTripTimeMs"`
 	Transport        string   `json:"transport"`
 	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
+	LatencyMs        *float64 `json:"latencyMs"`
+	Token            string   `json:"token"`
 }
 
 // ReportWebRTCClientReport accepts the optional browser playback stats beacon
@@ -250,6 +262,8 @@ func (a *Admin) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request)
 		RoundTripTimeMs:  request.RoundTripTimeMs,
 		Transport:        request.Transport,
 		VideoBitrateKbps: request.VideoBitrateKbps,
+		LatencyMs:        request.LatencyMs,
+		NameToken:        accessTokenFromReportRequest(r),
 	})
 	if !accepted {
 		w.WriteHeader(http.StatusNotFound)

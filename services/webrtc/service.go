@@ -582,7 +582,10 @@ func liveViewerRow(snapshot ViewerSnapshot, serverMeasuredFPS *float64) models.L
 		JitterMs:        snapshot.JitterMs,
 		ConnectedAt:     snapshot.ConnectedAt,
 		DurationSeconds: snapshot.DurationSeconds,
-		Source:          string(models.PlaybackSourceServer),
+		// The rendition is negotiated by the server, so it is the quality the viewer
+		// is actually consuming.
+		Quality: snapshot.VariantName,
+		Source:  string(models.PlaybackSourceServer),
 	}
 
 	client := snapshot.Client
@@ -607,6 +610,14 @@ func liveViewerRow(snapshot ViewerSnapshot, serverMeasuredFPS *float64) models.L
 			row.PacketLossPct = &clientLoss
 			usedClientValue = true
 		}
+		// The buffer delay is measured only by the player, so it is the one latency
+		// value a WebRTC row can show.
+		if client.LatencyMs != nil && *client.LatencyMs >= 0 {
+			bufferDelay := *client.LatencyMs
+			row.LatencyMs = &bufferDelay
+			usedClientValue = true
+		}
+		row.NameToken = client.NameToken
 		// Server-detected candidate-pair transport wins; the client can only
 		// supply the fallback when the server could not detect it.
 		if row.ICETransport == "" {

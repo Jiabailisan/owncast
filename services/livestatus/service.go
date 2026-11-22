@@ -228,23 +228,15 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 		}
 	}
 
-	// A player report is attributed to the WebRTC session it came from, never to an
-	// address: two viewers behind one public address are two sessions with their own
-	// name, quality and metrics. A report without a session association is ignored and
-	// the row keeps the data the server measured for it.
-	webrtcReports := map[string]models.Viewer{}
+	// A WebRTC row is built from its own session, which carries the report the player
+	// sent for that session id. The ping registration only keeps the viewer active, so a
+	// WebRTC entry there is not used to fill the row: its client id is an address and
+	// user agent hash, not a session.
 	tokens := map[string]string{}
 
 	if s.stream != nil {
 		for _, viewer := range s.stream.GetActiveViewers() {
 			if strings.EqualFold(viewer.Protocol, "webrtc") {
-				if viewer.ClientID != "" {
-					webrtcReports[viewer.ClientID] = viewer
-					if viewer.ReportedToken != "" {
-						tokens["webrtc:"+viewer.ClientID] = viewer.ReportedToken
-					}
-				}
-
 				continue
 			}
 
@@ -258,7 +250,16 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 		}
 	}
 
-	applyWebRTCReports(viewers, webrtcReports)
+	// The chat name of a WebRTC viewer comes from the token its session reported; the
+	// token is resolved here and never leaves the server.
+	for index := range viewers {
+		if !strings.EqualFold(viewers[index].Protocol, "webrtc") || viewers[index].ClientID == "" {
+			continue
+		}
+		if viewers[index].NameToken != "" {
+			tokens["webrtc:"+viewers[index].ClientID] = viewers[index].NameToken
+		}
+	}
 
 	s.applyDisplayNames(viewers, tokens)
 
@@ -303,42 +304,6 @@ func (s *Service) applyDisplayNames(viewers []models.LiveViewer, tokens map[stri
 		if name := resolved[token]; name != "" {
 			viewers[index].Username = name
 		}
-	}
-}
-
-// applyWebRTCReports merges each WebRTC row with the report of its own session.
-// Rows whose session reported nothing keep the data the server measured for them.
-func applyWebRTCReports(rows []models.LiveViewer, reports map[string]models.Viewer) {
-	for index := range rows {
-		if !strings.EqualFold(rows[index].Protocol, "webrtc") || rows[index].ClientID == "" {
-			continue
-		}
-
-		report, ok := reports[rows[index].ClientID]
-		if !ok {
-			continue
-		}
-
-		mergeReportedIntoRow(&rows[index], report)
-	}
-}
-
-// mergeReportedIntoRow copies player-reported details onto one WebRTC row, so
-// one person stays one row with everything they reported.
-func mergeReportedIntoRow(row *models.LiveViewer, viewer models.Viewer) {
-	if viewer.DisplayName != "" {
-		row.Username = viewer.DisplayName
-	}
-	if viewer.ReportedQuality != "" {
-		row.Quality = viewer.ReportedQuality
-	}
-	// Keep the rendition the session already reported; only fall back to the
-	// player's variant when it has nothing better.
-	if (row.Quality == "" || strings.EqualFold(row.Quality, "auto")) && viewer.VariantName != "" {
-		row.Quality = viewer.VariantName
-	}
-	if viewer.ReportedLatency != nil {
-		row.LatencyMs = viewer.ReportedLatency
 	}
 }
 

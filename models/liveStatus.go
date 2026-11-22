@@ -153,6 +153,10 @@ type LiveViewer struct {
 	DurationSeconds float64   `json:"durationSeconds"`
 	Source          string    `json:"source"`
 
+	// NameToken is the chat token the session reported, resolved to a name by the
+	// consumer. It never leaves the server: it is excluded from every response.
+	NameToken string `json:"-"`
+
 	// Player-reported fields. Empty when the player sends no heartbeat details.
 	Username  string   `json:"username,omitempty"`
 	Quality   string   `json:"quality,omitempty"`

@@ -37,6 +37,13 @@ type ClientReport struct {
 	Transport string `json:"transport,omitempty"`
 	// VideoBitrateKbps is the player's measured inbound video bitrate.
 	VideoBitrateKbps *float64 `json:"videoBitrateKbps,omitempty"`
+	// LatencyMs is the average jitter buffer delay the player measured
+	// (jitterBufferDelay / jitterBufferEmittedCount), which is what the viewer list
+	// shows for a WebRTC session.
+	LatencyMs *float64 `json:"latencyMs,omitempty"`
+	// NameToken is the chat token the player reports for this session. The server
+	// resolves it to a display name and never returns it.
+	NameToken string `json:"nameToken,omitempty"`
 }
 
 // Client-report sanity bounds. The beacon is untrusted input: values outside
