@@ -65,13 +65,43 @@ func TestWarningIsOnlyRecordedForTheOwningGeneration(t *testing.T) {
 	svc := &Service{}
 	svc.webRTCVariantGen = 5
 
-	svc.setWebRTCWarningsForGeneration(4, []models.StatusWarning{{Code: "stale"}})
+	svc.appendWebRTCWarningsForGeneration(4, models.StatusWarning{Code: "stale"})
 	if got := svc.WebRTCWarnings(); len(got) != 0 {
 		t.Fatalf("a stale supervisor recorded %d warnings", len(got))
 	}
 
-	svc.setWebRTCWarningsForGeneration(5, []models.StatusWarning{{Code: "current"}})
+	svc.appendWebRTCWarningsForGeneration(5, models.StatusWarning{Code: "current"})
 	if got := svc.WebRTCWarnings(); len(got) != 1 {
 		t.Fatalf("the owning stream recorded %d warnings, want 1", len(got))
+	}
+}
+
+// recordingLeg records restarts so the test can tell which legs were marked.
+type recordingLeg struct {
+	restarts int
+}
+
+func (l *recordingLeg) VideoURL() string { return "" }
+func (l *recordingLeg) AudioURL() string { return "" }
+func (l *recordingLeg) Close() error     { return nil }
+func (l *recordingLeg) MarkRestart()     { l.restarts++ }
+
+// Only the legs this supervisor's RTP outputs feed are told about the restart; a later
+// stream's leg at another index is left alone.
+func TestRestartMarksOnlyThisSupervisorsLegs(t *testing.T) {
+	svc := &Service{}
+	own := &recordingLeg{}
+	other := &recordingLeg{}
+	svc.legsMu.Lock()
+	svc.legsByVariant = map[int]WebRTCMediaLeg{0: own, 1: other}
+	svc.legsMu.Unlock()
+
+	svc.markWebRTCLegsRestartFor([]transcoder.RTPOutput{{VariantIndex: 0}})
+
+	if own.restarts != 1 {
+		t.Fatalf("this supervisor's leg restarted %d times, want 1", own.restarts)
+	}
+	if other.restarts != 0 {
+		t.Fatalf("another stream's leg restarted %d times, want 0", other.restarts)
 	}
 }

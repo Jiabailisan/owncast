@@ -114,17 +114,17 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 				s.withdrawWebRTCVariants(tee, session, variantGen, rtpOutputs)
 				// The warning belongs to the failure case only, and only while this
 				// stream still owns the WebRTC state.
-				s.setWebRTCWarningsForGeneration(variantGen, append(s.WebRTCWarnings(), models.StatusWarning{
+				s.appendWebRTCWarningsForGeneration(variantGen, models.StatusWarning{
 					Code:    "webrtc_process_failed",
 					Message: "The WebRTC process failed repeatedly; WebRTC delivery is disabled for this stream while HLS continues.",
-				}))
+				})
 
 				return
 			}
 			log.Warnf("isolated webrtc process exited (attempt %d/%d); restarting in %s: %v",
 				attempt+1, webRTCProcessMaxRestarts, backoff, err)
 			// Rebase the forwarder when the replacement producer starts.
-			s.markWebRTCLegsRestart()
+			s.markWebRTCLegsRestartFor(rtpOutputs)
 			// Wait for the backoff or for the session to end, whichever comes first.
 			// Sleeping outright let a finished session start a replacement process
 			// that then wrote into the next stream's media legs.
@@ -173,21 +173,34 @@ func (s *Service) withdrawWebRTCVariants(tee *ingestTee, session ingest.Session,
 // setWebRTCWarningsForGeneration records warnings only while the given publication is
 // still the current one, so a supervisor from a finished stream cannot add warnings to
 // the next stream's status.
-func (s *Service) setWebRTCWarningsForGeneration(generation uint64, warnings []models.StatusWarning) {
+func (s *Service) appendWebRTCWarningsForGeneration(generation uint64, warnings ...models.StatusWarning) {
 	s.webRTCMu.Lock()
-	current := s.webRTCVariantGen
-	s.webRTCMu.Unlock()
+	defer s.webRTCMu.Unlock()
 
-	if generation != current {
+	// The check and the append share one critical section: reading the list, unlocking
+	// and writing it back would drop warnings recorded in between.
+	if generation != s.webRTCVariantGen {
 		return
 	}
-
-	s.setWebRTCWarnings(warnings)
+	s.webRTCWarnings = append(s.webRTCWarnings, warnings...)
 }
 
-// markWebRTCLegsRestart tells the WebRTC media legs a new RTP producer starts.
-func (s *Service) markWebRTCLegsRestart() {
-	for _, leg := range s.webRTCLegsByVariant() {
+// markWebRTCLegsRestartFor tells the media legs of this supervisor's RTP outputs that a
+// new producer starts. The leg objects are taken under the lock and marked outside it,
+// so a later stream's legs are never touched.
+func (s *Service) markWebRTCLegsRestartFor(outputs []transcoder.RTPOutput) {
+	indices := variantIndices(outputs)
+
+	s.legsMu.Lock()
+	legs := make([]WebRTCMediaLeg, 0, len(indices))
+	for _, index := range indices {
+		if leg := s.legsByVariant[index]; leg != nil {
+			legs = append(legs, leg)
+		}
+	}
+	s.legsMu.Unlock()
+
+	for _, leg := range legs {
 		leg.MarkRestart()
 	}
 }
