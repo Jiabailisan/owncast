@@ -74,6 +74,15 @@ api-generate: $(OAPI_CODEGEN)
 build:
 	go build -o owncast .
 
+## Build a release binary: the frontend bundle is built from this checkout first, so
+## the binary never embeds a stale static/web. The tracked bundle is restored after,
+## because it is generated output.
+release:
+	./build/web/bundleWeb.sh
+	go build -o bin/owncast .
+	@echo "release binary: bin/owncast"
+	@git checkout -- static/web 2>/dev/null || true
+
 ## Run tests
 test:
 	go test ./...
@@ -93,5 +102,6 @@ help:
 	@echo "  sqlc           - Generate database models"
 	@echo "  api-generate   - Generate API code from OpenAPI spec"
 	@echo "  build          - Build the application"
+	@echo "  release        - Build a release binary with a bundle from this checkout"
 	@echo "  test           - Run tests"
 	@echo "  clean          - Remove build artifacts and tools"

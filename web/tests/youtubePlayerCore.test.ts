@@ -29,7 +29,7 @@ import {
   qualityLabel,
   resolveTransport,
   savePreferences,
-} from '../../../docs/examples/custom-player/youtube-live-player.js';
+} from '../../docs/examples/custom-player/youtube-live-player.js';
 
 type MemoryStorage = {
   getItem: (key: string) => string | null;
