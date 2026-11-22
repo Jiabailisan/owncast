@@ -325,18 +325,43 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
       reportedHeader === null || reportedHeader.trim() === '' ? NaN : Number(reportedHeader);
     const servedVariantIndex = Number.isInteger(reportedVariant) ? reportedVariant : variantIndex;
 
-    // Start waiting for the track before applying the answer so an immediate
-    // track event cannot be missed.
-    streamWaiter = waitForRemoteStream(pc, firstTrackTimeoutMs);
-    await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    // The abort signal has to interrupt the wait for the answer and the first track: a
+    // request cancelled while it sits in either wait never reaches the cleanup below, so
+    // the session was created and never released. The rejection is raced against both
+    // waits and is consumed here so it can never surface as an unhandled rejection when
+    // the race is already decided by the other side.
+    let removeAbortListener: (() => void) | null = null;
+    const aborted = new Promise<never>((_, reject) => {
+      if (!signal) return;
+      const onAbort = () => reject(new WHEPError('network', 'WHEP request was aborted'));
+      if (signal.aborted) {
+        onAbort();
 
-    const stream = await streamWaiter.promise;
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+      removeAbortListener = () => signal.removeEventListener('abort', onAbort);
+    });
+    aborted.catch(() => {});
 
-    // The caller may have cancelled while the session was being established. The
-    // cancellation error is thrown here so the catch below does the one cleanup: it
-    // closes the local connection synchronously and releases the session exactly once.
+    let stream: MediaStream;
+    try {
+      // Start waiting for the track before applying the answer so an immediate track
+      // event cannot be missed.
+      streamWaiter = waitForRemoteStream(pc, firstTrackTimeoutMs);
+      await Promise.race([
+        pc.setRemoteDescription({ type: 'answer', sdp: answerSdp }),
+        aborted,
+      ]);
+      stream = await Promise.race([streamWaiter.promise, aborted]);
+    } finally {
+      if (removeAbortListener) removeAbortListener();
+    }
+
+    // The race can settle with the operation when the abort happens in the same turn: the
+    // promise that is evaluated first may already be resolved when the race subscribes.
+    // The session was created, so the catch must still release it.
     if (signal?.aborted) {
-      streamWaiter.cancel();
       throw new WHEPError('network', 'WHEP request was aborted');
     }
 

@@ -377,6 +377,83 @@ describe('whep helpers', () => {
   });
 });
 
+
+  test('cancels while the answer is still pending: closes locally and deletes once', async () => {
+    const controller = new AbortController();
+    const pc = new FakePeerConnection();
+    // The answer never arrives, so only the abort can end the wait.
+    pc.setRemoteDescription = jest.fn(() => new Promise(() => {}));
+
+    const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) =>
+      init?.method === 'DELETE'
+        ? makeResponse('', { status: 200 })
+        : makeResponse('answer-sdp', {
+            status: 201,
+            headers: { Location: '/webrtc/whep/session/pending' },
+          }),
+    );
+
+    const pending = connectWHEP({
+      whepUrl: '/webrtc/whep',
+      variantIndex: null,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      pcFactory: () => asPeerConnection(pc),
+      signal: controller.signal,
+    });
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: 'network' });
+    expect(pc.closed).toBe(true);
+
+    const deletes = (fetchMock.mock.calls as unknown as [string, { method?: string }][]).filter(
+      call => call[1]?.method === 'DELETE',
+    );
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0][0]).toBe('/webrtc/whep/session/pending');
+  });
+
+  test('cancels while the first track never arrives: closes locally and deletes once', async () => {
+    const controller = new AbortController();
+    const pc = new FakePeerConnection();
+    // The answer completes but the track event never fires.
+    pc.setRemoteDescription = jest.fn(async () => {});
+
+    const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) =>
+      init?.method === 'DELETE'
+        ? makeResponse('', { status: 200 })
+        : makeResponse('answer-sdp', {
+            status: 201,
+            headers: { Location: '/webrtc/whep/session/notrack' },
+          }),
+    );
+
+    const pending = connectWHEP({
+      whepUrl: '/webrtc/whep',
+      variantIndex: null,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      pcFactory: () => asPeerConnection(pc),
+      signal: controller.signal,
+    });
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: 'network' });
+    expect(pc.closed).toBe(true);
+
+    const deletes = (fetchMock.mock.calls as unknown as [string, { method?: string }][]).filter(
+      call => call[1]?.method === 'DELETE',
+    );
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0][0]).toBe('/webrtc/whep/session/notrack');
+  });
+
   test('closes the local connection first and releases the session exactly once', async () => {
     const controller = new AbortController();
     const pc = new FakePeerConnection();
@@ -421,7 +498,7 @@ describe('whep helpers', () => {
     });
 
     await new Promise((resolve) => {
-      setTimeout(resolve, 0);
+      setTimeout(resolve, 200);
     });
 
     // The DELETE has not finished, and the local connection is already closed.
