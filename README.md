@@ -110,7 +110,7 @@ The Owncast backend is a service written in Go.
    - [ffmpeg](https://ffmpeg.org/download.html)
 1. Install the [Go toolchain](https://golang.org/dl/) (1.24 or above).
 1. Clone the repo. `git clone https://github.com/owncast/owncast`
-1. `go run main.go` will run from the source.
+1. `go run .` will run from the source.
 1. Visit `http://yourserver:8080` to access the web interface or `http://yourserver:8080/admin` to access the admin.
 1. Point your [broadcasting software](https://owncast.online/docs/broadcasting/) at your new server and start streaming.
 
