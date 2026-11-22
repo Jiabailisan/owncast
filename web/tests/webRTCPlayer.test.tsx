@@ -119,9 +119,8 @@ describe('WebRTCPlayer', () => {
     // playback is picked up by the next send.
     expect(typeof options.getToken).toBe('function');
 
-    const realStart = jest.requireActual(
-      '../components/video/webrtc/webrtc-stats',
-    ).startWebRTCStatsBeacon as typeof startWebRTCStatsBeacon;
+    const realStart = jest.requireActual('../components/video/webrtc/webrtc-stats')
+      .startWebRTCStatsBeacon as typeof startWebRTCStatsBeacon;
     const fetchMock = jest.fn(async () => ({ ok: true, status: 204 }) as unknown as Response);
 
     const beacon = realStart({
@@ -142,7 +141,10 @@ describe('WebRTCPlayer', () => {
 
     beacon.stop();
 
-    const calls = fetchMock.mock.calls as unknown as [string, { body: string; headers: Record<string, string> }][];
+    const calls = fetchMock.mock.calls as unknown as [
+      string,
+      { body: string; headers: Record<string, string> },
+    ][];
     expect(calls).toHaveLength(3);
 
     calls.forEach(([, init]) => {
@@ -207,7 +209,7 @@ describe('WebRTCPlayer', () => {
     });
 
     let resolveSession: ((value: unknown) => void) | null = null;
-    const pending = new Promise((resolve) => {
+    const pending = new Promise(resolve => {
       resolveSession = resolve;
     });
 

@@ -309,36 +309,36 @@ describe('auto WebRTC quality fallback', () => {
   });
 });
 
-  test('beacons the WHEP session id, the buffer delay and the token header', async () => {
-    const fetchMock = jest.fn(async () => ({ ok: true, status: 204 }) as unknown as Response);
+test('beacons the WHEP session id, the buffer delay and the token header', async () => {
+  const fetchMock = jest.fn(async () => ({ ok: true, status: 204 }) as unknown as Response);
 
-    const beacon = startWebRTCStatsBeacon({
-      pc: {
-        getStats: async () =>
-          report([
-            videoStats({ jitterBufferDelay: 0.98, jitterBufferEmittedCount: 1 }),
-            ...iceEntries('udp'),
-          ]),
-      } as unknown as RTCPeerConnection,
-      // The id comes from the WHEP session, not from the viewer ping identity.
-      sessionId: 'whep-session-0123456789',
-      getToken: () => 'viewer-token',
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      intervalMs: 1_000_000,
-    });
-
-    await beacon.sampleOnce();
-    beacon.stop();
-
-    const call = fetchMock.mock.calls[0] as unknown as [
-      string,
-      { body: string; headers: Record<string, string> },
-    ];
-    const body = JSON.parse(call[1].body);
-
-    expect(body.sessionId).toBe('whep-session-0123456789');
-    expect(body.latencyMs).toBe(980);
-    expect(call[1].headers['X-Owncast-Access-Token']).toBe('viewer-token');
-    // The token is never part of the body.
-    expect(JSON.stringify(body)).not.toContain('viewer-token');
+  const beacon = startWebRTCStatsBeacon({
+    pc: {
+      getStats: async () =>
+        report([
+          videoStats({ jitterBufferDelay: 0.98, jitterBufferEmittedCount: 1 }),
+          ...iceEntries('udp'),
+        ]),
+    } as unknown as RTCPeerConnection,
+    // The id comes from the WHEP session, not from the viewer ping identity.
+    sessionId: 'whep-session-0123456789',
+    getToken: () => 'viewer-token',
+    fetchImpl: fetchMock as unknown as typeof fetch,
+    intervalMs: 1_000_000,
   });
+
+  await beacon.sampleOnce();
+  beacon.stop();
+
+  const call = fetchMock.mock.calls[0] as unknown as [
+    string,
+    { body: string; headers: Record<string, string> },
+  ];
+  const body = JSON.parse(call[1].body);
+
+  expect(body.sessionId).toBe('whep-session-0123456789');
+  expect(body.latencyMs).toBe(980);
+  expect(call[1].headers['X-Owncast-Access-Token']).toBe('viewer-token');
+  // The token is never part of the body.
+  expect(JSON.stringify(body)).not.toContain('viewer-token');
+});

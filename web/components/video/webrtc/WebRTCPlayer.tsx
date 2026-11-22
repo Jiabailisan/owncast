@@ -43,7 +43,12 @@ import {
   videoAspectRatio,
 } from '../PlayerControls/stats';
 import { LATENCY_STORAGE_KEY } from '../PlayerControls/preferences';
-import { ViewerReporter, videoResolution, webrtcLatencyMs, currentAccessToken } from '../../../utils/viewer-report';
+import {
+  ViewerReporter,
+  videoResolution,
+  webrtcLatencyMs,
+  currentAccessToken,
+} from '../../../utils/viewer-report';
 import styles from './WebRTCPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
