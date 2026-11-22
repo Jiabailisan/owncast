@@ -33,10 +33,13 @@ import (
 // this package; they migrate to methods on *Admin as the services they
 // need to consume move to services/<domain>/.
 type Admin struct {
-	stream           *stream.Service
-	sessions         *ingest.Arbiter
-	srt              *srt.Service
-	webrtc           *webrtc.Service
+	stream   *stream.Service
+	sessions *ingest.Arbiter
+	srt      *srt.Service
+	webrtc   *webrtc.Service
+	// webrtcApplier is the configuration-update view of the WebRTC service. Tests set it
+	// to a double that fails on demand; production leaves it nil and the service is used.
+	webrtcApplier    webrtcConfigApplier
 	liveStatus       *livestatus.Service
 	activitypub      *activitypub.Service
 	webhooks         *webhooks.Service

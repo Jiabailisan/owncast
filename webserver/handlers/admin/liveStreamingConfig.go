@@ -495,7 +495,7 @@ func (a *Admin) GetWebRTCConfig(w http.ResponseWriter, _ *http.Request) {
 		// Compare against the configuration the running engine was built with, not
 		// against the saved one: the saved one is updated immediately, so diffing it
 		// against the repository made a deferred restart invisible after a reload.
-		pendingFields = a.webrtc.PendingRestartFields()
+		pendingFields = a.webrtcUpdates().PendingRestartFields()
 	}
 	writeLiveConfigJSON(w, a.webrtcConfigState(config, pendingFields))
 }
@@ -509,13 +509,13 @@ const webrtcRestartTimeout = 20 * time.Second
 func (a *Admin) restartWebRTCService() error {
 	stopContext, stopCancel := context.WithTimeout(context.Background(), webrtcRestartTimeout)
 	defer stopCancel()
-	if err := a.webrtc.Stop(stopContext); err != nil {
+	if err := a.webrtcUpdates().Stop(stopContext); err != nil {
 		return fmt.Errorf("stopping the WebRTC service: %w", err)
 	}
 
 	startContext, startCancel := context.WithTimeout(context.Background(), webrtcRestartTimeout)
 	defer startCancel()
-	if err := a.webrtc.Start(startContext); err != nil {
+	if err := a.webrtcUpdates().Start(startContext); err != nil {
 		return fmt.Errorf("starting the WebRTC service: %w", err)
 	}
 	return nil
@@ -524,7 +524,7 @@ func (a *Admin) restartWebRTCService() error {
 // restoreWebRTCConfig re-applies the previous configuration and restarts the
 // service so a failed new configuration cannot leave WebRTC down.
 func (a *Admin) restoreWebRTCConfig(previous models.WebRTCConfig) error {
-	if _, err := a.webrtc.UpdateConfig(previous); err != nil {
+	if _, err := a.webrtcUpdates().UpdateConfig(previous); err != nil {
 		return fmt.Errorf("restoring the previous WebRTC configuration: %w", err)
 	}
 	if err := a.restartWebRTCService(); err != nil {
@@ -532,6 +532,29 @@ func (a *Admin) restoreWebRTCConfig(previous models.WebRTCConfig) error {
 	}
 
 	return nil
+}
+
+// webrtcConfigApplier is the slice of the WebRTC service the configuration update needs:
+// reading and applying the configuration, and restarting the service. Keeping it narrow
+// lets the update path be tested with a double that fails on demand.
+type webrtcConfigApplier interface {
+	Config() models.WebRTCConfig
+	UpdateConfig(models.WebRTCConfig) ([]string, error)
+	PendingRestartFields() []string
+	Stop(context.Context) error
+	Start(context.Context) error
+}
+
+// webrtcUpdates returns the applier the update path uses.
+func (a *Admin) webrtcUpdates() webrtcConfigApplier {
+	if a.webrtcApplier != nil {
+		return a.webrtcApplier
+	}
+	if a.webrtc == nil {
+		return nil
+	}
+
+	return a.webrtc
 }
 
 // UpdateWebRTCConfig validates, applies and persists a partial WebRTC
@@ -562,10 +585,10 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 	pendingFields := changedRestartFields(current, updated, settings.WebRTCMetadata())
 	previousEngineConfig := current
 	restartAttempted := false
-	if a.webrtc != nil {
-		previousConfig := a.webrtc.Config()
+	if applier := a.webrtcUpdates(); applier != nil {
+		previousConfig := applier.Config()
 		previousEngineConfig = previousConfig
-		pending, err := a.webrtc.UpdateConfig(updated)
+		pending, err := applier.UpdateConfig(updated)
 		if err != nil {
 			log.Warnln("webrtc config apply failed:", err)
 			writeLiveConfigValidationErrors(w, settings.FieldErrors{{Field: "body", Message: err.Error()}})
@@ -626,12 +649,12 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 // request that actually restarted the service restarts it again: a hot update or a
 // deferred restart keeps the running engine, its media legs and its sessions untouched.
 func (a *Admin) rollbackWebRTCAfterPersistFailure(w http.ResponseWriter, persistErr error, previous models.WebRTCConfig, restartAttempted bool) {
-	if a.webrtc != nil {
+	if a.webrtcUpdates() != nil {
 		var restoreErr error
 		if restartAttempted {
 			restoreErr = a.restoreWebRTCConfig(previous)
 		} else {
-			_, restoreErr = a.webrtc.UpdateConfig(previous)
+			_, restoreErr = a.webrtcUpdates().UpdateConfig(previous)
 		}
 
 		if restoreErr != nil {

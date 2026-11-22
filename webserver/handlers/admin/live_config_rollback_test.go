@@ -18,8 +18,8 @@ func TestRollbackWithoutRestartOnlyRestoresTheConfiguration(t *testing.T) {
 	applied := before
 	applied.SignalingRateLimit = before.SignalingRateLimit + 1
 
-	service := webrtc.New(webrtc.Deps{Config: applied})
-	admin := &Admin{webrtc: service}
+	applier := &failingApplier{config: applied}
+	admin := &Admin{webrtcApplier: applier}
 
 	recorder := httptest.NewRecorder()
 	admin.rollbackWebRTCAfterPersistFailure(recorder, errors.New("disk full"), before, false)
@@ -30,8 +30,11 @@ func TestRollbackWithoutRestartOnlyRestoresTheConfiguration(t *testing.T) {
 	if body := recorder.Body.String(); !strings.Contains(body, "disk full") {
 		t.Fatalf("body = %q, want the persist failure", body)
 	}
-	if got := service.Config().SignalingRateLimit; got != before.SignalingRateLimit {
+	if got := applier.Config().SignalingRateLimit; got != before.SignalingRateLimit {
 		t.Fatalf("signaling rate limit = %d, want the previous value %d", got, before.SignalingRateLimit)
+	}
+	if applier.stops != 0 || applier.starts != 0 {
+		t.Fatalf("rollback restarted the service: %d stops, %d starts", applier.stops, applier.starts)
 	}
 }
 
