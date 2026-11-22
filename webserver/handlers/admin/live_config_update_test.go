@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -40,12 +41,15 @@ type failingApplier struct {
 	startErrors []error
 	stops       int
 	starts      int
+	// applied records every configuration the update path applied, in order.
+	applied []models.WebRTCConfig
 }
 
 func (f *failingApplier) Config() models.WebRTCConfig { return f.config }
 
 func (f *failingApplier) UpdateConfig(config models.WebRTCConfig) ([]string, error) {
 	f.config = config
+	f.applied = append(f.applied, config)
 
 	return []string{"webrtc.port"}, nil
 }
@@ -70,11 +74,16 @@ func (f *failingApplier) Start(context.Context) error {
 	return nil
 }
 
-// A restart failure followed by a failed restore reports both reasons and leaves the
-// saved configuration untouched.
+// A restart failure followed by a failed restore reports both reasons, and the value the
+// request asked for is never persisted. The requested value differs from the saved one, so
+// the persisted-value assertion can tell a correct rollback from a no-op commit.
 func TestUpdateWebRTCConfigReportsRestartAndRestoreFailures(t *testing.T) {
 	repository := isolatedRepository(t)
 	before := repository.GetWebRTCConfig()
+	requested := before.SignalingRateLimit + 15
+	if requested == before.SignalingRateLimit {
+		t.Fatal("the requested value must differ from the saved one")
+	}
 
 	applier := &failingApplier{
 		config:      before,
@@ -84,22 +93,33 @@ func TestUpdateWebRTCConfigReportsRestartAndRestoreFailures(t *testing.T) {
 
 	admin := &Admin{configRepository: repository, webrtcApplier: applier, cfg: &config.Config{}}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/config/webrtc", strings.NewReader("{}"))
+	body := fmt.Sprintf("{\"signalingRateLimit\":%d}", requested)
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/config/webrtc", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
 	admin.UpdateWebRTCConfig(recorder, request)
 
-	body := recorder.Body.String()
-	if !strings.Contains(body, "stop failed") {
-		t.Fatalf("body = %q, want the restart failure", body)
+	// The application stage really received the requested value.
+	if len(applier.applied) == 0 || applier.applied[0].SignalingRateLimit != requested {
+		t.Fatalf("applied configurations = %+v, want the first one to carry %d", applier.applied, requested)
 	}
-	if !strings.Contains(body, "restore stop failed") {
-		t.Fatalf("body = %q, want the restore failure", body)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d (body %s)", recorder.Code, http.StatusConflict, recorder.Body.String())
 	}
-	if !strings.Contains(body, "may not match the saved configuration") {
-		t.Fatalf("body = %q, want the inconsistency note", body)
+
+	responseBody := recorder.Body.String()
+	if !strings.Contains(responseBody, "stop failed") {
+		t.Fatalf("body = %q, want the restart failure", responseBody)
 	}
+	if !strings.Contains(responseBody, "restore stop failed") {
+		t.Fatalf("body = %q, want the restore failure", responseBody)
+	}
+	if !strings.Contains(responseBody, "may not match the saved configuration") {
+		t.Fatalf("body = %q, want the inconsistency note", responseBody)
+	}
+
 	if got := repository.GetWebRTCConfig().SignalingRateLimit; got != before.SignalingRateLimit {
 		t.Fatalf("saved signaling rate limit = %d, want the previous value %d", got, before.SignalingRateLimit)
 	}
