@@ -86,9 +86,11 @@ func TestUpdateWebRTCConfigReportsRestartAndRestoreFailures(t *testing.T) {
 	}
 
 	applier := &failingApplier{
-		config:      before,
-		stopErrors:  []error{errors.New("stop failed"), errors.New("restore stop failed")},
-		startErrors: []error{errors.New("start failed"), errors.New("restore start failed")},
+		config: before,
+		// The two messages must not contain one another, or the assertion on the restart
+		// reason could be satisfied by the rollback reason.
+		stopErrors:  []error{errors.New("restart phase rejected"), errors.New("rollback phase rejected")},
+		startErrors: []error{errors.New("restart start rejected"), errors.New("rollback start rejected")},
 	}
 
 	admin := &Admin{configRepository: repository, webrtcApplier: applier, cfg: &config.Config{}}
@@ -110,11 +112,11 @@ func TestUpdateWebRTCConfigReportsRestartAndRestoreFailures(t *testing.T) {
 	}
 
 	responseBody := recorder.Body.String()
-	if !strings.Contains(responseBody, "stop failed") {
+	if !strings.Contains(responseBody, "restart phase rejected") {
 		t.Fatalf("body = %q, want the restart failure", responseBody)
 	}
-	if !strings.Contains(responseBody, "restore stop failed") {
-		t.Fatalf("body = %q, want the restore failure", responseBody)
+	if !strings.Contains(responseBody, "rollback phase rejected") {
+		t.Fatalf("body = %q, want the rollback failure", responseBody)
 	}
 	if !strings.Contains(responseBody, "may not match the saved configuration") {
 		t.Fatalf("body = %q, want the inconsistency note", responseBody)
