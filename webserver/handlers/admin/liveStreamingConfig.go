@@ -432,6 +432,9 @@ func (a *Admin) GetSRTConfig(w http.ResponseWriter, _ *http.Request) {
 // update. The previous configuration stays active on a validation or bind
 // failure.
 func (a *Admin) UpdateSRTConfig(w http.ResponseWriter, r *http.Request) {
+	a.liveConfigMu.Lock()
+	defer a.liveConfigMu.Unlock()
+
 	body, ok := readConfigBody(w, r)
 	if !ok {
 		return
@@ -459,7 +462,20 @@ func (a *Admin) UpdateSRTConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := a.configRepository.SetSRTConfig(updated); err != nil {
+		// The listener already took the new configuration. Put the previous one back so
+		// the running state matches what is saved, and say so when that fails too.
+		if a.srt != nil {
+			if rollbackErr := a.srt.ApplyConfig(current); rollbackErr != nil {
+				log.Errorln("srt rollback after a persist failure failed:", rollbackErr)
+				writeLiveConfigInternalError(w, "unable to persist SRT configuration ("+err.Error()+
+					") and unable to restore the running configuration ("+rollbackErr.Error()+
+					"); the listener may not match the saved configuration")
+
+				return
+			}
+		}
 		writeLiveConfigInternalError(w, "unable to persist SRT configuration: "+err.Error())
+
 		return
 	}
 
@@ -520,6 +536,9 @@ func (a *Admin) restoreWebRTCConfig(previous models.WebRTCConfig) {
 // UpdateWebRTCConfig validates, applies and persists a partial WebRTC
 // configuration update.
 func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
+	a.liveConfigMu.Lock()
+	defer a.liveConfigMu.Unlock()
+
 	body, ok := readConfigBody(w, r)
 	if !ok {
 		return
@@ -540,8 +559,10 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pendingFields := changedRestartFields(current, updated, settings.WebRTCMetadata())
+	previousEngineConfig := current
 	if a.webrtc != nil {
 		previousConfig := a.webrtc.Config()
+		previousEngineConfig = previousConfig
 		pending, err := a.webrtc.UpdateConfig(updated)
 		if err != nil {
 			log.Warnln("webrtc config apply failed:", err)
@@ -571,7 +592,13 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 		pendingFields = pending
 	}
 	if err := a.configRepository.SetWebRTCConfig(updated); err != nil {
+		// The engine already took the new configuration; restore the one it ran with so
+		// the reported state matches the saved state.
+		if a.webrtc != nil {
+			a.restoreWebRTCConfig(previousEngineConfig)
+		}
 		writeLiveConfigInternalError(w, "unable to persist WebRTC configuration: "+err.Error())
+
 		return
 	}
 

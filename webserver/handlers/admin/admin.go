@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"sync"
+
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/metrics"
 	"github.com/owncast/owncast/models"
@@ -31,16 +33,21 @@ import (
 // this package; they migrate to methods on *Admin as the services they
 // need to consume move to services/<domain>/.
 type Admin struct {
-	stream                *stream.Service
-	sessions              *ingest.Arbiter
-	srt                   *srt.Service
-	webrtc                *webrtc.Service
-	liveStatus            *livestatus.Service
-	activitypub           *activitypub.Service
-	webhooks              *webhooks.Service
-	chat                  *chat.Service
-	metrics               *metrics.Service
-	configRepository      configrepository.ConfigRepository
+	stream           *stream.Service
+	sessions         *ingest.Arbiter
+	srt              *srt.Service
+	webrtc           *webrtc.Service
+	liveStatus       *livestatus.Service
+	activitypub      *activitypub.Service
+	webhooks         *webhooks.Service
+	chat             *chat.Service
+	metrics          *metrics.Service
+	configRepository configrepository.ConfigRepository
+	// liveConfigMu serialises the SRT and WebRTC configuration updates. Each handler
+	// reads, validates, applies and persists, so without it two requests could validate
+	// against the same stale configuration and one request's rollback could undo a
+	// commit the other already made.
+	liveConfigMu          sync.Mutex
 	authRepository        authrepository.AuthRepository
 	followersRepository   followersrepository.FollowersRepository
 	webhookRepository     webhookrepository.WebhookRepository
