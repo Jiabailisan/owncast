@@ -37,10 +37,12 @@
 - 📒 [About the Project](#about-the-project)
 - 🚀 [Getting Started](#getting-started)
 - 👨‍💻 [Use with your broadcasting software](#use-with-your-existing-broadcasting-software)
+- [SRT and WebRTC in this fork](#srt-and-webrtc-in-this-fork)
 - 🛠 [Building from source](#building-from-source)
   - 🚨 [Important note about source code and the develop branch](#important-note-about-source-code-and-the-develop-branch)
   - 🗄️ [Backend](#backend)
   - ⚛️ [Frontend](#frontend)
+  - [Release binary](#release-binary)
 - 👏 [Contributing](#contributing)
   - 💵 [Donors](#donors)
 - [Security](#security)
@@ -86,6 +88,28 @@ In general, Owncast is compatible with any software that uses `RTMP` to broadcas
 
 OBS, Streamlabs, Restream and many others have been used with Owncast. [Read more about compatibility with existing software](https://owncast.online/docs/broadcasting/).
 
+## SRT and WebRTC in this fork
+
+The `feat/srt-webrtc-develop` branch adds SRT ingest alongside RTMP and low-latency WebRTC playback alongside HLS. SRT and WebRTC are disabled by default. Enable and configure them under **Admin → Live Streaming** (`/admin/config/live-streaming/`).
+
+- **SRT ingest** accepts MPEG-TS from SRT broadcasters. The default listener port is UDP `8890`. With the raw-key stream ID format enabled, a publisher can use `srt://yourserver:8890?mode=caller&streamid=YOUR_STREAM_KEY`. If you configure an SRT passphrase, set the same passphrase in the publisher.
+- **WebRTC playback** uses WHEP signaling over HTTP(S). The browser also needs network access to the configured WebRTC media ports or a working relay. Routing the WHEP HTTP endpoint through a reverse proxy or Cloudflare Tunnel does not by itself make the media ports reachable. The built-in player can fall back to HLS when WebRTC cannot connect.
+- **Live Stream Status** shows ingest and output state, rendition details, and per-session viewer statistics. For WebRTC, the viewer table's **Jitter buffer** value is the average receiver buffer delay, not end-to-end latency.
+- **Output and appearance settings** include per-rendition protocol selection, shared or isolated transcoding, and support for a custom player module or viewer frontend. See the [custom player example](docs/examples/custom-player/README.md).
+
+### Deployment notes
+
+**Viewer addresses behind a proxy.** This branch uses the direct connection address unless proxy headers are explicitly enabled. Set `OWNCAST_TRUST_PROXY_HEADERS` on the Owncast service to the header names your proxy reliably sets. Set `OWNCAST_TRUSTED_PROXY_RANGES` to the addresses of the proxies that connect directly to Owncast, for example:
+
+```dotenv
+OWNCAST_TRUST_PROXY_HEADERS=x-real-ip
+OWNCAST_TRUSTED_PROXY_RANGES=127.0.0.1/32
+```
+
+Use the example only where a trusted local proxy overwrites `X-Real-IP`. If the proxy connects from another address, use a CIDR for that address (`/32` for IPv4 or `/128` for IPv6). For Cloudflare Tunnel, either pass `CF-Connecting-IP` through a verified Cloudflare-only path and enable `cf-connecting-ip`, or have your trusted proxy normalize the address into `X-Real-IP`. If the same proxy handles direct public traffic, strip Cloudflare-specific headers on that entry point. Restart Owncast after changing the environment and verify the viewer address on a new session through each entry point.
+
+**FFmpeg and container storage.** FFmpeg must be available at runtime. Verify ingest, playback and thumbnail generation with the FFmpeg build used on the deployment host. When using the repository's `Dockerfile`, ensure any bind-mounted data directory is writable by the container's Owncast user (UID `101`).
+
 ## Building from Source
 
 Owncast consists of two projects.
@@ -108,9 +132,15 @@ The Owncast backend is a service written in Go.
 1. Ensure you have prerequisites installed.
    - C compiler, such as [GCC compiler](https://gcc.gnu.org/install/download.html) or a [Musl-compatible compiler](https://musl.libc.org/)
    - [ffmpeg](https://ffmpeg.org/download.html)
-1. Install the [Go toolchain](https://golang.org/dl/) (1.24 or above).
-1. Clone the repo. `git clone https://github.com/owncast/owncast`
-1. `go run .` will run from the source.
+1. Install [Go](https://golang.org/dl/) 1.26.2 or newer, as required by [`go.mod`](go.mod).
+1. Clone this fork, enter its root directory, and start the backend:
+
+   ```bash
+   git clone --branch feat/srt-webrtc-develop https://github.com/Jiabailisan/owncast.git
+   cd owncast
+   go run .
+   ```
+
 1. Visit `http://yourserver:8080` to access the web interface or `http://yourserver:8080/admin` to access the admin.
 1. Point your [broadcasting software](https://owncast.online/docs/broadcasting/) at your new server and start streaming.
 
@@ -118,9 +148,21 @@ The Owncast backend is a service written in Go.
 
 The frontend is the web interface that includes the player, chat, embed components, and other UI.
 
-1. This project lives in the `web` directory.
-1. Run `npm install` to install the Javascript dependencies.
-1. Run `npm run dev`
+With the backend running, use Node.js 24.12.0 (the CI version) and install the frontend dependencies from the lockfile using npm 11.6.2:
+
+```bash
+cd web
+npx --yes npm@11.6.2 ci
+npm run dev
+```
+
+Open `http://localhost:3000`. The frontend development server uses `http://localhost:8080` for backend requests by default. Set `OWNCAST_DEV_BACKEND` before starting the frontend if the backend uses another address.
+
+### Release binary
+
+From the repository root, run `./build/release.sh` or `make release` with the Go, C compiler and Node.js prerequisites installed. The script builds the checked-out commit in a temporary Git worktree, installs frontend dependencies from its lockfile, and embeds a fresh frontend in `bin/owncast`. Commit any intended source changes before running it.
+
+Direct Go builds and the repository's Docker and Earthly builds embed the committed `static/web` files. After changing frontend source, rebuild the bundle with `./build/web/bundleWeb.sh --offline` after installing the locked dependencies, and include the updated `static/web` in the commit. CI checks the committed bundle against a fresh build.
 
 ## Contributing
 
