@@ -523,14 +523,15 @@ func (a *Admin) restartWebRTCService() error {
 
 // restoreWebRTCConfig re-applies the previous configuration and restarts the
 // service so a failed new configuration cannot leave WebRTC down.
-func (a *Admin) restoreWebRTCConfig(previous models.WebRTCConfig) {
+func (a *Admin) restoreWebRTCConfig(previous models.WebRTCConfig) error {
 	if _, err := a.webrtc.UpdateConfig(previous); err != nil {
-		log.Errorln("unable to restore the previous WebRTC configuration:", err)
-		return
+		return fmt.Errorf("restoring the previous WebRTC configuration: %w", err)
 	}
 	if err := a.restartWebRTCService(); err != nil {
-		log.Errorln("unable to restore the previous WebRTC service state:", err)
+		return fmt.Errorf("restoring the previous WebRTC service state: %w", err)
 	}
+
+	return nil
 }
 
 // UpdateWebRTCConfig validates, applies and persists a partial WebRTC
@@ -560,6 +561,7 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 
 	pendingFields := changedRestartFields(current, updated, settings.WebRTCMetadata())
 	previousEngineConfig := current
+	restartAttempted := false
 	if a.webrtc != nil {
 		previousConfig := a.webrtc.Config()
 		previousEngineConfig = previousConfig
@@ -579,9 +581,12 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 			if a.stream != nil && a.stream.IsStreamBusy() {
 				log.Infoln("webrtc: settings require a restart; deferred until the next stream while one is live:", pending)
 			} else {
+				restartAttempted = true
 				if restartErr := a.restartWebRTCService(); restartErr != nil {
 					log.Warnln("webrtc service restart failed:", restartErr)
-					a.restoreWebRTCConfig(previousConfig)
+					if restoreErr := a.restoreWebRTCConfig(previousConfig); restoreErr != nil {
+						log.Errorln("webrtc rollback after a restart failure failed:", restoreErr)
+					}
 					writeLiveConfigConflict(w, "unable to restart the WebRTC service with the new configuration: "+restartErr.Error())
 					return
 				}
@@ -592,12 +597,7 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 		pendingFields = pending
 	}
 	if err := a.configRepository.SetWebRTCConfig(updated); err != nil {
-		// The engine already took the new configuration; restore the one it ran with so
-		// the reported state matches the saved state.
-		if a.webrtc != nil {
-			a.restoreWebRTCConfig(previousEngineConfig)
-		}
-		writeLiveConfigInternalError(w, "unable to persist WebRTC configuration: "+err.Error())
+		a.rollbackWebRTCAfterPersistFailure(w, err, previousEngineConfig, restartAttempted)
 
 		return
 	}
@@ -610,6 +610,31 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 			"WebRTC engine, which would interrupt the running stream, so they apply when it restarts."
 	}
 	writeLiveConfigJSON(w, state)
+}
+
+// rollbackWebRTCAfterPersistFailure undoes an applied-but-unsaved WebRTC update. Only a
+// request that actually restarted the service restarts it again: a hot update or a
+// deferred restart keeps the running engine, its media legs and its sessions untouched.
+func (a *Admin) rollbackWebRTCAfterPersistFailure(w http.ResponseWriter, persistErr error, previous models.WebRTCConfig, restartAttempted bool) {
+	if a.webrtc != nil {
+		var restoreErr error
+		if restartAttempted {
+			restoreErr = a.restoreWebRTCConfig(previous)
+		} else {
+			_, restoreErr = a.webrtc.UpdateConfig(previous)
+		}
+
+		if restoreErr != nil {
+			log.Errorln("webrtc rollback after a persist failure failed:", restoreErr)
+			writeLiveConfigInternalError(w, "unable to persist WebRTC configuration ("+persistErr.Error()+
+				") and unable to restore the previous configuration ("+restoreErr.Error()+
+				"); the running service may not match the saved configuration")
+
+			return
+		}
+	}
+
+	writeLiveConfigInternalError(w, "unable to persist WebRTC configuration: "+persistErr.Error())
 }
 
 // ffmpegCapabilities is the FFmpeg build probe result.
