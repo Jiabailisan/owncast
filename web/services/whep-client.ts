@@ -332,26 +332,11 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
 
     const stream = await streamWaiter.promise;
 
-    // The caller may have cancelled while the session was being established. This
-    // session object will never reach them, so nothing else can close it: close the local
-    // connection synchronously first, then release the server session best-effort.
+    // The caller may have cancelled while the session was being established. The
+    // cancellation error is thrown here so the catch below does the one cleanup: it
+    // closes the local connection synchronously and releases the session exactly once.
     if (signal?.aborted) {
       streamWaiter.cancel();
-      try {
-        pc.close();
-      } catch {
-        // Ignore close failures; the cancellation error is what matters.
-      }
-      try {
-        await fetchImpl(sessionUrl, {
-          method: 'DELETE',
-          ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-            ? { signal: AbortSignal.timeout(SESSION_DELETE_TIMEOUT_MS) }
-            : {}),
-        });
-      } catch {
-        // The server expires the session on its own.
-      }
       throw new WHEPError('network', 'WHEP request was aborted');
     }
 

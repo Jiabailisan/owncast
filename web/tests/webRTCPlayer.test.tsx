@@ -139,6 +139,38 @@ describe('WebRTCPlayer', () => {
     expect(session.close).toHaveBeenCalledTimes(1);
   });
 
+  test('closes a session that arrives after unmount before releasing it', async () => {
+    const order: string[] = [];
+    const session = makeSession();
+    (session.close as jest.Mock).mockImplementation(() => {
+      order.push('close');
+    });
+    (session.deleteSession as jest.Mock).mockImplementation(async () => {
+      order.push('delete');
+    });
+
+    let resolveSession: ((value: unknown) => void) | null = null;
+    const pending = new Promise((resolve) => {
+      resolveSession = resolve;
+    });
+
+    const { unmount } = render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats={false}
+        sessionFactory={() => pending as never}
+      />,
+    );
+
+    // The component gives up before the session arrives.
+    unmount();
+
+    if (resolveSession) (resolveSession as (value: unknown) => void)(session);
+    await waitFor(() => expect(order).toEqual(['close', 'delete']));
+  });
+
   test('settings menu shows the WebRTC quality list', async () => {
     const sessionFactory = jest.fn(async () => makeSession());
     render(

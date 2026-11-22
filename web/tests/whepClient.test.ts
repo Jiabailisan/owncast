@@ -377,7 +377,7 @@ describe('whep helpers', () => {
   });
 });
 
-  test('closes the local connection before releasing a session that arrived after the cancel', async () => {
+  test('closes the local connection first and releases the session exactly once', async () => {
     const controller = new AbortController();
     const pc = new FakePeerConnection();
 
@@ -386,8 +386,10 @@ describe('whep helpers', () => {
       releaseDelete = resolve;
     });
 
+    let deleteCalls = 0;
     const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) => {
       if (init?.method === 'DELETE') {
+        deleteCalls += 1;
         // The local connection must already be closed when the release is issued.
         expect(pc.closed).toBe(true);
         await deletePending;
@@ -425,8 +427,12 @@ describe('whep helpers', () => {
     // The DELETE has not finished, and the local connection is already closed.
     expect(pc.closed).toBe(true);
     expect(pc.close).toHaveBeenCalled();
+    expect(deleteCalls).toBe(1);
 
     if (releaseDelete) (releaseDelete as () => void)();
 
     await expect(pending).rejects.toMatchObject({ code: 'network' });
+
+    // The whole cancel path released the session once, not twice.
+    expect(deleteCalls).toBe(1);
   });

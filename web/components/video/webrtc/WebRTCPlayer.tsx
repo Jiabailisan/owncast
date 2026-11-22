@@ -431,8 +431,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     })
       .then(async session => {
         if (cancelled) {
-          await session.deleteSession();
+          // The caller has already moved on, so close the local connection
+          // synchronously first; nothing else will close this session.
           session.close();
+          void session.deleteSession();
           return;
         }
         localSession = session;
@@ -515,8 +517,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         video.srcObject = null;
       }
       if (localSession) {
-        void localSession.deleteSession();
         localSession.close();
+        void localSession.deleteSession();
       }
       sessionRef.current = null;
       activeVariantNameRef.current = '';
