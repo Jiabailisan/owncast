@@ -13,12 +13,12 @@ import (
 type fakeIngestListener struct {
 	started       chan struct{}
 	onConnect     func(ingest.Session)
-	onBroadcaster func(models.Broadcaster)
+	onBroadcaster func(ingest.Session, models.Broadcaster)
 	disconnected  bool
 	stopped       bool
 }
 
-func (f *fakeIngestListener) Start(onConnect func(ingest.Session), onBroadcaster func(models.Broadcaster)) {
+func (f *fakeIngestListener) Start(onConnect func(ingest.Session), onBroadcaster func(ingest.Session, models.Broadcaster)) {
 	f.onConnect = onConnect
 	f.onBroadcaster = onBroadcaster
 	close(f.started)
@@ -42,7 +42,7 @@ func TestLocalStreamEngineDrivesIngestListeners(t *testing.T) {
 	e := &localStreamEngine{
 		listeners:     []IngestListener{rtmpListener, srtListener},
 		onConnect:     func(ingest.Session) { connectCalled = true },
-		onBroadcaster: func(models.Broadcaster) { broadcasterCalled = true },
+		onBroadcaster: func(ingest.Session, models.Broadcaster) { broadcasterCalled = true },
 	}
 
 	if err := e.Start(); err != nil {
@@ -59,7 +59,7 @@ func TestLocalStreamEngineDrivesIngestListeners(t *testing.T) {
 
 	// The listeners must have received the engine's own callbacks verbatim.
 	rtmpListener.onConnect(nil)
-	rtmpListener.onBroadcaster(models.Broadcaster{})
+	rtmpListener.onBroadcaster(nil, models.Broadcaster{})
 	if !connectCalled {
 		t.Error("engine did not wire onConnect through to the listener")
 	}

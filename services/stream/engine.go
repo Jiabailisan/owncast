@@ -35,7 +35,7 @@ type StreamEvents interface {
 type IngestListener interface {
 	// Start binds the listener and reports authenticated sessions to
 	// onConnect, plus optional source metadata to onBroadcaster.
-	Start(onConnect func(ingest.Session), onBroadcaster func(models.Broadcaster))
+	Start(onConnect func(ingest.Session), onBroadcaster func(ingest.Session, models.Broadcaster))
 	// Disconnect force-disconnects the current publisher, if any.
 	Disconnect()
 	// Stop closes the listener. Implementations must be safe to call once.
@@ -48,7 +48,7 @@ type IngestListener interface {
 type localStreamEngine struct {
 	listeners     []IngestListener
 	onConnect     func(ingest.Session)
-	onBroadcaster func(models.Broadcaster)
+	onBroadcaster func(ingest.Session, models.Broadcaster)
 }
 
 // Compile-time guarantees for the local wiring.

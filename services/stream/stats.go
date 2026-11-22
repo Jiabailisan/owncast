@@ -11,6 +11,7 @@ import (
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/persistence/configrepository"
 	"github.com/owncast/owncast/services/geoip"
+	"github.com/owncast/owncast/services/ingest"
 )
 
 // setupStats restores stats from the previous session and starts the
@@ -93,12 +94,19 @@ type LiveSnapshot struct {
 	Connected bool
 	Broadcast *models.CurrentBroadcast
 	Epoch     uint64
+	// Session is the ingest session that owns the broadcast. HLS quality reads the
+	// source metadata from it, which covers protocols that only write session metadata.
+	Session ingest.Session
 }
 
 // LiveSnapshot returns the current live state. The broadcast settings and the
 // identity are read under the locks that publish them, so the caller can register a
 // viewer against exactly the broadcast it observed.
 func (s *Service) LiveSnapshot() LiveSnapshot {
+	s.sessionMu.RLock()
+	session := s.currentSession
+	s.sessionMu.RUnlock()
+
 	s.statsMu.Lock()
 	defer s.statsMu.Unlock()
 
@@ -106,6 +114,7 @@ func (s *Service) LiveSnapshot() LiveSnapshot {
 		Connected: s.stats != nil && s.stats.StreamConnected,
 		Broadcast: s.currentBroadcast,
 		Epoch:     s.broadcastEpoch,
+		Session:   session,
 	}
 }
 
@@ -229,7 +238,7 @@ func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, sn
 	viewer.VariantName = variant.GetName()
 	// The source metadata must describe the same broadcast as the snapshot, or a viewer
 	// would be shown the previous stream's bitrate and resolution.
-	viewer.BitrateKbps, viewer.Resolution, viewer.FPS = hlsVariantPlaybackQuality(variant, s.sourceStreamDetailsFor(snapshot.Epoch))
+	viewer.BitrateKbps, viewer.Resolution, viewer.FPS = hlsVariantPlaybackQuality(variant, s.sourceStreamDetailsFor(snapshot.Epoch, snapshot.Session))
 }
 
 // outputVariantsFrom returns the output settings of a broadcast snapshot, falling
@@ -247,8 +256,16 @@ func outputVariantsFrom(broadcast *models.CurrentBroadcast, repository configrep
 
 // sourceStreamDetails returns the ingress source properties, or nil when no
 // broadcaster metadata has arrived yet.
-func (s *Service) sourceStreamDetailsFor(epoch uint64) *models.InboundStreamDetails {
-	broadcaster := s.broadcasterForEpoch(epoch)
+func (s *Service) sourceStreamDetailsFor(epoch uint64, session ingest.Session) *models.InboundStreamDetails {
+	// The session's own metadata wins: SRT writes only there, and it cannot be confused
+	// with a later broadcast. The service-level copy is the fallback for a remote engine.
+	broadcaster := (*models.Broadcaster)(nil)
+	if session != nil {
+		broadcaster = session.Broadcaster()
+	}
+	if broadcaster == nil {
+		broadcaster = s.broadcasterForEpoch(epoch)
+	}
 	if broadcaster == nil {
 		return nil
 	}

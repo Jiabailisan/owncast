@@ -14,7 +14,7 @@ func TestSourceDetailsFollowTheSnapshotEpoch(t *testing.T) {
 	svc.broadcastEpoch = 1
 	svc.BroadcasterSet(models.Broadcaster{StreamDetails: models.InboundStreamDetails{VideoBitrate: 4321}})
 
-	if details := svc.sourceStreamDetailsFor(1); details == nil || details.VideoBitrate != 4321 {
+	if details := svc.sourceStreamDetailsFor(1, nil); details == nil || details.VideoBitrate != 4321 {
 		t.Fatalf("current broadcast details = %+v, want the recorded metadata", details)
 	}
 
@@ -23,7 +23,7 @@ func TestSourceDetailsFollowTheSnapshotEpoch(t *testing.T) {
 	svc.broadcastEpoch = 2
 	svc.statsMu.Unlock()
 
-	if details := svc.sourceStreamDetailsFor(1); details != nil {
+	if details := svc.sourceStreamDetailsFor(1, nil); details != nil {
 		t.Fatalf("stale epoch returned %+v, want nothing", details)
 	}
 }
@@ -62,7 +62,7 @@ func TestBroadcasterAccessIsSynchronised(t *testing.T) {
 
 	for i := 0; i < 2000; i++ {
 		_ = svc.GetBroadcaster()
-		_ = svc.sourceStreamDetailsFor(0)
+		_ = svc.sourceStreamDetailsFor(0, nil)
 	}
 
 	wg.Wait()

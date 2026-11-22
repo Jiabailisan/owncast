@@ -248,7 +248,7 @@ func New(deps Deps) *Service {
 				session.Close(err)
 			}
 		},
-		onBroadcaster: s.BroadcasterSet,
+		onBroadcaster: s.BroadcasterSetFromSession,
 	}
 	return s
 }

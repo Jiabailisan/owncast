@@ -47,7 +47,7 @@ func NewContextIngestListener(service ContextIngestService) *ContextIngestListen
 }
 
 // Start implements IngestListener.
-func (l *ContextIngestListener) Start(_ func(ingest.Session), _ func(models.Broadcaster)) {
+func (l *ContextIngestListener) Start(_ func(ingest.Session), _ func(ingest.Session, models.Broadcaster)) {
 	// Sessions are handed to the handler configured on the service itself; the
 	// engine-wide onConnect callback is not used by protocol services that own
 	// their handler (SRT).

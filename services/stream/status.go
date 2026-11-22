@@ -139,6 +139,31 @@ func (s *Service) BroadcasterSet(broadcaster models.Broadcaster) {
 	}
 }
 
+// BroadcasterSetFromSession records metadata that a local listener produced for one
+// session. The session is the source of truth: if it already carries the metadata, that
+// copy is used rather than a second one, and the service-level state is only updated
+// while the session still owns the broadcast, so a callback that arrives after a newer
+// stream took over changes nothing.
+func (s *Service) BroadcasterSetFromSession(session ingest.Session, broadcaster models.Broadcaster) {
+	if session != nil {
+		if own := session.Broadcaster(); own != nil {
+			broadcaster = *own
+		}
+	}
+
+	if session != nil {
+		s.sessionMu.RLock()
+		current := s.currentSession
+		s.sessionMu.RUnlock()
+
+		if current != session {
+			return
+		}
+	}
+
+	s.BroadcasterSet(broadcaster)
+}
+
 // GetBroadcaster returns the active inbound broadcaster, or nil between
 // streams.
 func (s *Service) GetBroadcaster() *models.Broadcaster {

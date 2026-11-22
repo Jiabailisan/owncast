@@ -23,8 +23,8 @@ type Service struct {
 	setStreamAsConnected func(ingest.Session)
 
 	// setBroadcaster is invoked when the inbound onMetaData arrives with the
-	// parsed broadcaster details. Set by Start.
-	setBroadcaster func(models.Broadcaster)
+	// parsed broadcaster details and the session they came from. Set by Start.
+	setBroadcaster func(ingest.Session, models.Broadcaster)
 
 	// configRepository is consulted at listener bind for the RTMP port.
 	configRepository models.EngineConfig

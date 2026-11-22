@@ -19,7 +19,7 @@ import (
 // the listener returns. setStreamAsConnected is invoked once per
 // authenticated connection; setBroadcaster is invoked when the inbound
 // metadata tag arrives.
-func (s *Service) Start(setStreamAsConnected func(ingest.Session), setBroadcaster func(models.Broadcaster)) {
+func (s *Service) Start(setStreamAsConnected func(ingest.Session), setBroadcaster func(ingest.Session, models.Broadcaster)) {
 	s.setStreamAsConnected = setStreamAsConnected
 	s.setBroadcaster = setBroadcaster
 
