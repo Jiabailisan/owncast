@@ -37,9 +37,10 @@ export interface WebRTCStatsBeaconOptions {
   intervalMs?: number;
   fetchImpl?: typeof fetch;
   getStatsImpl?: () => Promise<RTCStatsReport>;
-  // token is the viewer access token; it is sent in a header so it never reaches a
-  // request body or a server log.
-  token?: string;
+  // getToken returns the viewer's chat token for the send that is about to happen, so a
+  // login, logout or identity switch mid-playback is reflected on the next report. The
+  // token travels in a header and never reaches a request body or a server log.
+  getToken?: () => string | null;
 }
 
 export interface WebRTCStatsBeacon {
@@ -421,7 +422,7 @@ export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRT
     intervalMs = 5000,
     fetchImpl = fetch,
     getStatsImpl,
-    token,
+    getToken,
   } = options;
 
   let previousVideoSample: InboundVideoSample | null = null;
@@ -434,6 +435,7 @@ export function startWebRTCStatsBeacon(options: WebRTCStatsBeaconOptions): WebRT
       const { summary, videoSample } = summarizeWebRTCStats(report, previousVideoSample);
       previousVideoSample = videoSample;
       const payload: WebRTCStatsSummary = { sessionId, ...summary };
+      const token = getToken ? getToken() : null;
       if (stopped) return payload;
       try {
         await fetchImpl(endpoint, {

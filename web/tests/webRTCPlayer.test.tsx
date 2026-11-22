@@ -100,6 +100,63 @@ describe('WebRTCPlayer', () => {
     expect(options.sessionId).toBe('abc');
   });
 
+  test('reads the chat token for every beacon send and keeps reporting without one', async () => {
+    const session = makeSession();
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats
+        sessionFactory={async () => session}
+      />,
+    );
+
+    await waitFor(() => expect(startWebRTCStatsBeacon).toHaveBeenCalled());
+    const options = (startWebRTCStatsBeacon as jest.Mock).mock.calls[0][0];
+
+    // The player hands over a reader, not a fixed token, so an identity change during
+    // playback is picked up by the next send.
+    expect(typeof options.getToken).toBe('function');
+
+    const realStart = jest.requireActual(
+      '../components/video/webrtc/webrtc-stats',
+    ).startWebRTCStatsBeacon as typeof startWebRTCStatsBeacon;
+    const fetchMock = jest.fn(async () => ({ ok: true, status: 204 }) as unknown as Response);
+
+    const beacon = realStart({
+      ...options,
+      getStatsImpl: async () => new Map(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      intervalMs: 1_000_000,
+    });
+
+    localStorage.setItem('accessToken', 'token-1');
+    await beacon.sampleOnce();
+
+    localStorage.setItem('accessToken', 'token-2');
+    await beacon.sampleOnce();
+
+    localStorage.removeItem('accessToken');
+    await beacon.sampleOnce();
+
+    beacon.stop();
+
+    const calls = fetchMock.mock.calls as unknown as [string, { body: string; headers: Record<string, string> }][];
+    expect(calls).toHaveLength(3);
+
+    calls.forEach(([, init]) => {
+      const body = JSON.parse(init.body);
+      expect(body.sessionId).toBe('abc');
+      expect(JSON.stringify(body)).not.toContain('token-');
+    });
+
+    expect(calls[0][1].headers['X-Owncast-Access-Token']).toBe('token-1');
+    expect(calls[1][1].headers['X-Owncast-Access-Token']).toBe('token-2');
+    // Without a token the header is omitted and the report still goes out.
+    expect(calls[2][1].headers['X-Owncast-Access-Token']).toBeUndefined();
+  });
+
   test('reports a fatal error to the container for the HLS fallback', async () => {
     const onFallback = jest.fn();
     render(

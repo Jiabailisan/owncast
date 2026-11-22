@@ -220,7 +220,6 @@ type webrtcClientReportRequest struct {
 	Transport        string   `json:"transport"`
 	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
 	LatencyMs        *float64 `json:"latencyMs"`
-	Token            string   `json:"token"`
 }
 
 // ReportWebRTCClientReport accepts the optional browser playback stats beacon

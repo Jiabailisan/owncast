@@ -231,6 +231,19 @@ func (s *session) recordClientReport(report ClientReport) {
 
 // sanitizedClientReport clears client measurements that are out of bounds so
 // an absurd or malicious beacon can never reach the admin table.
+// maxClientLatencyMillisec bounds the buffer delay a player may report: ten minutes is
+// far beyond any real jitter buffer and keeps a broken value from reaching the UI.
+const maxClientLatencyMillisec = 600000
+
+// validClientLatency accepts a finite delay in [0, maxClientLatencyMillisec).
+func validClientLatency(milliseconds float64) bool {
+	if math.IsNaN(milliseconds) || math.IsInf(milliseconds, 0) {
+		return false
+	}
+
+	return milliseconds >= 0 && milliseconds < maxClientLatencyMillisec
+}
+
 func sanitizedClientReport(report ClientReport) ClientReport {
 	if !validClientResolution(report.DecodedWidth, report.DecodedHeight) {
 		report.DecodedWidth = 0
@@ -256,6 +269,12 @@ func sanitizedClientReport(report ClientReport) ClientReport {
 	report.Transport = normalizeICETransport(report.Transport)
 	if report.VideoBitrateKbps != nil && !validClientBitrate(*report.VideoBitrateKbps) {
 		report.VideoBitrateKbps = nil
+	}
+	// The buffer delay comes from the player and is the value the viewer list shows, so an
+	// unusable value becomes unknown instead of a number nobody measured. A legitimate
+	// zero stays: a session with no buffered frames really has no delay.
+	if report.LatencyMs != nil && !validClientLatency(*report.LatencyMs) {
+		report.LatencyMs = nil
 	}
 
 	return report

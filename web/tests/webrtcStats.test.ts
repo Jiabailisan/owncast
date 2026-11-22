@@ -322,7 +322,7 @@ describe('auto WebRTC quality fallback', () => {
       } as unknown as RTCPeerConnection,
       // The id comes from the WHEP session, not from the viewer ping identity.
       sessionId: 'whep-session-0123456789',
-      token: 'viewer-token',
+      getToken: () => 'viewer-token',
       fetchImpl: fetchMock as unknown as typeof fetch,
       intervalMs: 1_000_000,
     });

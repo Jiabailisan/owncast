@@ -43,7 +43,7 @@ import {
   videoAspectRatio,
 } from '../PlayerControls/stats';
 import { LATENCY_STORAGE_KEY } from '../PlayerControls/preferences';
-import { ViewerReporter, videoResolution, webrtcLatencyMs } from '../../../utils/viewer-report';
+import { ViewerReporter, videoResolution, webrtcLatencyMs, currentAccessToken } from '../../../utils/viewer-report';
 import styles from './WebRTCPlayer.module.scss';
 
 const PLAYER_VOLUME = 'owncast_volume';
@@ -473,6 +473,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           statsRef.current = startWebRTCStatsBeacon({
             pc: session.pc,
             sessionId,
+            getToken: currentAccessToken,
             intervalMs: statsIntervalMs ?? 2000,
             endpoint: statsEndpoint,
           });

@@ -22,6 +22,10 @@ export type ViewerReport = {
   bitrateKbps?: number | null;
 };
 
+// currentAccessToken returns the viewer's chat token right now. Callers read it per
+// request so a login, logout or identity switch mid-playback shows up on the next send.
+export const currentAccessToken = (): string | null => readStorage(ACCESS_TOKEN_KEY);
+
 const readStorage = (key: string): string | null => {
   try {
     return window.localStorage.getItem(key);
