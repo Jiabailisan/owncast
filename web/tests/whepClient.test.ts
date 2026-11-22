@@ -376,3 +376,57 @@ describe('whep helpers', () => {
     expect(error.status).toBe(504);
   });
 });
+
+  test('closes the local connection before releasing a session that arrived after the cancel', async () => {
+    const controller = new AbortController();
+    const pc = new FakePeerConnection();
+
+    let releaseDelete: (() => void) | null = null;
+    const deletePending = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+
+    const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'DELETE') {
+        // The local connection must already be closed when the release is issued.
+        expect(pc.closed).toBe(true);
+        await deletePending;
+
+        return makeResponse('', { status: 200 });
+      }
+
+      return makeResponse('answer-sdp', {
+        status: 201,
+        headers: { Location: '/webrtc/whep/session/late' },
+      });
+    });
+
+    // Cancel while the session is still being established, after the server has already
+    // created it.
+    pc.setRemoteDescription = jest.fn(async () => {
+      controller.abort();
+      (pc as unknown as { trackHandler?: (event: unknown) => void }).trackHandler?.({
+        streams: [fakeStream],
+      });
+    });
+
+    const pending = connectWHEP({
+      whepUrl: '/webrtc/whep',
+      variantIndex: null,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      pcFactory: () => asPeerConnection(pc),
+      signal: controller.signal,
+    });
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    // The DELETE has not finished, and the local connection is already closed.
+    expect(pc.closed).toBe(true);
+    expect(pc.close).toHaveBeenCalled();
+
+    if (releaseDelete) (releaseDelete as () => void)();
+
+    await expect(pending).rejects.toMatchObject({ code: 'network' });
+  });
