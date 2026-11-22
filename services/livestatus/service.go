@@ -228,19 +228,21 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 		}
 	}
 
-	// A WebRTC session row carries no client id of its own, so player reports are
-	// matched to it by address. They are held in a queue and consumed one per row:
-	// matching by address and stopping at the first hit gave every report to the
-	// first viewport behind a NAT and left the others with no data at all.
-	pendingWebRTCReports := map[string][]models.Viewer{}
+	// A player report is attributed to the WebRTC session it came from, never to an
+	// address: two viewers behind one public address are two sessions with their own
+	// name, quality and metrics. A report without a session association is ignored and
+	// the row keeps the data the server measured for it.
+	webrtcReports := map[string]models.Viewer{}
 	tokens := map[string]string{}
 
 	if s.stream != nil {
 		for _, viewer := range s.stream.GetActiveViewers() {
 			if strings.EqualFold(viewer.Protocol, "webrtc") {
-				pendingWebRTCReports[viewer.IPAddress] = append(pendingWebRTCReports[viewer.IPAddress], viewer)
-				if viewer.ReportedToken != "" {
-					tokens["webrtc:"+viewer.IPAddress] = viewer.ReportedToken
+				if viewer.ClientID != "" {
+					webrtcReports[viewer.ClientID] = viewer
+					if viewer.ReportedToken != "" {
+						tokens["webrtc:"+viewer.ClientID] = viewer.ReportedToken
+					}
 				}
 
 				continue
@@ -256,7 +258,7 @@ func (s *Service) collectLiveViewers() []models.LiveViewer {
 		}
 	}
 
-	distributeWebRTCReports(viewers, pendingWebRTCReports)
+	applyWebRTCReports(viewers, webrtcReports)
 
 	s.applyDisplayNames(viewers, tokens)
 
@@ -293,7 +295,7 @@ func (s *Service) applyDisplayNames(viewers []models.LiveViewer, tokens map[stri
 		// must only use its own identity, otherwise it inherits the name of whoever is
 		// watching over WebRTC from the same address.
 		if strings.EqualFold(viewers[index].Protocol, "webrtc") {
-			token = tokens["webrtc:"+viewers[index].IPAddress]
+			token = tokens["webrtc:"+viewers[index].ClientID]
 		} else {
 			token = tokens["client:"+viewers[index].ClientID]
 		}
@@ -304,22 +306,20 @@ func (s *Service) applyDisplayNames(viewers []models.LiveViewer, tokens map[stri
 	}
 }
 
-// distributeWebRTCReports hands one player report to each WebRTC row at an
-// address. Consuming the queue keeps two sessions behind one NAT from both
-// reading the same report and stamps each row with its own data.
-func distributeWebRTCReports(rows []models.LiveViewer, reports map[string][]models.Viewer) {
+// applyWebRTCReports merges each WebRTC row with the report of its own session.
+// Rows whose session reported nothing keep the data the server measured for them.
+func applyWebRTCReports(rows []models.LiveViewer, reports map[string]models.Viewer) {
 	for index := range rows {
-		if !strings.EqualFold(rows[index].Protocol, "webrtc") {
+		if !strings.EqualFold(rows[index].Protocol, "webrtc") || rows[index].ClientID == "" {
 			continue
 		}
 
-		queue := reports[rows[index].IPAddress]
-		if len(queue) == 0 {
+		report, ok := reports[rows[index].ClientID]
+		if !ok {
 			continue
 		}
 
-		mergeReportedIntoRow(&rows[index], queue[0])
-		reports[rows[index].IPAddress] = queue[1:]
+		mergeReportedIntoRow(&rows[index], report)
 	}
 }
 

@@ -22,94 +22,118 @@ func (f fakeNames) DisplayNamesForTokens(tokens []string) map[string]string {
 	return resolved
 }
 
-// TestDistributeWebRTCReportsSplitsOneAddress is the regression test for two
-// sessions behind one NAT: matching by address and stopping at the first row gave
-// every report to the first viewport and left the second empty.
-func TestDistributeWebRTCReportsSplitsOneAddress(t *testing.T) {
-	qualityA := "720p60"
-	latencyA := 980.0
-	qualityB := "1080p60"
-	latencyB := 1120.0
+// Two sessions behind one public address must each keep their own name, quality and
+// metrics, whichever order the reports arrive in.
+func TestWebRTCReportsAreAttributedBySession(t *testing.T) {
+	qualityA, latencyA := "720p60", 980.0
+	qualityB, latencyB := "1080p60", 1120.0
 
 	rows := []models.LiveViewer{
 		{ClientID: "session-a", IPAddress: "198.51.100.7", Protocol: "webrtc"},
 		{ClientID: "session-b", IPAddress: "198.51.100.7", Protocol: "webrtc"},
 	}
-	reports := map[string][]models.Viewer{
-		"198.51.100.7": {
-			{Protocol: "webrtc", ReportedQuality: qualityA, ReportedLatency: &latencyA},
-			{Protocol: "webrtc", ReportedQuality: qualityB, ReportedLatency: &latencyB},
-		},
+	reports := map[string]models.Viewer{
+		"session-a": {Protocol: "webrtc", DisplayName: "alice", ReportedQuality: qualityA, ReportedLatency: &latencyA},
+		"session-b": {Protocol: "webrtc", DisplayName: "bob", ReportedQuality: qualityB, ReportedLatency: &latencyB},
 	}
 
-	distributeWebRTCReports(rows, reports)
+	applyWebRTCReports(rows, reports)
 
-	if rows[0].Quality != qualityA || rows[1].Quality != qualityB {
-		t.Fatalf("each row must get its own report, got %q and %q", rows[0].Quality, rows[1].Quality)
+	assertSession(t, rows[0], "alice", qualityA, latencyA)
+	assertSession(t, rows[1], "bob", qualityB, latencyB)
+
+	// The same reports in the opposite order must land on the same sessions.
+	reversed := []models.LiveViewer{
+		{ClientID: "session-b", IPAddress: "198.51.100.7", Protocol: "webrtc"},
+		{ClientID: "session-a", IPAddress: "198.51.100.7", Protocol: "webrtc"},
 	}
-	if rows[0].LatencyMs == nil || rows[1].LatencyMs == nil {
-		t.Fatal("both rows must carry a latency measurement")
+	applyWebRTCReports(reversed, reports)
+
+	assertSession(t, reversed[0], "bob", qualityB, latencyB)
+	assertSession(t, reversed[1], "alice", qualityA, latencyA)
+}
+
+func assertSession(t *testing.T, row models.LiveViewer, name, quality string, latency float64) {
+	t.Helper()
+
+	if row.Username != name {
+		t.Fatalf("session %s name = %q, want %q", row.ClientID, row.Username, name)
 	}
-	if *rows[0].LatencyMs == *rows[1].LatencyMs {
-		t.Fatal("the two rows share one report instead of consuming two")
+	if row.Quality != quality {
+		t.Fatalf("session %s quality = %q, want %q", row.ClientID, row.Quality, quality)
+	}
+	if row.LatencyMs == nil {
+		t.Fatalf("session %s has no latency", row.ClientID)
+	}
+	if *row.LatencyMs != latency {
+		t.Fatalf("session %s latency = %v, want %v", row.ClientID, *row.LatencyMs, latency)
 	}
 }
 
-// TestDistributeWebRTCReportsIgnoresHLSRows proves an HLS viewer on the same
-// address does not absorb a WebRTC player's report.
-func TestDistributeWebRTCReportsIgnoresHLSRows(t *testing.T) {
+// A session that reported nothing keeps what the server measured for it.
+func TestWebRTCReportWithoutASessionKeepsServerData(t *testing.T) {
+	serverBitrate := 2400.0
+	quality := "720p60"
+
+	rows := []models.LiveViewer{
+		{ClientID: "session-a", IPAddress: "198.51.100.7", Protocol: "webrtc", BitrateKbps: &serverBitrate},
+		{ClientID: "session-b", IPAddress: "198.51.100.7", Protocol: "webrtc"},
+	}
+	reports := map[string]models.Viewer{
+		"session-b": {Protocol: "webrtc", DisplayName: "bob", ReportedQuality: quality},
+	}
+
+	applyWebRTCReports(rows, reports)
+
+	if rows[0].Username != "" || rows[0].Quality != "" || rows[0].LatencyMs != nil {
+		t.Fatalf("the silent session absorbed a report: %+v", rows[0])
+	}
+	if rows[0].BitrateKbps == nil || *rows[0].BitrateKbps != serverBitrate {
+		t.Fatalf("the silent session lost its server data: %+v", rows[0].BitrateKbps)
+	}
+	if rows[1].Username != "bob" || rows[1].Quality != quality {
+		t.Fatalf("the reporting session = %+v, want its own report", rows[1])
+	}
+}
+
+// An HLS row on the same address never absorbs a WebRTC report, and a WebRTC row never
+// takes a report that belongs to another session.
+func TestWebRTCReportsIgnoreHLSRows(t *testing.T) {
 	quality := "720p60"
 	rows := []models.LiveViewer{
 		{ClientID: "hls", IPAddress: "198.51.100.7", Protocol: "hls"},
-		{ClientID: "webrtc", IPAddress: "198.51.100.7", Protocol: "webrtc"},
+		{ClientID: "session-a", IPAddress: "198.51.100.7", Protocol: "webrtc"},
 	}
-	reports := map[string][]models.Viewer{
-		"198.51.100.7": {{Protocol: "webrtc", ReportedQuality: quality}},
+	reports := map[string]models.Viewer{
+		"session-a": {Protocol: "webrtc", ReportedQuality: quality},
 	}
 
-	distributeWebRTCReports(rows, reports)
+	applyWebRTCReports(rows, reports)
 
 	if rows[0].Quality != "" {
-		t.Fatalf("an HLS row must not take a WebRTC report, got %q", rows[0].Quality)
+		t.Fatalf("the HLS row absorbed a WebRTC report: %q", rows[0].Quality)
 	}
 	if rows[1].Quality != quality {
-		t.Fatalf("the WebRTC row must take the report, got %q", rows[1].Quality)
+		t.Fatalf("the WebRTC row quality = %q, want %q", rows[1].Quality, quality)
 	}
 }
 
-// TestApplyDisplayNamesKeepsHLSIdentity is the regression test for an HLS viewer
-// inheriting the chat name of whoever watches over WebRTC from the same address.
-func TestApplyDisplayNamesKeepsHLSIdentity(t *testing.T) {
-	service := &Service{names: fakeNames{"webrtc-token": "WebRTC Person"}}
+// The chat name only overrides a WebRTC row when the token belongs to that session.
+func TestDisplayNamesUseTheSessionToken(t *testing.T) {
+	service := &Service{names: fakeNames{"token-a": "alice", "token-b": "bob"}}
 
 	rows := []models.LiveViewer{
-		{ClientID: "webrtc-session", IPAddress: "198.51.100.7", Protocol: "webrtc"},
-		{ClientID: "hls-client", IPAddress: "198.51.100.7", Protocol: "hls"},
+		{ClientID: "session-a", Protocol: "webrtc"},
+		{ClientID: "session-b", Protocol: "webrtc"},
 	}
 	tokens := map[string]string{
-		"webrtc:198.51.100.7": "webrtc-token",
+		"webrtc:session-a": "token-a",
+		"webrtc:session-b": "token-b",
 	}
 
 	service.applyDisplayNames(rows, tokens)
 
-	if rows[0].Username != "WebRTC Person" {
-		t.Fatalf("the WebRTC row should use the address lookup, got %q", rows[0].Username)
-	}
-	if rows[1].Username != "" {
-		t.Fatalf("the HLS row must not borrow a name, got %q", rows[1].Username)
-	}
-}
-
-// TestApplyDisplayNamesUsesClientToken proves an HLS row still resolves its own name.
-func TestApplyDisplayNamesUsesClientToken(t *testing.T) {
-	service := &Service{names: fakeNames{"hls-token": "HLS Person"}}
-
-	rows := []models.LiveViewer{{ClientID: "hls-client", IPAddress: "198.51.100.9", Protocol: "hls"}}
-	tokens := map[string]string{"client:hls-client": "hls-token"}
-
-	service.applyDisplayNames(rows, tokens)
-
-	if rows[0].Username != "HLS Person" {
-		t.Fatalf("expected the HLS viewer's own name, got %q", rows[0].Username)
+	if rows[0].Username != "alice" || rows[1].Username != "bob" {
+		t.Fatalf("names = %q and %q, want each session's own name", rows[0].Username, rows[1].Username)
 	}
 }
