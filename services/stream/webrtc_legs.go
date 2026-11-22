@@ -127,7 +127,6 @@ func (s *Service) openWebRTCLegs(
 		s.legsMu.Lock()
 		s.webRTCLegs = append(s.webRTCLegs, index)
 		s.legsMu.Unlock()
-		s.registerWebRTCLeg(index, leg)
 		legs = append(legs, leg)
 
 		outputs = append(outputs, transcoder.RTPOutput{

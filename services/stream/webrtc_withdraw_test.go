@@ -95,12 +95,8 @@ func TestRestartMarksOnlyTheLegsTheSupervisorOpened(t *testing.T) {
 	// The supervisor holds what it opened for this stream.
 	supervisorLegs := []WebRTCMediaLeg{own}
 
-	// The next stream installs its own leg at the same index.
-	svc := &Service{}
-	svc.legsMu.Lock()
-	svc.legsByVariant = map[int]WebRTCMediaLeg{0: next}
-	svc.legsMu.Unlock()
-
+	// The next stream installs its own leg at the same index; the supervisor never looks
+	// it up, so it must stay untouched.
 	markLegsRestart(supervisorLegs)
 
 	if own.restarts != 1 {

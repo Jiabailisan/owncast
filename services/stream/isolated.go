@@ -194,23 +194,6 @@ func markLegsRestart(legs []WebRTCMediaLeg) {
 	}
 }
 
-// registerWebRTCLeg records an open media leg for restart rebasing.
-func (s *Service) registerWebRTCLeg(variantIndex int, leg WebRTCMediaLeg) {
-	s.legsMu.Lock()
-	defer s.legsMu.Unlock()
-	if s.legsByVariant == nil {
-		s.legsByVariant = map[int]WebRTCMediaLeg{}
-	}
-	s.legsByVariant[variantIndex] = leg
-}
-
-// clearWebRTCLegs drops the recorded media legs.
-func (s *Service) clearWebRTCLegs() {
-	s.legsMu.Lock()
-	defer s.legsMu.Unlock()
-	s.legsByVariant = nil
-}
-
 // setIngestTee records the active tee (isolated process model).
 func (s *Service) setIngestTee(tee *ingestTee) {
 	s.ingestTeeMu.Lock()

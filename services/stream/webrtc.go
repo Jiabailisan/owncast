@@ -301,7 +301,6 @@ func (s *Service) closeWebRTC() {
 	for _, index := range legs {
 		_ = s.webRTC.CloseMediaLeg(index)
 	}
-	s.clearWebRTCLegs()
 	_, _ = s.webRTC.SetVariants(nil)
 	s.setWebRTCWarnings(nil)
 }
