@@ -361,7 +361,7 @@ func (s *Service) applyStreamOnline(broadcast *models.CurrentBroadcast, session 
 		log.Fatalln("failed to setup the storage", err)
 	}
 
-	go s.webhooks.SendStreamStatusEvent(models.StreamStarted)
+	go s.webhooks.SendStreamStatusEvent(models.StreamStarted, s.currentStreamTitle())
 
 	_ = s.chat.SendSystemAction("Stay tuned, the stream is **starting**!", true)
 	s.chat.SendAllWelcomeMessage()
@@ -532,7 +532,7 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 	s.stopOnlineCleanupTimer()
 	s.saveStats()
 
-	go s.webhooks.SendStreamStatusEvent(models.StreamStopped)
+	go s.webhooks.SendStreamStatusEvent(models.StreamStopped, s.currentStreamTitle())
 }
 
 // StartOfflineCleanupTimer fires a cleanup after n minutes being

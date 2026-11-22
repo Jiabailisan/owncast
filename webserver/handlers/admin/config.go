@@ -89,7 +89,7 @@ func (a *Admin) SetStreamTitle(w http.ResponseWriter, r *http.Request) {
 	}
 	if value != "" {
 		a.sendSystemChatAction(fmt.Sprintf("Stream title changed to **%s**", value), true)
-		go a.webhooks.SendStreamStatusEvent(models.StreamTitleUpdated)
+		go a.webhooks.SendStreamStatusEvent(models.StreamTitleUpdated, value)
 	}
 	webutils.WriteSimpleResponse(w, true, "changed")
 }

@@ -17,7 +17,7 @@ func TestSendStreamStatusEvent(t *testing.T) {
 	configRepository.SetStreamTitle("my stream")
 
 	checkPayload(t, models.StreamStarted, func() {
-		testSvc.sendStreamStatusEvent(events.StreamStarted, "id", time.Unix(72, 6).UTC())
+		testSvc.sendStreamStatusEvent(events.StreamStarted, "id", time.Unix(72, 6).UTC(), "live title")
 	}, `{
 		"id": "id",
 		"name": "my server",
@@ -32,7 +32,7 @@ func TestSendStreamStatusEvent(t *testing.T) {
 			"versionNumber": "1.2.3",
 			"viewerCount": 5
 		},
-		"streamTitle": "my stream",
+		"streamTitle": "live title",
 		"summary": "my server where I stream",
 		"timestamp": "1970-01-01T00:01:12.000000006Z"
 	}`)
