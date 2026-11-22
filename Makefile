@@ -74,14 +74,10 @@ api-generate: $(OAPI_CODEGEN)
 build:
 	go build -o owncast .
 
-## Build a release binary: the frontend bundle is built from this checkout first, so
-## the binary never embeds a stale static/web. The tracked bundle is restored after,
-## because it is generated output.
+## Build a release binary through build/release.sh: sources come from HEAD in a
+## temporary directory, so the checkout is never modified.
 release:
-	./build/web/bundleWeb.sh
-	go build -o bin/owncast .
-	@echo "release binary: bin/owncast"
-	@git checkout -- static/web 2>/dev/null || true
+	./build/release.sh
 
 ## Run tests
 test:
