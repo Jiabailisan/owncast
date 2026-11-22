@@ -203,7 +203,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 
 	// Prepare WebRTC delivery first: the transcoder plan includes the RTP
 	// legs for the variants WebRTC exposes.
-	rtpOutputs := s.configureWebRTC(session, broadcast.OutputSettings)
+	webrtc := s.configureWebRTC(session, broadcast.OutputSettings)
 	processModel := s.configRepository.GetOutputProcessModel()
 	// Remember what this stream started with: the admin reports a pending
 	// process-model change only when it differs from the running one.
@@ -214,15 +214,15 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	segmentPath := config.HLSStoragePath
 
 	go func() {
-		if processModel == models.OutputProcessModelIsolated && len(rtpOutputs) > 0 {
-			s.runIsolatedTranscoders(session, mediaReader, rtpOutputs)
+		if processModel == models.OutputProcessModelIsolated && len(webrtc.outputs) > 0 {
+			s.runIsolatedTranscoders(session, mediaReader, webrtc)
 			return
 		}
 
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
 		tr.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 		purpose := []string{publicPipelineHLS}
-		if len(rtpOutputs) > 0 {
+		if len(webrtc.outputs) > 0 {
 			purpose = append(purpose, "webrtc")
 		}
 		tr.SetPurpose(purpose)
@@ -234,7 +234,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		}
 		tr.SetStdin(mediaReader)
 		tr.SetInputFormat(session.InputFormat())
-		tr.SetRTPOutputs(rtpOutputs)
+		tr.SetRTPOutputs(webrtc.outputs)
 		s.setTranscoder(tr)
 		tr.Start(true)
 	}()

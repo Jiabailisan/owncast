@@ -86,22 +86,27 @@ func (l *recordingLeg) AudioURL() string { return "" }
 func (l *recordingLeg) Close() error     { return nil }
 func (l *recordingLeg) MarkRestart()     { l.restarts++ }
 
-// Only the legs this supervisor's RTP outputs feed are told about the restart; a later
-// stream's leg at another index is left alone.
-func TestRestartMarksOnlyThisSupervisorsLegs(t *testing.T) {
-	svc := &Service{}
+// The supervisor marks the leg objects it opened. A later stream can install a new leg
+// at the same variant index, so an index lookup would mark the wrong one.
+func TestRestartMarksOnlyTheLegsTheSupervisorOpened(t *testing.T) {
 	own := &recordingLeg{}
-	other := &recordingLeg{}
+	next := &recordingLeg{}
+
+	// The supervisor holds what it opened for this stream.
+	supervisorLegs := []WebRTCMediaLeg{own}
+
+	// The next stream installs its own leg at the same index.
+	svc := &Service{}
 	svc.legsMu.Lock()
-	svc.legsByVariant = map[int]WebRTCMediaLeg{0: own, 1: other}
+	svc.legsByVariant = map[int]WebRTCMediaLeg{0: next}
 	svc.legsMu.Unlock()
 
-	svc.markWebRTCLegsRestartFor([]transcoder.RTPOutput{{VariantIndex: 0}})
+	markLegsRestart(supervisorLegs)
 
 	if own.restarts != 1 {
 		t.Fatalf("this supervisor's leg restarted %d times, want 1", own.restarts)
 	}
-	if other.restarts != 0 {
-		t.Fatalf("another stream's leg restarted %d times, want 0", other.restarts)
+	if next.restarts != 0 {
+		t.Fatalf("the next stream's leg restarted %d times, want 0", next.restarts)
 	}
 }

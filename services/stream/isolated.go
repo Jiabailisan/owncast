@@ -24,7 +24,7 @@ const (
 // separate WebRTC-only process with its own decoder and low-latency input flags.
 // Ingest bytes are fanned out by an ingestTee; the WebRTC branch can never stall
 // or crash the HLS branch.
-func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.Reader, rtpOutputs []transcoder.RTPOutput) {
+func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.Reader, webrtc webRTCOutputs) {
 	tee := newIngestTee(mediaReader)
 	s.setIngestTee(tee)
 
@@ -48,7 +48,7 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 
 	go tee.Run()
 	go hls.Start(true)
-	go s.superviseWebRTCProcess(tee, session, rtpOutputs, s.webRTCVariantGen)
+	go s.superviseWebRTCProcess(tee, session, webrtc, s.webRTCVariantGen)
 }
 
 // superviseWebRTCProcess runs the WebRTC-only FFmpeg process with a bounded
@@ -58,7 +58,7 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 // process. It is replaced on every supervised restart.
 const webRTCBranchName = "webrtc"
 
-func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session, rtpOutputs []transcoder.RTPOutput, variantGen uint64) {
+func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session, webrtc webRTCOutputs, variantGen uint64) {
 	backoff := webRTCProcessBackoff
 
 	for attempt := 0; ; attempt++ {
@@ -70,7 +70,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		tr.SetPurpose([]string{"webrtc"})
 		tr.SetRTPOnly(true)
 		tr.SetInputFormat(session.InputFormat())
-		tr.SetRTPOutputs(rtpOutputs)
+		tr.SetRTPOutputs(webrtc.outputs)
 		tr.SetStdin(tee.AddBranch(webRTCBranchName, false, func() {
 			// Overflow: stop this process; HLS keeps running.
 			tr.Stop()
@@ -102,7 +102,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 				log.Traceln("isolated webrtc process exited cleanly")
 				// The process is gone, so the renditions it fed cannot be delivered any
 				// more: withdraw them through the same path the exhausted case uses.
-				s.withdrawWebRTCVariants(tee, session, variantGen, rtpOutputs)
+				s.withdrawWebRTCVariants(tee, session, variantGen, webrtc.outputs)
 
 				return
 			}
@@ -111,7 +111,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 				// Withdraw this stream's renditions and tear down the sessions and legs
 				// they fed. The generation check inside keeps this from touching a later
 				// stream.
-				s.withdrawWebRTCVariants(tee, session, variantGen, rtpOutputs)
+				s.withdrawWebRTCVariants(tee, session, variantGen, webrtc.outputs)
 				// The warning belongs to the failure case only, and only while this
 				// stream still owns the WebRTC state.
 				s.appendWebRTCWarningsForGeneration(variantGen, models.StatusWarning{
@@ -124,7 +124,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			log.Warnf("isolated webrtc process exited (attempt %d/%d); restarting in %s: %v",
 				attempt+1, webRTCProcessMaxRestarts, backoff, err)
 			// Rebase the forwarder when the replacement producer starts.
-			s.markWebRTCLegsRestartFor(rtpOutputs)
+			markLegsRestart(webrtc.legs)
 			// Wait for the backoff or for the session to end, whichever comes first.
 			// Sleeping outright let a finished session start a replacement process
 			// that then wrote into the next stream's media legs.
@@ -185,21 +185,10 @@ func (s *Service) appendWebRTCWarningsForGeneration(generation uint64, warnings 
 	s.webRTCWarnings = append(s.webRTCWarnings, warnings...)
 }
 
-// markWebRTCLegsRestartFor tells the media legs of this supervisor's RTP outputs that a
-// new producer starts. The leg objects are taken under the lock and marked outside it,
-// so a later stream's legs are never touched.
-func (s *Service) markWebRTCLegsRestartFor(outputs []transcoder.RTPOutput) {
-	indices := variantIndices(outputs)
-
-	s.legsMu.Lock()
-	legs := make([]WebRTCMediaLeg, 0, len(indices))
-	for _, index := range indices {
-		if leg := s.legsByVariant[index]; leg != nil {
-			legs = append(legs, leg)
-		}
-	}
-	s.legsMu.Unlock()
-
+// markLegsRestart tells the given legs that a new RTP producer starts. The supervisor
+// holds the leg objects it opened, so a retry never looks them up by index and cannot
+// touch a later stream that reuses the same index.
+func markLegsRestart(legs []WebRTCMediaLeg) {
 	for _, leg := range legs {
 		leg.MarkRestart()
 	}
@@ -220,17 +209,6 @@ func (s *Service) clearWebRTCLegs() {
 	s.legsMu.Lock()
 	defer s.legsMu.Unlock()
 	s.legsByVariant = nil
-}
-
-// webRTCLegsByVariant returns a snapshot of the open media legs.
-func (s *Service) webRTCLegsByVariant() []WebRTCMediaLeg {
-	s.legsMu.RLock()
-	defer s.legsMu.RUnlock()
-	legs := make([]WebRTCMediaLeg, 0, len(s.legsByVariant))
-	for _, leg := range s.legsByVariant {
-		legs = append(legs, leg)
-	}
-	return legs
 }
 
 // setIngestTee records the active tee (isolated process model).

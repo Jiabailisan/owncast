@@ -91,9 +91,12 @@ func (s *Service) openWebRTCLegs(
 	webrtcConfig models.WebRTCConfig,
 	generation uint64,
 	warnings []models.StatusWarning,
-) ([]transcoder.RTPOutput, []models.StatusWarning, []int) {
+) ([]transcoder.RTPOutput, []WebRTCMediaLeg, []models.StatusWarning, []int) {
 	videoCodec := s.configRepository.GetVideoCodec()
 	outputs := make([]transcoder.RTPOutput, 0, len(decisions))
+	// The leg objects travel with the RTP outputs so the supervisor can mark exactly the
+	// legs it feeds, without looking them up by index later.
+	legs := make([]WebRTCMediaLeg, 0, len(decisions))
 	// Variants whose leg could not be opened are withdrawn from WHEP afterwards.
 	failed := make([]int, 0)
 
@@ -125,6 +128,7 @@ func (s *Service) openWebRTCLegs(
 		s.webRTCLegs = append(s.webRTCLegs, index)
 		s.legsMu.Unlock()
 		s.registerWebRTCLeg(index, leg)
+		legs = append(legs, leg)
 
 		outputs = append(outputs, transcoder.RTPOutput{
 			VariantIndex:     index,
@@ -149,5 +153,5 @@ func (s *Service) openWebRTCLegs(
 		})
 	}
 
-	return outputs, warnings, failed
+	return outputs, legs, warnings, failed
 }

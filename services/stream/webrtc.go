@@ -230,9 +230,16 @@ func webrtcLegScale(variant models.StreamOutputVariant, decision webrtc.LegDecis
 	return transcoder.ScaleExpression(variant.ScaledWidth, variant.ScaledHeight)
 }
 
-func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant) []transcoder.RTPOutput {
+// webRTCOutputs is what this stream's WebRTC delivery needs: the RTP destinations the
+// transcoder feeds and the media legs behind them.
+type webRTCOutputs struct {
+	outputs []transcoder.RTPOutput
+	legs    []WebRTCMediaLeg
+}
+
+func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant) webRTCOutputs {
 	if s.webRTC == nil {
-		return nil
+		return webRTCOutputs{}
 	}
 
 	webrtcVariants := effectiveWebRTCVariants(variants)
@@ -243,7 +250,7 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 	decisions, warnings, hasEnabled := s.resolveWebRTCLegs(session, webrtcVariants, webrtcConfig, source)
 	if !hasEnabled {
 		s.setWebRTCWarnings(warnings)
-		return nil
+		return webRTCOutputs{}
 	}
 
 	generation, err := s.webRTC.SetVariants(webrtcVariants)
@@ -251,19 +258,19 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 		log.Errorln("webrtc: unable to publish variants; continuing with HLS only:", err)
 		warnings = append(warnings, models.StatusWarning{Code: "webrtc_variants", Message: err.Error()})
 		s.setWebRTCWarnings(warnings)
-		return nil
+		return webRTCOutputs{}
 	}
 
 	s.webRTCMu.Lock()
 	s.webRTCVariantGen = generation
 	s.webRTCMu.Unlock()
 
-	outputs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, generation, warnings)
+	outputs, legs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, generation, warnings)
 	// A variant whose leg failed must not stay selectable over WHEP.
 	s.webRTC.DisableVariants(generation, failed)
 	s.setWebRTCWarnings(warnings)
 
-	return outputs
+	return webRTCOutputs{outputs: outputs, legs: legs}
 }
 
 // setWebRTCWarnings records the current stream's WebRTC warnings for the live
