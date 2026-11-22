@@ -50,7 +50,7 @@ func (s *Service) GetStatus() models.Status {
 		LastDisconnectTime:    stats.LastDisconnectTime,
 		LastConnectTime:       stats.LastConnectTime,
 		VersionNumber:         config.VersionNumber,
-		StreamTitle:           s.configRepository.GetStreamTitle(),
+		StreamTitle:           s.currentStreamTitle(),
 	}
 
 	if session := s.GetCurrentSession(); session != nil {
@@ -70,6 +70,19 @@ func (s *Service) GetStatus() models.Status {
 	}
 
 	return status
+}
+
+// currentStreamTitle returns the title the live publisher asked for, or the saved default
+// when it did not ask for one. Every consumer that shows a title reads this one value, so a
+// per-stream title cannot appear in one place and not another.
+func (s *Service) currentStreamTitle() string {
+	if session := s.GetCurrentSession(); session != nil {
+		if title := session.StreamTitle(); title != "" {
+			return title
+		}
+	}
+
+	return s.configRepository.GetStreamTitle()
 }
 
 // GetCurrentBroadcast returns the in-flight broadcast settings, or nil

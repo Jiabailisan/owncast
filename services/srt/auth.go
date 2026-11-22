@@ -129,6 +129,8 @@ func (s *Service) authenticate(req gosrt.ConnRequest) (*session, bool) {
 	if !ok {
 		return nil, false
 	}
+	// The title applies only to the session that won the publisher slot.
+	sess.SetStreamTitle(parsed.Title)
 
 	conn, err := req.Accept()
 	if err != nil {

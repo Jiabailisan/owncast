@@ -47,6 +47,8 @@ type Session interface {
 	// (RTMP onMetaData). It is nil for SRT until the MPEG-TS/H.264 inspector
 	// fills it in.
 	Broadcaster() *models.Broadcaster
+	// StreamTitle returns the title this publish asked for, empty when it did not.
+	StreamTitle() string
 	// SetBroadcaster records source metadata (RTMP onMetaData or the SRT
 	// MPEG-TS inspector).
 	SetBroadcaster(*models.Broadcaster)
@@ -75,6 +77,9 @@ type SessionBase struct {
 	mu          sync.RWMutex
 	stats       Stats
 	broadcaster *models.Broadcaster
+	// streamTitle is the title this publish asked for. It applies only while the session
+	// owns the stream, so the saved default returns as soon as it ends.
+	streamTitle string
 }
 
 // NewSessionBase builds the shared part of a session. onClose (optional) is
@@ -129,6 +134,22 @@ func (s *SessionBase) Broadcaster() *models.Broadcaster {
 }
 
 // SetBroadcaster records the source metadata reported by the protocol.
+// SetStreamTitle records the title this publish asked for.
+func (s *SessionBase) SetStreamTitle(title string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.streamTitle = title
+}
+
+// StreamTitle returns the title this publish asked for, or an empty string when it did not
+// ask for one and the saved default still applies.
+func (s *SessionBase) StreamTitle() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.streamTitle
+}
+
 func (s *SessionBase) SetBroadcaster(broadcaster *models.Broadcaster) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

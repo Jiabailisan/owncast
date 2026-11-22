@@ -151,6 +151,10 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 		}
 	}
 
+	// The stream key stays in the path; a title may follow it as a query parameter so the
+	// same key field works for both protocols.
+	session.SetStreamTitle(ingest.ParseStreamTitleFromQuery(c.URL.RawQuery))
+
 	if err := s.sessions.TryAcquire(session); err != nil {
 		log.Errorln("stream already running; can not overtake an existing stream from", nc.RemoteAddr().String())
 		_ = nc.Close()

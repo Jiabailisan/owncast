@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/owncast/owncast/services/ingest"
+
 	"github.com/owncast/owncast/models"
 )
 
@@ -55,6 +57,9 @@ type ParsedStreamID struct {
 	App string
 	// Key is the candidate stream key. It is secret material: never log it.
 	Key string
+	// Title is the optional per-stream title the publisher asked for. Empty when it did
+	// not ask for one, or asked for one that cannot be used.
+	Title string
 	// Mode is the requested connection mode.
 	Mode StreamIDMode
 }
@@ -92,13 +97,24 @@ func parseRawStreamID(streamID string, enabledFormats []string) (ParsedStreamID,
 	if !models.SRTStreamIDFormatsContains(enabledFormats, models.SRTStreamIDRawKey) {
 		return ParsedStreamID{}, ErrStreamIDFormatDisabled
 	}
-	if err := validateStreamKey(streamID); err != nil {
+	// A raw key may carry a title suffix: TEST_KEY?title=%23GameTime. The key is what
+	// authenticates, so it is validated on its own and the title is parsed separately; an
+	// unusable title never invalidates an otherwise correct key.
+	key := streamID
+	title := ""
+	if index := strings.IndexByte(streamID, '?'); index >= 0 {
+		key = streamID[:index]
+		title = ingest.ParseStreamTitleFromQuery(streamID[index+1:])
+	}
+
+	if err := validateStreamKey(key); err != nil {
 		return ParsedStreamID{}, err
 	}
 	return ParsedStreamID{
 		Format: models.SRTStreamIDRawKey,
 		App:    defaultStreamApp,
-		Key:    streamID,
+		Key:    key,
+		Title:  title,
 		Mode:   StreamIDModePublish,
 	}, nil
 }
