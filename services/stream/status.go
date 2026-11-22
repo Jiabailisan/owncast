@@ -151,22 +151,18 @@ func (s *Service) BroadcasterSetFromSession(session ingest.Session, broadcaster 
 		}
 	}
 
-	if session != nil {
-		s.sessionMu.RLock()
-		current := s.currentSession
-		s.sessionMu.RUnlock()
+	// The ownership check and the write share one critical section and compare against
+	// the session the live broadcast was published with, not against a separately read
+	// current session: an old session, or one whose broadcast has ended, is refused.
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
 
-		if current != session {
-			return
-		}
+	if session != nil && s.broadcastSession != session {
+		return
 	}
 
-	// Published here rather than through BroadcasterSet, so the ownership check above and
-	// this write are not separated by another lookup of the current session.
-	s.statsMu.Lock()
 	s.broadcaster = &broadcaster
 	s.broadcasterEpoch = s.broadcastEpoch
-	s.statsMu.Unlock()
 }
 
 // GetBroadcaster returns the active inbound broadcaster, or nil between

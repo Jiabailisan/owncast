@@ -71,3 +71,54 @@ func TestLiveSnapshotCarriesTheSession(t *testing.T) {
 		t.Fatalf("snapshot session = %v, want the current session", got)
 	}
 }
+
+// A callback from the previous session must not touch the new broadcast, even when it
+// reaches the write boundary after the new one was published.
+func TestStaleSessionCannotWriteMetadataAfterTakeover(t *testing.T) {
+	svc := &Service{stats: &models.Stats{StreamConnected: true, Viewers: map[string]*models.Viewer{}}}
+
+	oldSession := newTestIngestSession("old")
+	current := newTestIngestSession("current")
+
+	svc.statsMu.Lock()
+	svc.broadcastSession = current
+	svc.broadcastEpoch = 6
+	svc.broadcaster = &models.Broadcaster{StreamDetails: models.InboundStreamDetails{VideoBitrate: 1111}}
+	svc.broadcasterEpoch = 6
+	svc.statsMu.Unlock()
+
+	svc.BroadcasterSetFromSession(oldSession, models.Broadcaster{
+		StreamDetails: models.InboundStreamDetails{VideoBitrate: 9999},
+	})
+
+	svc.statsMu.Lock()
+	stored, epoch := svc.broadcaster, svc.broadcasterEpoch
+	svc.statsMu.Unlock()
+
+	if stored == nil || stored.StreamDetails.VideoBitrate != 1111 || epoch != 6 {
+		t.Fatalf("metadata = %+v epoch %d, want the new broadcast's values", stored, epoch)
+	}
+}
+
+// The session that owns the broadcast still updates the metadata.
+func TestCurrentSessionUpdatesMetadata(t *testing.T) {
+	svc := &Service{stats: &models.Stats{StreamConnected: true, Viewers: map[string]*models.Viewer{}}}
+	session := newTestIngestSession("current")
+
+	svc.statsMu.Lock()
+	svc.broadcastSession = session
+	svc.broadcastEpoch = 3
+	svc.statsMu.Unlock()
+
+	svc.BroadcasterSetFromSession(session, models.Broadcaster{
+		StreamDetails: models.InboundStreamDetails{VideoBitrate: 2500},
+	})
+
+	svc.statsMu.Lock()
+	stored, epoch := svc.broadcaster, svc.broadcasterEpoch
+	svc.statsMu.Unlock()
+
+	if stored == nil || stored.StreamDetails.VideoBitrate != 2500 || epoch != 3 {
+		t.Fatalf("metadata = %+v epoch %d, want the recorded values", stored, epoch)
+	}
+}
