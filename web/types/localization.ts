@@ -303,6 +303,8 @@ export const Localization = {
         username: 'Admin.LiveStreaming.Viewers.username',
         quality: 'Admin.LiveStreaming.Viewers.quality',
         latency: 'Admin.LiveStreaming.Viewers.latency',
+        latencyJitterBuffer: 'Admin.LiveStreaming.Viewers.latencyJitterBuffer',
+        latencyJitterBufferHelp: 'Admin.LiveStreaming.Viewers.latencyJitterBufferHelp',
         ip: 'Admin.LiveStreaming.Viewers.ip',
         location: 'Admin.LiveStreaming.Viewers.location',
         protocol: 'Admin.LiveStreaming.Viewers.protocol',

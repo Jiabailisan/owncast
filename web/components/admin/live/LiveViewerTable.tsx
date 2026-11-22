@@ -96,6 +96,42 @@ export const renderViewerProtocol = (viewer: LiveViewer) => {
 // One metric cell with consistent provenance: player-reported values are only
 // shown when the backend validated them; otherwise the value is server-measured
 // or honestly N/A. The tooltip always says where the number came from.
+// Latency is protocol-specific: an HLS player reports its end-to-end latency, while a
+// WebRTC session reports the average jitter buffer delay
+// (jitterBufferDelay / jitterBufferEmittedCount). They are different measurements and
+// must not be shown as if they were the same number.
+export const renderLatency = (viewer: LiveViewer, latencyMs: number | null) => {
+  if (latencyMs === null || latencyMs === undefined) {
+    return na('The player did not report a latency measurement.', null);
+  }
+
+  const value = `${formatMetricNumber(latencyMs / 1000, 2)} s`;
+
+  if (viewer.protocol?.toLowerCase() !== 'webrtc') {
+    return value;
+  }
+
+  return (
+    <Tooltip
+      title={
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.latencyJitterBufferHelp}
+          defaultText="Average jitter buffer delay reported by the player, not end-to-end latency."
+        />
+      }
+    >
+      <span>
+        {value}
+        {' '}
+        <Translation
+          translationKey={Localization.Admin.LiveStreaming.Viewers.latencyJitterBuffer}
+          defaultText="Jitter buffer"
+        />
+      </span>
+    </Tooltip>
+  );
+};
+
 export const renderViewerMetric = (
   viewer: LiveViewer,
   value: string | null,
@@ -287,13 +323,7 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
       ),
       dataIndex: 'latencyMs',
       key: 'latencyMs',
-      render: (latencyMs: number | null) => {
-        if (latencyMs === null || latencyMs === undefined) {
-          return na('The player did not report a latency measurement.', null);
-        }
-
-        return `${formatMetricNumber(latencyMs / 1000, 2)} s`;
-      },
+      render: (latencyMs: number | null, viewer: LiveViewer) => renderLatency(viewer, latencyMs),
     },
     {
       title: (
@@ -423,7 +453,7 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
               <span>
                 {viewer.latencyMs === null || viewer.latencyMs === undefined
                   ? 'N/A'
-                  : `${formatMetricNumber(viewer.latencyMs / 1000, 2)} s`}
+                  : renderLatency(viewer, viewer.latencyMs)}
               </span>
             </div>
             <div className={styles.viewerCardRow}>

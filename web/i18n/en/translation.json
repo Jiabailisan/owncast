@@ -600,6 +600,8 @@
 				"ip": "IP",
 				"jitter": "Jitter",
 				"latency": "Latency",
+				"latencyJitterBuffer": "Jitter buffer",
+				"latencyJitterBufferHelp": "Average jitter buffer delay reported by the player, not end-to-end latency.",
 				"location": "Location",
 				"packetLoss": "Packet loss",
 				"protocol": "Protocol",
