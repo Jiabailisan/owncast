@@ -349,10 +349,7 @@ export async function connectWHEP(request: ConnectWHEPRequest): Promise<WHEPSess
       // Start waiting for the track before applying the answer so an immediate track
       // event cannot be missed.
       streamWaiter = waitForRemoteStream(pc, firstTrackTimeoutMs);
-      await Promise.race([
-        pc.setRemoteDescription({ type: 'answer', sdp: answerSdp }),
-        aborted,
-      ]);
+      await Promise.race([pc.setRemoteDescription({ type: 'answer', sdp: answerSdp }), aborted]);
       stream = await Promise.race([streamWaiter.promise, aborted]);
     } finally {
       if (removeAbortListener) removeAbortListener();

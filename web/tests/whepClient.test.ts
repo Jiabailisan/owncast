@@ -377,139 +377,138 @@ describe('whep helpers', () => {
   });
 });
 
+test('cancels while the answer is still pending: closes locally and deletes once', async () => {
+  const controller = new AbortController();
+  const pc = new FakePeerConnection();
+  // The answer never arrives, so only the abort can end the wait.
+  pc.setRemoteDescription = jest.fn(() => new Promise(() => {}));
 
-  test('cancels while the answer is still pending: closes locally and deletes once', async () => {
-    const controller = new AbortController();
-    const pc = new FakePeerConnection();
-    // The answer never arrives, so only the abort can end the wait.
-    pc.setRemoteDescription = jest.fn(() => new Promise(() => {}));
+  const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) =>
+    init?.method === 'DELETE'
+      ? makeResponse('', { status: 200 })
+      : makeResponse('answer-sdp', {
+          status: 201,
+          headers: { Location: '/webrtc/whep/session/pending' },
+        }),
+  );
 
-    const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) =>
-      init?.method === 'DELETE'
-        ? makeResponse('', { status: 200 })
-        : makeResponse('answer-sdp', {
-            status: 201,
-            headers: { Location: '/webrtc/whep/session/pending' },
-          }),
-    );
+  const pending = connectWHEP({
+    whepUrl: '/webrtc/whep',
+    variantIndex: null,
+    fetchImpl: fetchMock as unknown as typeof fetch,
+    pcFactory: () => asPeerConnection(pc),
+    signal: controller.signal,
+  });
 
-    const pending = connectWHEP({
-      whepUrl: '/webrtc/whep',
-      variantIndex: null,
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      pcFactory: () => asPeerConnection(pc),
-      signal: controller.signal,
+  await new Promise(resolve => {
+    setTimeout(resolve, 20);
+  });
+  controller.abort();
+
+  await expect(pending).rejects.toMatchObject({ code: 'network' });
+  expect(pc.closed).toBe(true);
+
+  const deletes = (fetchMock.mock.calls as unknown as [string, { method?: string }][]).filter(
+    call => call[1]?.method === 'DELETE',
+  );
+  expect(deletes).toHaveLength(1);
+  expect(deletes[0][0]).toBe('/webrtc/whep/session/pending');
+});
+
+test('cancels while the first track never arrives: closes locally and deletes once', async () => {
+  const controller = new AbortController();
+  const pc = new FakePeerConnection();
+  // The answer completes but the track event never fires.
+  pc.setRemoteDescription = jest.fn(async () => {});
+
+  const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) =>
+    init?.method === 'DELETE'
+      ? makeResponse('', { status: 200 })
+      : makeResponse('answer-sdp', {
+          status: 201,
+          headers: { Location: '/webrtc/whep/session/notrack' },
+        }),
+  );
+
+  const pending = connectWHEP({
+    whepUrl: '/webrtc/whep',
+    variantIndex: null,
+    fetchImpl: fetchMock as unknown as typeof fetch,
+    pcFactory: () => asPeerConnection(pc),
+    signal: controller.signal,
+  });
+
+  await new Promise(resolve => {
+    setTimeout(resolve, 20);
+  });
+  controller.abort();
+
+  await expect(pending).rejects.toMatchObject({ code: 'network' });
+  expect(pc.closed).toBe(true);
+
+  const deletes = (fetchMock.mock.calls as unknown as [string, { method?: string }][]).filter(
+    call => call[1]?.method === 'DELETE',
+  );
+  expect(deletes).toHaveLength(1);
+  expect(deletes[0][0]).toBe('/webrtc/whep/session/notrack');
+});
+
+test('closes the local connection first and releases the session exactly once', async () => {
+  const controller = new AbortController();
+  const pc = new FakePeerConnection();
+
+  let releaseDelete: (() => void) | null = null;
+  const deletePending = new Promise<void>(resolve => {
+    releaseDelete = resolve;
+  });
+
+  let deleteCalls = 0;
+  const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) => {
+    if (init?.method === 'DELETE') {
+      deleteCalls += 1;
+      // The local connection must already be closed when the release is issued.
+      expect(pc.closed).toBe(true);
+      await deletePending;
+
+      return makeResponse('', { status: 200 });
+    }
+
+    return makeResponse('answer-sdp', {
+      status: 201,
+      headers: { Location: '/webrtc/whep/session/late' },
     });
+  });
 
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
+  // Cancel while the session is still being established, after the server has already
+  // created it.
+  pc.setRemoteDescription = jest.fn(async () => {
     controller.abort();
-
-    await expect(pending).rejects.toMatchObject({ code: 'network' });
-    expect(pc.closed).toBe(true);
-
-    const deletes = (fetchMock.mock.calls as unknown as [string, { method?: string }][]).filter(
-      call => call[1]?.method === 'DELETE',
-    );
-    expect(deletes).toHaveLength(1);
-    expect(deletes[0][0]).toBe('/webrtc/whep/session/pending');
+    (pc as unknown as { trackHandler?: (event: unknown) => void }).trackHandler?.({
+      streams: [fakeStream],
+    });
   });
 
-  test('cancels while the first track never arrives: closes locally and deletes once', async () => {
-    const controller = new AbortController();
-    const pc = new FakePeerConnection();
-    // The answer completes but the track event never fires.
-    pc.setRemoteDescription = jest.fn(async () => {});
-
-    const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) =>
-      init?.method === 'DELETE'
-        ? makeResponse('', { status: 200 })
-        : makeResponse('answer-sdp', {
-            status: 201,
-            headers: { Location: '/webrtc/whep/session/notrack' },
-          }),
-    );
-
-    const pending = connectWHEP({
-      whepUrl: '/webrtc/whep',
-      variantIndex: null,
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      pcFactory: () => asPeerConnection(pc),
-      signal: controller.signal,
-    });
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
-    controller.abort();
-
-    await expect(pending).rejects.toMatchObject({ code: 'network' });
-    expect(pc.closed).toBe(true);
-
-    const deletes = (fetchMock.mock.calls as unknown as [string, { method?: string }][]).filter(
-      call => call[1]?.method === 'DELETE',
-    );
-    expect(deletes).toHaveLength(1);
-    expect(deletes[0][0]).toBe('/webrtc/whep/session/notrack');
+  const pending = connectWHEP({
+    whepUrl: '/webrtc/whep',
+    variantIndex: null,
+    fetchImpl: fetchMock as unknown as typeof fetch,
+    pcFactory: () => asPeerConnection(pc),
+    signal: controller.signal,
   });
 
-  test('closes the local connection first and releases the session exactly once', async () => {
-    const controller = new AbortController();
-    const pc = new FakePeerConnection();
-
-    let releaseDelete: (() => void) | null = null;
-    const deletePending = new Promise<void>((resolve) => {
-      releaseDelete = resolve;
-    });
-
-    let deleteCalls = 0;
-    const fetchMock = jest.fn(async (_url: string, init?: { method?: string }) => {
-      if (init?.method === 'DELETE') {
-        deleteCalls += 1;
-        // The local connection must already be closed when the release is issued.
-        expect(pc.closed).toBe(true);
-        await deletePending;
-
-        return makeResponse('', { status: 200 });
-      }
-
-      return makeResponse('answer-sdp', {
-        status: 201,
-        headers: { Location: '/webrtc/whep/session/late' },
-      });
-    });
-
-    // Cancel while the session is still being established, after the server has already
-    // created it.
-    pc.setRemoteDescription = jest.fn(async () => {
-      controller.abort();
-      (pc as unknown as { trackHandler?: (event: unknown) => void }).trackHandler?.({
-        streams: [fakeStream],
-      });
-    });
-
-    const pending = connectWHEP({
-      whepUrl: '/webrtc/whep',
-      variantIndex: null,
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      pcFactory: () => asPeerConnection(pc),
-      signal: controller.signal,
-    });
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, 200);
-    });
-
-    // The DELETE has not finished, and the local connection is already closed.
-    expect(pc.closed).toBe(true);
-    expect(pc.close).toHaveBeenCalled();
-    expect(deleteCalls).toBe(1);
-
-    if (releaseDelete) (releaseDelete as () => void)();
-
-    await expect(pending).rejects.toMatchObject({ code: 'network' });
-
-    // The whole cancel path released the session once, not twice.
-    expect(deleteCalls).toBe(1);
+  await new Promise(resolve => {
+    setTimeout(resolve, 200);
   });
+
+  // The DELETE has not finished, and the local connection is already closed.
+  expect(pc.closed).toBe(true);
+  expect(pc.close).toHaveBeenCalled();
+  expect(deleteCalls).toBe(1);
+
+  if (releaseDelete) (releaseDelete as () => void)();
+
+  await expect(pending).rejects.toMatchObject({ code: 'network' });
+
+  // The whole cancel path released the session once, not twice.
+  expect(deleteCalls).toBe(1);
+});
