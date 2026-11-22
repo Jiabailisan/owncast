@@ -4,7 +4,11 @@ package handlers
 // Public beacons are rate-limited inside the admin handlers; the path setters
 // use the same admin auth + CSRF gate as the other configuration endpoints.
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/owncast/owncast/webserver/handlers/generated"
+)
 
 // ReportCustomPlayerError records a custom player module load failure (public).
 func (s *ServerInterfaceImpl) ReportCustomPlayerError(w http.ResponseWriter, r *http.Request) {
@@ -17,7 +21,11 @@ func (s *ServerInterfaceImpl) ReportCustomPlayerErrorOptions(w http.ResponseWrit
 }
 
 // ReportWebRTCClientReport accepts browser-measured WebRTC stats (public).
-func (s *ServerInterfaceImpl) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request) {
+func (s *ServerInterfaceImpl) ReportWebRTCClientReport(
+	w http.ResponseWriter,
+	r *http.Request,
+	_ generated.ReportWebRTCClientReportParams,
+) {
 	s.h.admin.ReportWebRTCClientReport(w, r)
 }
 

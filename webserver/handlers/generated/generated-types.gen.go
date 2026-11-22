@@ -2015,12 +2015,15 @@ type WebRTCCapacity struct {
 	Used            *int `json:"used,omitempty"`
 }
 
-// WebRTCClientReportRequest Browser-measured WebRTC playback statistics. The server validates every value before it can reach the admin viewer row: fps only 0..240, decodedWidth/decodedHeight only when both >= 16, packetLossPct only 0..100, non-negative packet counters, and transport only udp/tcp. Invalid values are ignored.
+// WebRTCClientReportRequest Browser-measured WebRTC playback statistics. The server validates every value before it can reach the admin viewer row: fps only 0..240, decodedWidth/decodedHeight only when both >= 16, packetLossPct only 0..100, non-negative packet counters, transport only udp/tcp, and the buffer delay only 0..599999 milliseconds. Invalid values are ignored.
 type WebRTCClientReportRequest struct {
 	DecodedHeight *int     `json:"decodedHeight,omitempty"`
 	DecodedWidth  *int     `json:"decodedWidth,omitempty"`
 	Fps           *float32 `json:"fps,omitempty"`
 	JitterMs      *float32 `json:"jitterMs,omitempty"`
+
+	// LatencyMs Average jitter buffer delay in milliseconds, computed by the player as jitterBufferDelay divided by jitterBufferEmittedCount. This is the value the admin viewer list shows for a WebRTC session and is not end-to-end latency. Accepted only when 0 <= latencyMs < 600000; missing or out-of-range values leave the row without a measurement.
+	LatencyMs *float32 `json:"latencyMs,omitempty"`
 
 	// PacketLossPct Loss percentage exactly as the player's stats panel shows it (0..100). When absent the server derives it from packetsLost and packetsReceived.
 	PacketLossPct *float32 `json:"packetLossPct,omitempty"`
@@ -2531,6 +2534,12 @@ type GetFollowersParams struct {
 type ReportCmcdQueryParams struct {
 	// CMCD CMCD report serialized as a CMCD dictionary payload
 	CMCD *string `form:"CMCD,omitempty" json:"CMCD,omitempty"`
+}
+
+// ReportWebRTCClientReportParams defines parameters for ReportWebRTCClientReport.
+type ReportWebRTCClientReportParams struct {
+	// XOwncastAccessToken Optional viewer access token. The server resolves it to a display name for the viewer row and never returns it; a report without the header clears the name the session reported before.
+	XOwncastAccessToken *string `json:"X-Owncast-Access-Token,omitempty"`
 }
 
 // GetUserDetailsParams defines parameters for GetUserDetails.

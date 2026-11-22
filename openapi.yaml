@@ -225,6 +225,16 @@ paths:
         are answered with 404 without revealing anything.
       operationId: ReportWebRTCClientReport
       tags: ['Internal']
+      parameters:
+        - in: header
+          name: X-Owncast-Access-Token
+          description: >-
+            Optional viewer access token. The server resolves it to a display
+            name for the viewer row and never returns it; a report without the
+            header clears the name the session reported before.
+          schema:
+            type: string
+          required: false
       requestBody:
         content:
           application/json:
@@ -6066,7 +6076,8 @@ components:
         Browser-measured WebRTC playback statistics. The server validates every
         value before it can reach the admin viewer row: fps only 0..240,
         decodedWidth/decodedHeight only when both >= 16, packetLossPct only
-        0..100, non-negative packet counters, and transport only udp/tcp.
+        0..100, non-negative packet counters, transport only udp/tcp, and the
+        buffer delay only 0..599999 milliseconds.
         Invalid values are ignored.
       properties:
         sessionId:
@@ -6090,6 +6101,14 @@ components:
             packetsReceived.
         jitterMs:
           type: number
+        latencyMs:
+          type: number
+          description: >-
+            Average jitter buffer delay in milliseconds, computed by the player
+            as jitterBufferDelay divided by jitterBufferEmittedCount. This is
+            the value the admin viewer list shows for a WebRTC session and is
+            not end-to-end latency. Accepted only when 0 <= latencyMs < 600000;
+            missing or out-of-range values leave the row without a measurement.
         roundTripTimeMs:
           type: number
         transport:

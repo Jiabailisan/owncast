@@ -796,7 +796,7 @@ type ServerInterface interface {
 	ReportWebRTCClientReportOptions(w http.ResponseWriter, r *http.Request)
 	// ReportWebRTCClientReport Report client-side WebRTC playback statistics
 	// (POST /metrics/webrtc)
-	ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request)
+	ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request, params ReportWebRTCClientReportParams)
 	// GetUserDetails Get a user's details
 	// (GET /moderation/chat/user/{userId})
 	GetUserDetails(w http.ResponseWriter, r *http.Request, userId string, params GetUserDetailsParams)
@@ -2269,7 +2269,7 @@ func (_ Unimplemented) ReportWebRTCClientReportOptions(w http.ResponseWriter, r 
 
 // ReportWebRTCClientReport Report client-side WebRTC playback statistics
 // (POST /metrics/webrtc)
-func (_ Unimplemented) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request, params ReportWebRTCClientReportParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -6517,8 +6517,35 @@ func (siw *ServerInterfaceWrapper) ReportWebRTCClientReportOptions(w http.Respon
 // ReportWebRTCClientReport operation middleware
 func (siw *ServerInterfaceWrapper) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReportWebRTCClientReportParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Owncast-Access-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Owncast-Access-Token")]; found {
+		var XOwncastAccessToken string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Owncast-Access-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Owncast-Access-Token", valueList[0], &XOwncastAccessToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Owncast-Access-Token", Err: err})
+			return
+		}
+
+		params.XOwncastAccessToken = &XOwncastAccessToken
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReportWebRTCClientReport(w, r)
+		siw.Handler.ReportWebRTCClientReport(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
