@@ -584,10 +584,20 @@ func (a *Admin) UpdateWebRTCConfig(w http.ResponseWriter, r *http.Request) {
 				restartAttempted = true
 				if restartErr := a.restartWebRTCService(); restartErr != nil {
 					log.Warnln("webrtc service restart failed:", restartErr)
+					// The restart failed, so the previous configuration is restored. When
+					// that also fails the caller has to see both reasons: the running
+					// service may no longer match the saved configuration.
 					if restoreErr := a.restoreWebRTCConfig(previousConfig); restoreErr != nil {
 						log.Errorln("webrtc rollback after a restart failure failed:", restoreErr)
+						writeLiveConfigConflict(w, "unable to restart the WebRTC service with the new configuration ("+
+							restartErr.Error()+") and unable to restore the previous service state ("+
+							restoreErr.Error()+"); the running service may not match the saved configuration")
+
+						return
 					}
+
 					writeLiveConfigConflict(w, "unable to restart the WebRTC service with the new configuration: "+restartErr.Error())
+
 					return
 				}
 
