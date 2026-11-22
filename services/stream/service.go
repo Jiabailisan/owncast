@@ -163,6 +163,8 @@ type Service struct {
 	// when a stream goes live, so a viewer registration or a late GeoIP result that
 	// started against the previous broadcast can be told apart.
 	broadcastEpoch uint64
+	// broadcasterEpoch is the broadcast the service-level metadata was recorded for.
+	broadcasterEpoch uint64
 	// currentSession is the authenticated inbound session that started the
 	// current live stream (RTMP or SRT). Nil between streams.
 	currentSession ingest.Session

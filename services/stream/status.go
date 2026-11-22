@@ -124,7 +124,14 @@ func (s *Service) GetIngestStatus() *models.IngestStatus {
 // StreamEvents; the local engine calls it from the RTMP metadata callback, a
 // remote engine from its signaling channel.
 func (s *Service) BroadcasterSet(broadcaster models.Broadcaster) {
+	// The metadata belongs to the broadcast that is live when it arrives; the epoch is
+	// stamped under the same lock that publishes the broadcast so a reader can tell
+	// whether it still describes the stream it is looking at.
+	s.statsMu.Lock()
 	s.broadcaster = &broadcaster
+	s.broadcasterEpoch = s.broadcastEpoch
+	s.statsMu.Unlock()
+
 	// Mirror the metadata onto the session so protocol-neutral consumers can
 	// read it without depending on the legacy service field.
 	if session := s.GetCurrentSession(); session != nil {
@@ -135,10 +142,32 @@ func (s *Service) BroadcasterSet(broadcaster models.Broadcaster) {
 // GetBroadcaster returns the active inbound broadcaster, or nil between
 // streams.
 func (s *Service) GetBroadcaster() *models.Broadcaster {
+	// A session carries its own metadata (SRT), so prefer it: it cannot be confused
+	// with a later broadcast.
 	if session := s.GetCurrentSession(); session != nil {
 		if broadcaster := session.Broadcaster(); broadcaster != nil {
 			return broadcaster
 		}
 	}
+
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+
+	return s.broadcaster
+}
+
+// broadcasterForEpoch returns the service-level metadata only while it still belongs to
+// the given broadcast. A caller that works from a snapshot uses this so the metadata and
+// the snapshot describe the same stream.
+func (s *Service) broadcasterForEpoch(epoch uint64) *models.Broadcaster {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+
+	// The stamp must match the requested broadcast and that broadcast must still be the
+	// current one: metadata left over from a finished stream is not reused.
+	if s.broadcasterEpoch != epoch || s.broadcastEpoch != epoch {
+		return nil
+	}
+
 	return s.broadcaster
 }

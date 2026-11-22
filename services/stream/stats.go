@@ -207,14 +207,14 @@ func (s *Service) SetViewerActiveWithVariantForSnapshot(viewer *models.Viewer, v
 		return
 	}
 
-	s.applyViewerQuality(viewer, variantIndex, snapshot.Broadcast)
+	s.applyViewerQuality(viewer, variantIndex, snapshot)
 	s.SetViewerActiveForSnapshot(viewer, snapshot)
 }
 
 // applyViewerQuality fills a request's viewer record with the advertised
 // quality of the active output variant at variantIndex.
-func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, broadcast *models.CurrentBroadcast) {
-	variants := outputVariantsFrom(broadcast, s.configRepository)
+func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, snapshot LiveSnapshot) {
+	variants := outputVariantsFrom(snapshot.Broadcast, s.configRepository)
 	if variantIndex < 0 || variantIndex >= len(variants) {
 		return
 	}
@@ -227,7 +227,9 @@ func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, br
 	index := variantIndex
 	viewer.VariantIndex = &index
 	viewer.VariantName = variant.GetName()
-	viewer.BitrateKbps, viewer.Resolution, viewer.FPS = hlsVariantPlaybackQuality(variant, s.sourceStreamDetails())
+	// The source metadata must describe the same broadcast as the snapshot, or a viewer
+	// would be shown the previous stream's bitrate and resolution.
+	viewer.BitrateKbps, viewer.Resolution, viewer.FPS = hlsVariantPlaybackQuality(variant, s.sourceStreamDetailsFor(snapshot.Epoch))
 }
 
 // outputVariantsFrom returns the output settings of a broadcast snapshot, falling
@@ -245,8 +247,8 @@ func outputVariantsFrom(broadcast *models.CurrentBroadcast, repository configrep
 
 // sourceStreamDetails returns the ingress source properties, or nil when no
 // broadcaster metadata has arrived yet.
-func (s *Service) sourceStreamDetails() *models.InboundStreamDetails {
-	broadcaster := s.GetBroadcaster()
+func (s *Service) sourceStreamDetailsFor(epoch uint64) *models.InboundStreamDetails {
+	broadcaster := s.broadcasterForEpoch(epoch)
 	if broadcaster == nil {
 		return nil
 	}

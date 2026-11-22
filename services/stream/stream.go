@@ -446,6 +446,8 @@ func (s *Service) beginOffline() *models.CurrentBroadcast {
 	broadcast := s.currentBroadcast
 	s.stats.StreamConnected = false
 	s.currentBroadcast = nil
+	s.broadcaster = nil
+	s.broadcasterEpoch = 0
 	s.stats.LastDisconnectTime = &now
 	s.stats.LastConnectTime = nil
 
@@ -483,7 +485,6 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 	// in the same critical section: every other reader sees the stream as offline
 	// immediately, while the cleanup below keeps working from the captured settings.
 	broadcast := s.beginOffline()
-	s.broadcaster = nil
 
 	// Stop the federated stream-ping ticker so we don't keep advertising
 	// that we are live after the stream has ended, then tell followers we've
