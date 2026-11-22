@@ -86,6 +86,24 @@ module.exports = async phase => {
    * @type {import('next').NextConfig}
    */
   let nextConfig = {
+    // A deterministic build id keeps the committed static/web bundle reproducible, so
+    // CI can regenerate it and compare the result with what is committed. Without it
+    // Next picks a random id per build and every regeneration produces a new tree.
+    generateBuildId: async () => {
+      if (process.env.OWNCAST_BUILD_ID) return process.env.OWNCAST_BUILD_ID;
+      try {
+        // The dependency lockfile, not the commit: the bundle is committed, so a build id
+        // derived from the commit would change as soon as that commit lands and the
+        // consistency check could never pass.
+        return require('node:crypto')
+          .createHash('sha256')
+          .update(require('node:fs').readFileSync(require('node:path').join(__dirname, 'package-lock.json')))
+          .digest('hex')
+          .slice(0, 16);
+      } catch {
+        return 'owncast-unknown';
+      }
+    },
     productionBrowserSourceMaps: process.env.SOURCE_MAPS === 'true',
     distDir: '.next',
     trailingSlash: true,

@@ -1,0 +1,55 @@
+# Verifies that the committed static/web bundle is what the current source produces.
+#
+# The bundle is generated output that the binary embeds, so a stale commit silently ships
+# an old frontend. The build id is derived from the commit, which makes the output
+# reproducible: regenerating at the same commit must not change a byte.
+#
+# Upstream keeps its own auto-commit of this directory for the default branch (guarded by
+# the repository check in the Javascript workflow); this job only verifies and never
+# commits, so the fork cannot push generated files anywhere.
+name: Static web bundle
+
+on:
+  push:
+    paths:
+      - 'web/**'
+      - 'static/web/**'
+      - 'build/web/**'
+      - '.github/workflows/static-web-verify.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'static/web/**'
+      - 'build/web/**'
+      - '.github/workflows/static-web-verify.yml'
+
+jobs:
+  verify:
+    name: Committed bundle matches a fresh build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v7
+
+      - name: Setup Nodejs
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.12.0'
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Bundle web app from this source
+        run: build/web/bundleWeb.sh --offline
+
+      - name: Fail when the committed bundle differs
+        # sw.js.map embeds the service worker's precache manifest, whose entry order is not
+        # stable between two builds of the same source. The shipped sw.js itself is compared.
+        run: |
+          if ! git diff --quiet -- static/web ':(exclude)static/web/sw.js.map'; then
+            echo "static/web does not match a fresh build from this commit." >&2
+            echo "Regenerate it with build/web/bundleWeb.sh and commit the result." >&2
+            git --no-pager diff --stat -- static/web ':(exclude)static/web/sw.js.map'
+            exit 1
+          fi
