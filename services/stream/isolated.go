@@ -71,10 +71,13 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		tr.SetRTPOnly(true)
 		tr.SetInputFormat(session.InputFormat())
 		tr.SetRTPOutputs(webrtc.outputs)
-		tr.SetStdin(tee.AddBranch(webRTCBranchName, false, func() {
+		// The branch may join a stream that is already running, or restart mid-GOP. FFmpeg
+		// cannot decode from there, so the reader holds the stream until it can start at a
+		// keyframe that carries its own parameter sets, with a bounded wait.
+		tr.SetStdin(newDecodeStartReader(tee.AddBranch(webRTCBranchName, false, func() {
 			// Overflow: stop this process; HLS keeps running.
 			tr.Stop()
-		}))
+		}), session.Done()))
 		// The branch exists, but its process has not started reading yet. Releasing the pump
 		// here let the queue fill while FFmpeg was still initialising, and a burst at connect
 		// time was enough to overflow it on the first second of a stream. The release below

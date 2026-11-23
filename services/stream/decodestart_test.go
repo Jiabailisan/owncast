@@ -1,0 +1,160 @@
+package stream
+
+import (
+	"bytes"
+	"io"
+	"testing"
+	"time"
+)
+
+// buildTS assembles an MPEG-TS stream from the given packets so the tests can describe exactly
+// what the gate sees.
+func buildTS(packets ...[]byte) []byte {
+	var out []byte
+	for _, p := range packets {
+		out = append(out, p...)
+	}
+
+	return out
+}
+
+// tsHeader builds a TS header with the given PID, payload-unit-start flag and payload.
+func tsPacket(pid int, pusi bool, payload []byte) []byte {
+	b := make([]byte, tsPacketSize)
+	b[0] = 0x47
+	b[1] = byte(pid>>8) & 0x1f
+	if pusi {
+		b[1] |= 0x40
+	}
+	b[2] = byte(pid)
+	b[3] = 0x10 // payload only
+	copy(b[4:], payload)
+
+	return b
+}
+
+func TestDecodeStartSkipsToKeyframeWithParameterSets(t *testing.T) {
+	sps := []byte{0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1f}
+	pps := []byte{0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0, 0, 0, 1, 0x65, 0x88, 0x84}
+	nonIDR := []byte{0, 0, 0, 1, 0x41, 0x9a, 0x00}
+
+	stream := buildTS(
+		tsPacket(0, true, []byte{0x00, 0x00, 0xb0}),      // PAT
+		tsPacket(0x1000, true, []byte{0x00, 0x02, 0xb0}), // PMT
+		tsPacket(0x100, true, nonIDR),                    // slice before any keyframe
+		tsPacket(0x100, true, nonIDR),                    // another one
+		tsPacket(0x100, true, append(append([]byte{}, sps...), pps...)),
+		tsPacket(0x100, true, idr),
+	)
+
+	r := newDecodeStartReader(bytes.NewReader(stream), make(chan struct{}))
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	// The gate must drop the slices before the parameter sets and start at them.
+	if len(got) >= len(stream) {
+		t.Fatalf("gate forwarded %d of %d bytes; it should have skipped the leading slices", len(got), len(stream))
+	}
+	// The gate keeps the program tables and starts the run at the packet carrying the
+	// parameter sets, dropping the slices that preceded it.
+	want := buildTS(
+		tsPacket(0, true, []byte{0x00, 0x00, 0xb0}),
+		tsPacket(0x1000, true, []byte{0x00, 0x02, 0xb0}),
+		tsPacket(0x100, true, append(append([]byte{}, sps...), pps...)),
+		tsPacket(0x100, true, idr),
+	)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("gate output %d bytes, want %d (PAT, PMT, parameter sets, IDR)", len(got), len(want))
+	}
+}
+
+func TestDecodeStartPassesThroughWhenAlreadyDecodable(t *testing.T) {
+	sps := []byte{0, 0, 0, 1, 0x67, 0x42}
+	pps := []byte{0, 0, 0, 1, 0x68, 0xce}
+	idr := []byte{0, 0, 0, 1, 0x65, 0x88}
+
+	stream := buildTS(
+		tsPacket(0, true, []byte{0x00, 0x00, 0xb0}),
+		tsPacket(0x1000, true, []byte{0x00, 0x02, 0xb0}),
+		tsPacket(0x100, true, append(append([]byte{}, sps...), pps...)),
+		tsPacket(0x100, true, idr),
+	)
+
+	r := newDecodeStartReader(bytes.NewReader(stream), make(chan struct{}))
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !bytes.Equal(got, stream) {
+		t.Fatalf("a decodable stream must pass through unchanged: got %d bytes, want %d", len(got), len(stream))
+	}
+}
+
+func TestDecodeStartGivesUpAndPassesThrough(t *testing.T) {
+	// No PAT, no parameter sets: the gate cannot find a boundary and must not hold forever.
+	stream := buildTS(
+		tsPacket(0x100, true, []byte{0, 0, 0, 1, 0x41, 0x9a}),
+		tsPacket(0x100, true, []byte{0, 0, 0, 1, 0x41, 0x9b}),
+	)
+
+	start := time.Now()
+	r := newDecodeStartReader(bytes.NewReader(stream), make(chan struct{}))
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !bytes.Equal(got, stream) {
+		t.Fatalf("gate must pass the stream through when it gives up: got %d bytes, want %d", len(got), len(stream))
+	}
+	if time.Since(start) > decodeStartWait+2*time.Second {
+		t.Fatalf("gate waited %s, longer than its %s bound", time.Since(start), decodeStartWait)
+	}
+}
+
+func TestDecodeStartStopsWhenTheSessionEnds(t *testing.T) {
+	done := make(chan struct{})
+	close(done)
+
+	// A reader that would block forever: the gate must return instead.
+	r := newDecodeStartReader(blockingOnlyReader{}, done)
+	_, err := r.Read(make([]byte, 64))
+	if err != io.EOF {
+		t.Fatalf("a cancelled gate must return EOF, got %v", err)
+	}
+}
+
+type blockingOnlyReader struct{}
+
+func (blockingOnlyReader) Read([]byte) (int, error) {
+	select {}
+}
+
+// A real OBS stream puts SPS and PPS at the start of a PES and the IDR several packets later,
+// inside continuation packets. A gate that only inspects payload-unit starts never sees the
+// keyframe, waits out its whole budget and delays every WebRTC start by that much.
+func TestDecodeStartFindsAKeyframeInsideAContinuingPES(t *testing.T) {
+	spsPPS := []byte{0, 0, 0, 1, 0x67, 0x42, 0, 0, 0, 1, 0x68, 0xce}
+	idr := []byte{0, 0, 0, 1, 0x65, 0x88}
+
+	stream := buildTS(
+		tsPacket(0x11, true, []byte{0x00, 0x42}),    // SDT, as OBS sends
+		tsPacket(0, true, []byte{0x00, 0x00, 0xb0}), // PAT
+		tsPacket(0x1000, true, []byte{0x00, 0x02, 0xb0}),
+		tsPacket(0x100, true, spsPPS), // PES starts here
+		tsPacket(0x100, false, []byte{0x01, 0x02, 0x03}),
+		tsPacket(0x100, false, []byte{0x04, 0x05, 0x06}),
+		tsPacket(0x100, false, idr), // keyframe inside a continuation packet
+	)
+
+	r := newDecodeStartReader(bytes.NewReader(stream), make(chan struct{}))
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !bytes.Equal(got, stream) {
+		t.Fatalf("gate dropped %d bytes from an already decodable stream", len(stream)-len(got))
+	}
+}
