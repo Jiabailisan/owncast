@@ -40,8 +40,9 @@ func TestSaveDefaultTitleWithLiveTitleKeepsTheEffectiveTitle(t *testing.T) {
 	}
 }
 
-// Without a stream title the default is exactly what viewers see, so a real change is
-// announced.
+// A stream that is live but carries no publisher title shows the default, so changing that
+// default is a real change viewers see and must be announced. The same session has to span the
+// whole save: the check is about a stable stream, not about whether one exists.
 func TestSaveDefaultTitleWithoutLiveTitleAnnouncesChange(t *testing.T) {
 	repo := newStreamStatsTestRepo(t)
 	if err := repo.SetStreamTitle("B"); err != nil {
@@ -49,6 +50,10 @@ func TestSaveDefaultTitleWithoutLiveTitleAnnouncesChange(t *testing.T) {
 	}
 
 	svc := &Service{configRepository: repo}
+	session := newTestIngestSession("live")
+	if !svc.setCurrentSession(session) {
+		t.Fatal("the test session must become the current session")
+	}
 
 	changed, err := svc.SaveDefaultTitle(repo.SetStreamTitle, "C")
 	if err != nil {

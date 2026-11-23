@@ -108,8 +108,10 @@ func (s *Service) SaveDefaultTitle(save func(string) error, value string) (bool,
 		return false, nil
 	}
 
-	if sessionAfter != nil && titleAfter != "" {
+	if sessionAfter != nil && sessionAfter.StreamTitle() != "" {
 		// A stable publisher with its own title overrides the default, so viewers keep seeing it.
+		// This has to read the session's own title: titleAfter is what viewers see, which is the
+		// freshly saved default when the publisher did not set one.
 		return false, nil
 	}
 
