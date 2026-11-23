@@ -615,10 +615,19 @@ func (s *Service) startLiveStreamNotificationsTimer() context.CancelFunc {
 	// Send delayed notification messages.
 	c, cancelFunc := context.WithCancel(context.Background())
 	s.onlineTimerCancelFunc = cancelFunc
+
+	// The timer belongs to the stream that started it. If that stream ended or was replaced
+	// before the delay elapsed, this notification is about a stream that is no longer live and
+	// must not be sent on behalf of the new one.
+	session := s.GetCurrentSession()
+
 	go func(c context.Context) {
 		select {
 		case <-time.After(goLiveNotificationDelay):
 			if s.lastNotified != nil && time.Since(*s.lastNotified) < 10*time.Minute {
+				return
+			}
+			if s.GetCurrentSession() != session {
 				return
 			}
 
@@ -634,7 +643,9 @@ func (s *Service) startLiveStreamNotificationsTimer() context.CancelFunc {
 			if notificationService, err := notifications.New(s.datastore, s.configRepository); err != nil {
 				log.Errorln(err)
 			} else {
-				notificationService.Notify()
+				// The title is resolved now, not when the timer started: a publisher may have
+				// set it in its stream key, and that overrides the saved default.
+				notificationService.Notify(s.currentStreamTitle())
 			}
 
 			now := time.Now()

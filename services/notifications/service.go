@@ -15,7 +15,8 @@ import (
 
 // Service defines the interface for notification operations.
 type Service interface {
-	Notify()
+	// Notify dispatches the go-live notifications with the title viewers see for this stream.
+	Notify(streamTitle string)
 }
 
 // notificationService handles notification dispatching and channel management.
@@ -102,9 +103,12 @@ func (s *notificationService) notifyBrowserPush() {
 	}
 }
 
-func (s *notificationService) notifyDiscord() {
+func (s *notificationService) notifyDiscord(streamTitle string) {
 	goLiveMessage := s.configRepository.GetDiscordConfig().GoLiveMessage
-	streamTitle := s.configRepository.GetStreamTitle()
+	if streamTitle == "" {
+		// The stream service resolves the title; this is only a guard for a caller that has none.
+		streamTitle = s.configRepository.GetStreamTitle()
+	}
 	if streamTitle != "" {
 		goLiveMessage += "\n" + streamTitle
 	}
@@ -116,13 +120,13 @@ func (s *notificationService) notifyDiscord() {
 }
 
 // Notify will fire the different notification channels.
-func (s *notificationService) Notify() {
+func (s *notificationService) Notify(streamTitle string) {
 	if s.browser != nil {
 		s.notifyBrowserPush()
 	}
 
 	if s.discord != nil {
-		s.notifyDiscord()
+		s.notifyDiscord(streamTitle)
 	}
 }
 
