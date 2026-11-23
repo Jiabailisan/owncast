@@ -199,19 +199,29 @@ func (r *decodeStartReader) finish(buffered []byte) {
 
 // tsScan is the state carried while looking for a decodable boundary.
 type tsScan struct {
+	pmtPID   int
+	videoPID int
+
 	sawPAT, sawPMT bool
 	sawSPS, sawPPS bool
 	runStart       int
 	lastPESStart   int
 	prefixEnd      int
 	pat, pmt       []byte
+
+	// continuity is the last counter seen on the video PID, and ccSeen says whether there is
+	// one to compare against.
+	continuity  int
+	ccSeen      bool
+	nalCarry    []byte // tail of the previous payload, for a start code split across packets
+	discontSeen int
 }
 
-// firstDecodableOffset finds the offset a decode can safely start at: a PAT and PMT must have
-// been seen, and the video stream must have emitted SPS and PPS followed by an IDR. When the run
-// already begins right after the program tables nothing is skipped.
+// firstDecodableOffset finds the offset a decode can safely start at: the program tables must name
+// an H.264 video stream, and that stream must have emitted SPS and PPS followed by an IDR. When the
+// run already begins right after the program tables nothing is skipped.
 func firstDecodableOffset(b []byte) (int, []byte, []byte, bool) {
-	scan := &tsScan{runStart: -1, lastPESStart: -1, prefixEnd: -1}
+	scan := &tsScan{pmtPID: -1, videoPID: -1, runStart: -1, lastPESStart: -1, prefixEnd: -1}
 
 	for off := 0; off+tsPacketSize <= len(b); off += tsPacketSize {
 		pkt := b[off : off+tsPacketSize]
@@ -220,8 +230,6 @@ func firstDecodableOffset(b []byte) (int, []byte, []byte, bool) {
 		}
 
 		if scan.packet(pkt, off) {
-			// The keyframe run starts right after the program tables: pass the stream through
-			// untouched so the tables, the service description and the timing stay as sent.
 			if scan.runStart <= scan.prefixEnd {
 				return 0, nil, nil, true
 			}
@@ -234,39 +242,57 @@ func firstDecodableOffset(b []byte) (int, []byte, []byte, bool) {
 }
 
 // packet folds one TS packet into the scan and reports whether a decodable run has been found.
+// The branches are the PAT, PMT and video cases plus the payload checks, not independent logic.
+//
+//nolint:cyclop // one packet classification
 func (s *tsScan) packet(pkt []byte, off int) bool {
 	pid := int(pkt[1]&0x1f)<<8 | int(pkt[2])
 
-	switch pid {
-	case 0:
+	switch {
+	case pid == 0:
 		s.sawPAT = true
 		s.pat = pkt
+		if pmtPID := pmtPIDFromPAT(tsPayload(pkt)); pmtPID >= 0 {
+			s.pmtPID = pmtPID
+		}
 
 		return false
-	case 0x1000:
-		if !s.sawPAT {
-			return false
-		}
+	case pid == s.pmtPID:
 		s.sawPMT = true
 		s.pmt = pkt
 		s.prefixEnd = off + tsPacketSize
+		if videoPID := videoPIDFromPMT(tsPayload(pkt)); videoPID >= 0 {
+			s.videoPID = videoPID
+		}
 
+		return false
+	case pid != s.videoPID:
 		return false
 	}
 
-	// Parameter sets and keyframes only appear in the video elementary stream, so any other PID
-	// is a candidate without parsing the PMT.
+	// Only the video elementary stream is tracked from here on.
 	pusi := pkt[1]&0x40 != 0
 	if (pkt[3]>>4)&0x1 == 0 {
 		return false
 	}
+	if !s.checkContinuity(int(pkt[3] & 0x0f)) {
+		return false
+	}
+
 	if pusi {
-		// A keyframe may span several packets, so the run has to begin at the packet that
-		// started the PES it lives in, not where the slice happened to appear.
 		s.lastPESStart = off
+		s.nalCarry = nil
 	}
 
 	payload := tsPayload(pkt)
+	if len(s.nalCarry) > 0 {
+		payload = append(append([]byte{}, s.nalCarry...), payload...)
+	}
+	// Keep the tail so a start code split across packets is still found.
+	if len(payload) > 3 {
+		s.nalCarry = append([]byte{}, payload[len(payload)-3:]...)
+	}
+
 	if hasH264NAL(payload, 7) {
 		s.sawSPS = true
 		if s.runStart == -1 && s.lastPESStart != -1 {
@@ -278,6 +304,81 @@ func (s *tsScan) packet(pkt []byte, off int) bool {
 	}
 
 	return hasH264NAL(payload, 5) && s.sawSPS && s.sawPPS && s.sawPMT && s.runStart != -1
+}
+
+// checkContinuity tracks the video PID's continuity counter and resets the scan state when it
+// jumps: parameter sets seen before a break must not be paired with a keyframe after it.
+func (s *tsScan) checkContinuity(counter int) bool {
+	if s.ccSeen {
+		expected := (s.continuity + 1) & 0x0f
+		if counter != expected {
+			s.discontSeen++
+			s.sawSPS = false
+			s.sawPPS = false
+			s.runStart = -1
+			s.nalCarry = nil
+		}
+	}
+	s.continuity = counter
+	s.ccSeen = true
+
+	return true
+}
+
+// pmtPIDFromPAT reads the first program's PMT PID from a PAT section.
+func pmtPIDFromPAT(payload []byte) int {
+	section := psiSection(payload)
+	if len(section) < 12 {
+		return -1
+	}
+	// 8 bytes of section header, then program entries of 4 bytes each.
+	for i := 8; i+4 <= len(section)-4; i += 4 {
+		program := int(section[i])<<8 | int(section[i+1])
+		if program == 0 {
+			continue // network PID, not a program
+		}
+
+		return int(section[i+2]&0x1f)<<8 | int(section[i+3])
+	}
+
+	return -1
+}
+
+// videoPIDFromPMT reads the H.264 video PID from a PMT section.
+func videoPIDFromPMT(payload []byte) int {
+	section := psiSection(payload)
+	if len(section) < 16 {
+		return -1
+	}
+	programInfoLength := int(section[10]&0x0f)<<8 | int(section[11])
+	i := 12 + programInfoLength
+	for i+5 <= len(section)-4 {
+		streamType := section[i]
+		elementaryPID := int(section[i+1]&0x1f)<<8 | int(section[i+2])
+		esInfoLength := int(section[i+3]&0x0f)<<8 | int(section[i+4])
+		if streamType == streamTypeH264 {
+			return elementaryPID
+		}
+		i += 5 + esInfoLength
+	}
+
+	return -1
+}
+
+// streamTypeH264 is the MPEG-TS stream type for H.264 video.
+const streamTypeH264 = 0x1b
+
+// psiSection skips the pointer field and returns the section body.
+func psiSection(payload []byte) []byte {
+	if len(payload) < 1 {
+		return nil
+	}
+	pointer := int(payload[0])
+	if 1+pointer >= len(payload) {
+		return nil
+	}
+
+	return payload[1+pointer:]
 }
 
 // tsPayload returns the payload of a TS packet, or nil when it carries none.
