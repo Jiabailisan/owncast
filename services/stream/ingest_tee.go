@@ -307,24 +307,60 @@ func (t *ingestTee) Run() {
 		// before the byte budget was reached. Merging keeps byte order and only delays a chunk
 		// by at most teeCoalesceWindow.
 		pending := make([]byte, 0, teeReadChunkSize)
-		var since time.Time
+		var pendingMu sync.Mutex
+
+		// flush delivers whatever is held for coalescing. It runs from the read loop and from the
+		// timer below, because a read can block for a long time and the held bytes must not wait
+		// for it: an SRT socket with nothing arriving would otherwise keep a partial chunk here
+		// until the next datagram.
+		flush := func() {
+			pendingMu.Lock()
+			if len(pending) == 0 {
+				pendingMu.Unlock()
+
+				return
+			}
+			chunk := make([]byte, len(pending))
+			copy(chunk, pending)
+			pending = pending[:0]
+			pendingMu.Unlock()
+
+			t.fanOut(chunk)
+		}
+
+		flushDone := make(chan struct{})
+		defer close(flushDone)
+		go func() {
+			ticker := time.NewTicker(teeCoalesceWindow)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					flush()
+				case <-flushDone:
+					return
+				case <-t.done:
+					return
+				}
+			}
+		}()
 
 		for {
 			n, err := t.source.Read(buffer)
 			if n > 0 {
 				t.bytesIn.Add(uint64(n))
 				t.lastRead.Store(time.Now().UnixNano())
-				if len(pending) == 0 {
-					since = time.Now()
-				}
+
+				pendingMu.Lock()
 				pending = append(pending, buffer[:n]...)
-				if len(pending) < teeReadChunkSize && time.Since(since) < teeCoalesceWindow {
+				full := len(pending) >= teeReadChunkSize
+				pendingMu.Unlock()
+
+				if !full {
 					continue
 				}
-				chunk := make([]byte, len(pending))
-				copy(chunk, pending)
-				pending = pending[:0]
-				t.fanOut(chunk)
+				flush()
 			}
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
@@ -332,11 +368,7 @@ func (t *ingestTee) Run() {
 				}
 				// Anything still held for coalescing belongs to the stream and must reach the
 				// branches before they see EOF.
-				if len(pending) > 0 {
-					chunk := make([]byte, len(pending))
-					copy(chunk, pending)
-					t.fanOut(chunk)
-				}
+				flush()
 				t.finishAll()
 				return
 			}

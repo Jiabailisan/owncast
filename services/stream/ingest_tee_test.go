@@ -245,3 +245,84 @@ func (r *chunkedReader) Read(p []byte) (int, error) {
 
 	return n, nil
 }
+
+// blockingReader hands out one small read, then blocks until released, the way a quiet SRT
+// socket does. The bytes already read must still be delivered by the coalescing timer.
+type blockingReader struct {
+	first   []byte
+	release chan struct{}
+	sent    bool
+}
+
+func (r *blockingReader) Read(p []byte) (int, error) {
+	if !r.sent {
+		r.sent = true
+		n := copy(p, r.first)
+
+		return n, nil
+	}
+	<-r.release
+
+	return 0, io.EOF
+}
+
+// A small read must not wait for the next one: if the source goes quiet the held bytes still
+// reach the branch, otherwise a partial chunk would sit in memory until the stream resumed.
+func TestIngestTeeFlushesHeldBytesWhenTheReadBlocks(t *testing.T) {
+	src := &blockingReader{first: []byte("one-small-read"), release: make(chan struct{})}
+	tee := newIngestTee(src)
+	branch := tee.AddBranch("webrtc", false, nil)
+	tee.markReady()
+	go tee.Run()
+	defer close(src.release)
+
+	buf := make([]byte, 64)
+	type result struct {
+		n   int
+		err error
+	}
+	got := make(chan result, 1)
+	go func() {
+		n, err := branch.Read(buf)
+		got <- result{n, err}
+	}()
+
+	select {
+	case r := <-got:
+		if r.err != nil || string(buf[:r.n]) != "one-small-read" {
+			t.Fatalf("branch got %q (%v), want the held bytes", buf[:r.n], r.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("held bytes were never flushed while the read was blocked")
+	}
+}
+
+// A short read followed immediately by EOF must deliver every byte before the branch sees EOF.
+func TestIngestTeeDeliversTheLastBytesBeforeEOF(t *testing.T) {
+	payload := []byte("final-small-chunk")
+	tee := newIngestTee(&blockingReader{first: payload, release: make(chan struct{})})
+	branch := tee.AddBranch("webrtc", false, nil)
+	tee.markReady()
+
+	src := &blockingReader{first: payload, release: make(chan struct{})}
+	tee2 := newIngestTee(src)
+	branch2 := tee2.AddBranch("webrtc", false, nil)
+	tee2.markReady()
+	go tee2.Run()
+	close(src.release)
+
+	var all []byte
+	buf := make([]byte, 64)
+	for {
+		n, err := branch2.Read(buf)
+		all = append(all, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	if string(all) != string(payload) {
+		t.Fatalf("branch received %q, want %q before EOF", all, payload)
+	}
+	_ = tee
+	_ = branch
+}
