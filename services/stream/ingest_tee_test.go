@@ -534,3 +534,57 @@ func TestIngestTeeBudgetReasonMatchesTheSnapshot(t *testing.T) {
 		t.Fatalf("a %d byte chunk must exceed the %d byte budget", big, teeBranchQueueBytes)
 	}
 }
+
+// Closing while results still holds delivered chunks must not drop them: the owner drains what the
+// reader already handed over before it finishes the branches. The output has to be an exact
+// prefix of the input, with nothing missing and nothing reordered.
+func TestIngestTeeCloseDrainsQueuedResults(t *testing.T) {
+	const chunks = 40
+	const size = 3000
+	payload := make([]byte, 0, chunks*size)
+	for i := 0; i < chunks; i++ {
+		for j := 0; j < size; j++ {
+			payload = append(payload, byte(i))
+		}
+	}
+
+	tee := newIngestTee(&slowChunkReader{data: payload, chunk: size, pause: time.Millisecond})
+	branch := tee.AddBranch("hls", true, nil)
+	go tee.Run()
+
+	// Collect while the tee runs, then close with data likely still queued.
+	var got []byte
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 8192)
+		for {
+			n, err := branch.Read(buf)
+			got = append(got, buf[:n]...)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	time.Sleep(25 * time.Millisecond)
+	tee.Close()
+	<-done
+
+	if len(got) == 0 {
+		t.Fatal("close delivered nothing")
+	}
+	if len(got) > len(payload) {
+		t.Fatalf("delivered %d bytes, more than the %d byte input", len(got), len(payload))
+	}
+	if !bytes.Equal(got, payload[:len(got)]) {
+		for i := range got {
+			if got[i] != payload[i] {
+				t.Fatalf("first difference at byte %d: got %d want %d", i, got[i], payload[i])
+			}
+		}
+	}
+	// Everything that was merged before the close is there; the tail after the close may be
+	// discarded, which is the cancellation contract.
+	t.Logf("close delivered %d of %d bytes before finishing", len(got), len(payload))
+}

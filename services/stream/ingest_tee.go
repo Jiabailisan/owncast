@@ -380,10 +380,30 @@ func (t *ingestTee) Run() {
 				// The timer only wakes the owner; the owner is the only sender.
 				flush()
 			case <-t.done:
-				flush()
-				t.finishAll()
+				// Cancellation contract: everything the reader already handed over is
+				// delivered before the branches are finished. Results that were queued but not
+				// yet merged are drained here, so a close does not silently drop read bytes.
+				// Anything the reader produced after this point is discarded, which is what
+				// cancelling means.
+				for {
+					select {
+					case result, ok := <-results:
+						if !ok {
+							flush()
+							t.finishAll()
 
-				return
+							return
+						}
+						if len(result.data) > 0 {
+							pending = append(pending, result.data...)
+						}
+					default:
+						flush()
+						t.finishAll()
+
+						return
+					}
+				}
 			}
 		}
 	})

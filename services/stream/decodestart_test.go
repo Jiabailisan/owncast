@@ -3,6 +3,7 @@ package stream
 import (
 	"bytes"
 	"io"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -278,5 +279,44 @@ func TestDecodeStartCancelReleasesTheBlockedRead(t *testing.T) {
 		}
 	case <-time.After(decodeStartWait + 3*time.Second):
 		t.Fatal("cancel did not release the blocked read")
+	}
+}
+
+// Removing the WebRTC branch closes its pipe, which is what releases a read parked inside the
+// source. The reader goroutine must exit on that, not stay behind for the life of the process.
+func TestDecodeStartReaderExitsWhenThePipeCloses(t *testing.T) {
+	before := runtime.NumGoroutine()
+
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+	r := newDecodeStartReader(pr, done)
+
+	// One chunk so the gate starts scanning, then it parks inside the pipe.
+	go func() { _, _ = pw.Write(buildTS(tsPacket(0x100, true, []byte{0, 0, 0, 1, 0x41, 0x9a}))) }()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := r.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Closing the pipe is what branch removal does.
+	_ = pw.Close()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if runtime.NumGoroutine() <= before+1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	after := runtime.NumGoroutine()
+	if after > before+1 {
+		t.Fatalf("reader goroutines still running: %d before, %d after", before, after)
 	}
 }
