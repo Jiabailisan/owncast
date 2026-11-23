@@ -74,10 +74,17 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		// The branch may join a stream that is already running, or restart mid-GOP. FFmpeg
 		// cannot decode from there, so the reader holds the stream until it can start at a
 		// keyframe that carries its own parameter sets, with a bounded wait.
-		tr.SetStdin(newDecodeStartReader(tee.AddBranch(webRTCBranchName, false, func() {
+		branchReader := io.Reader(tee.AddBranch(webRTCBranchName, false, func() {
 			// Overflow: stop this process; HLS keeps running.
 			tr.Stop()
-		}), session.Done()))
+		}))
+		// The decode start gate understands MPEG-TS with H.264 only. Anything else, RTMP's FLV
+		// in particular, is passed straight through: the gate cannot find a boundary in a
+		// container it does not parse, and holding the stream would only delay the start.
+		if session.InputFormat().String() == ingest.MPEGTSInputFormat().String() {
+			branchReader = newDecodeStartReader(branchReader, session.Done())
+		}
+		tr.SetStdin(branchReader)
 		// The branch exists, but its process has not started reading yet. Releasing the pump
 		// here let the queue fill while FFmpeg was still initialising, and a burst at connect
 		// time was enough to overflow it on the first second of a stream. The release below
