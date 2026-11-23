@@ -53,6 +53,17 @@ type RTPOutput struct {
 // one (the WebRTC leg API always does).
 const rtpMuxerPacketSize = 1200
 
+// rtpHeaderBytes is the fixed RTP header, which comes out of pkt_size before the payload.
+const rtpHeaderBytes = 12
+
+// maxOpusPayloadBytes is the largest Opus packet the RTP muxer will accept.
+const maxOpusPayloadBytes = rtpMuxerPacketSize - rtpHeaderBytes
+
+// opusVBRBurstFactor is how far libopus VBR exceeds the nominal frame size at the target rate.
+// Measured with this FFmpeg on two sources: 256 kbps at 20 ms has a 640 byte nominal frame and
+// emits up to 1220 bytes, a factor of 1.9. Two leaves a margin over the measured worst case.
+const opusVBRBurstFactor = 2
+
 // Shared argv/encoder value constants (also used by codecs.go and process.go).
 const (
 	h264ProfileBaseline = "baseline"
@@ -228,7 +239,12 @@ func (t *Transcoder) rtpAudioOutputFlags(output RTPOutput) []string {
 	return audioArgs
 }
 
-// opusSettings applies the WebRTC audio defaults.
+// opusSettings applies the WebRTC audio defaults and keeps the frame inside the RTP budget.
+//
+// The RTP muxer refuses a payload larger than pkt_size minus the RTP header and fails the whole
+// output when one arrives: "Packet size N too large for max RTP payload size 1188", then the tee
+// aborts and the WebRTC process exits. libopus emits variable bitrate frames, so a configuration
+// that looks affordable on average can still produce one oversized frame.
 func (o RTPOutput) opusSettings() (bitrateKbps, frameMs int) {
 	bitrateKbps = o.OpusBitrateKbps
 	if bitrateKbps <= 0 {
@@ -238,7 +254,27 @@ func (o RTPOutput) opusSettings() (bitrateKbps, frameMs int) {
 	if frameMs <= 0 {
 		frameMs = 20
 	}
+	frameMs = opusFrameForBudget(bitrateKbps, frameMs)
+
 	return bitrateKbps, frameMs
+}
+
+// opusFrameForBudget returns a frame duration whose worst case Opus packet fits the RTP payload.
+// It keeps the configured duration when that already fits, so the default 96 kbps at 20 ms is
+// untouched, and shortens it only when the requested combination cannot fit.
+func opusFrameForBudget(bitrateKbps, frameMs int) int {
+	for _, candidate := range []int{frameMs, 20, 10, 5} {
+		if candidate <= 0 || candidate > frameMs {
+			continue
+		}
+		// A frame of candidate milliseconds at bitrateKbps carries bitrateKbps*candidate/8 bytes.
+		nominal := bitrateKbps * candidate / 8
+		if nominal*opusVBRBurstFactor <= maxOpusPayloadBytes {
+			return candidate
+		}
+	}
+
+	return 5
 }
 
 // sharedAudioCompatible reports whether all legs use identical Opus settings
