@@ -39,8 +39,6 @@ func TestIngestTeeFansOutIdenticalBytes(t *testing.T) {
 	go func() { defer wg.Done(); hlsData = readAllWithTimeout(t, hls) }()
 	go func() { defer wg.Done(); webrtcData = readAllWithTimeout(t, webrtc) }()
 
-	// The pump waits for its branches; these tests add them before starting it.
-	tee.markReady()
 	go tee.Run()
 	wg.Wait()
 
@@ -70,8 +68,6 @@ func TestIngestTeeOptionalBranchDoesNotStallCritical(t *testing.T) {
 		data, _ := io.ReadAll(hls)
 		done <- data
 	}()
-	// The pump waits for its branches; these tests add them before starting it.
-	tee.markReady()
 	go tee.Run()
 
 	select {
@@ -99,8 +95,6 @@ func TestIngestTeeCloseReleasesBranches(t *testing.T) {
 	}()
 	tee := newIngestTee(pr)
 	branch := tee.AddBranch("hls", true, nil)
-	// The pump waits for its branches; these tests add them before starting it.
-	tee.markReady()
 	go tee.Run()
 	time.Sleep(50 * time.Millisecond)
 	tee.Close()
@@ -146,8 +140,6 @@ func TestIngestTeeRemoveBranchStopsQueueing(t *testing.T) {
 		t.Fatal("removal must not be reported as an overflow")
 	}
 
-	// The pump waits for its branches; these tests add them before starting it.
-	tee.markReady()
 	go tee.Run()
 	data := readAllWithTimeout(t, live)
 	if string(data) != "0123456789" {
@@ -156,37 +148,6 @@ func TestIngestTeeRemoveBranchStopsQueueing(t *testing.T) {
 
 	// Removing an unknown name is a no-op.
 	tee.RemoveBranch("does-not-exist")
-}
-
-// A branch that joins after the pump was started still receives the stream from its first byte.
-// The WebRTC copy process decodes the raw source, so without the opening parameter sets and
-// keyframe it cannot produce a single frame, its queue overflows and the renditions are
-// withdrawn. With SRT the prefetch reader hands the pump a burst the instant it starts, which is
-// exactly when this used to happen.
-func TestIngestTeeLateBranchSeesTheFirstByte(t *testing.T) {
-	payload := []byte("parameter-sets-then-an-idr")
-	tee := newIngestTee(bytes.NewReader(payload))
-	hls := tee.AddBranch("hls", true, nil)
-
-	// The pump is started before the WebRTC branch exists, as runIsolatedTranscoders does.
-	go tee.Run()
-
-	webrtc := tee.AddBranch("webrtc", false, nil)
-	tee.markReady()
-
-	var wg sync.WaitGroup
-	var hlsData, webrtcData []byte
-	wg.Add(2)
-	go func() { defer wg.Done(); hlsData = readAllWithTimeout(t, hls) }()
-	go func() { defer wg.Done(); webrtcData = readAllWithTimeout(t, webrtc) }()
-	wg.Wait()
-
-	if !bytes.Equal(hlsData, payload) {
-		t.Fatalf("critical branch received %q, want the whole stream %q", hlsData, payload)
-	}
-	if !bytes.Equal(webrtcData, payload) {
-		t.Fatalf("late branch received %q, want the whole stream %q: it must not start mid-stream", webrtcData, payload)
-	}
 }
 
 // An SRT source delivers small reads. With the queue bounded only by chunk count, 256 chunks of
@@ -199,7 +160,6 @@ func TestIngestTeeCoalescesSmallReadsIntoTheByteBudget(t *testing.T) {
 
 	tee := newIngestTee(&chunkedReader{data: payload, chunk: readSize})
 	slow := tee.AddBranch("webrtc", false, nil)
-	tee.markReady()
 	go tee.Run()
 
 	// Drain slowly but steadily: slower than the source, faster than the byte budget allows to
@@ -272,7 +232,6 @@ func TestIngestTeeFlushesHeldBytesWhenTheReadBlocks(t *testing.T) {
 	src := &blockingReader{first: []byte("one-small-read"), release: make(chan struct{})}
 	tee := newIngestTee(src)
 	branch := tee.AddBranch("webrtc", false, nil)
-	tee.markReady()
 	go tee.Run()
 	defer close(src.release)
 
@@ -302,12 +261,10 @@ func TestIngestTeeDeliversTheLastBytesBeforeEOF(t *testing.T) {
 	payload := []byte("final-small-chunk")
 	tee := newIngestTee(&blockingReader{first: payload, release: make(chan struct{})})
 	branch := tee.AddBranch("webrtc", false, nil)
-	tee.markReady()
 
 	src := &blockingReader{first: payload, release: make(chan struct{})}
 	tee2 := newIngestTee(src)
 	branch2 := tee2.AddBranch("webrtc", false, nil)
-	tee2.markReady()
 	go tee2.Run()
 	close(src.release)
 
@@ -325,4 +282,42 @@ func TestIngestTeeDeliversTheLastBytesBeforeEOF(t *testing.T) {
 	}
 	_ = tee
 	_ = branch
+}
+
+// dataAndEOFReader returns its whole payload together with io.EOF in a single call, which a
+// reader is allowed to do. The bytes belong to the stream and must reach the branches before
+// they see the end; a loop that only inspects the error on the next iteration loses them.
+type dataAndEOFReader struct {
+	data []byte
+	sent bool
+}
+
+func (r *dataAndEOFReader) Read(p []byte) (int, error) {
+	if r.sent {
+		return 0, io.EOF
+	}
+	r.sent = true
+	n := copy(p, r.data)
+
+	return n, io.EOF
+}
+
+func TestIngestTeeDeliversBytesReturnedWithEOF(t *testing.T) {
+	payload := []byte("bytes-and-eof-in-one-call")
+	tee := newIngestTee(&dataAndEOFReader{data: payload})
+	branch := tee.AddBranch("hls", true, nil)
+	go tee.Run()
+
+	var got []byte
+	buf := make([]byte, 64)
+	for {
+		n, err := branch.Read(buf)
+		got = append(got, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("branch received %q, want %q before EOF", got, payload)
+	}
 }

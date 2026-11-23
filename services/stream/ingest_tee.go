@@ -134,12 +134,6 @@ type ingestTee struct {
 	closeOnce sync.Once
 	runOnce   sync.Once
 
-	// ready gates the first read. A branch that joins after the pump has already delivered
-	// chunks starts mid-stream, and the WebRTC copy process needs the parameter sets and the
-	// opening keyframe to decode at all. The pump therefore waits until that branch exists.
-	ready     chan struct{}
-	readyOnce sync.Once
-
 	// Diagnostics: how much the pump has taken from the source, and when it last delivered.
 	// They answer whether a branch fell behind because the input arrived in a burst or because
 	// nothing was draining it.
@@ -149,7 +143,7 @@ type ingestTee struct {
 
 // newIngestTee wraps the ingest reader.
 func newIngestTee(source io.Reader) *ingestTee {
-	return &ingestTee{source: source, done: make(chan struct{}), ready: make(chan struct{})}
+	return &ingestTee{source: source, done: make(chan struct{})}
 }
 
 // overBudget reports whether an optional branch would exceed its bounds, and stops it when it
@@ -185,11 +179,6 @@ func queueBytes(b *teeBranch) uint64 {
 		return 0
 	}
 	return queued - out
-}
-
-// markReady lets the pump start. It is idempotent and safe to call from any branch.
-func (t *ingestTee) markReady() {
-	t.readyOnce.Do(func() { close(t.ready) })
 }
 
 // AddBranch creates a new FFmpeg stdin pipe. Critical branches block the ingest
@@ -250,15 +239,6 @@ func (t *ingestTee) RemoveBranch(name string) {
 //nolint:cyclop // the branches are the read/flush/EOF cases of one buffer, not independent logic
 func (t *ingestTee) Run() {
 	t.runOnce.Do(func() {
-		// Hold the ingest reader until the branch that must see the stream from its first
-		// byte has been added. Without this the opening chunks go to the critical branch
-		// only, and a copy branch joining afterwards cannot decode what it receives.
-		select {
-		case <-t.ready:
-		case <-t.done:
-			return
-		}
-
 		buffer := make([]byte, teeReadChunkSize)
 
 		// Low-frequency timeline. Without it the only evidence is the overflow line, which says
@@ -357,11 +337,13 @@ func (t *ingestTee) Run() {
 				full := len(pending) >= teeReadChunkSize
 				pendingMu.Unlock()
 
-				if !full {
-					continue
+				if full {
+					flush()
 				}
-				flush()
 			}
+			// A read can return bytes and a terminal error at the same time. The bytes above
+			// are part of the stream, so they are delivered before the branches see the end;
+			// the error must not be skipped because the buffer was only partially filled.
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
 					log.Debugln("ingest tee: source ended:", err)
@@ -386,8 +368,6 @@ func (t *ingestTee) Run() {
 // EOF. Callers stop the FFmpeg processes themselves.
 func (t *ingestTee) Close() {
 	t.closeOnce.Do(func() {
-		// Release a pump that is still waiting for its first branch.
-		t.markReady()
 		close(t.done)
 		t.finishAll()
 	})

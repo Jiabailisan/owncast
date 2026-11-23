@@ -94,15 +94,10 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			// process must not start and must not keep its ingest branch.
 			s.releaseWebRTCProcessSession(session)
 			tee.RemoveBranch(webRTCBranchName)
-			// No branch will consume: release the pump so HLS is not starved.
-			tee.markReady()
 
 			return
 		}
 		go tr.Start(false)
-		// The process is running now, so the pump can deliver without filling a queue nobody
-		// is draining yet.
-		tee.markReady()
 
 		select {
 		case err := <-completed:
