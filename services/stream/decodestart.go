@@ -29,13 +29,14 @@ type decodeStartReader struct {
 	src  io.Reader
 	done <-chan struct{}
 
-	mu      sync.Mutex
-	buf     []byte
-	ready   bool
-	skipped int64
-	gaveUp  bool
-	start   time.Time
-	pending []byte // leftover bytes carried between Reads
+	mu        sync.Mutex
+	buf       []byte
+	ready     bool
+	skipped   int64
+	gaveUp    bool
+	cancelled bool
+	start     time.Time
+	pending   []byte // leftover bytes carried between Reads
 }
 
 func newDecodeStartReader(src io.Reader, done <-chan struct{}) *decodeStartReader {
@@ -48,9 +49,7 @@ func (r *decodeStartReader) Read(p []byte) (int, error) {
 	defer r.mu.Unlock()
 
 	if !r.ready {
-		if err := r.fillUntilDecodable(p); err != nil {
-			return 0, err
-		}
+		r.fillUntilDecodable(p)
 	}
 
 	// Serve what the boundary search already buffered.
@@ -61,16 +60,29 @@ func (r *decodeStartReader) Read(p []byte) (int, error) {
 		return n, nil
 	}
 
+	if r.cancelled {
+		// The session ended while the gate was holding bytes. They have been delivered by the
+		// branch above; only now does the reader report the end.
+		return 0, io.EOF
+	}
+
 	return r.src.Read(p)
 }
 
 // fillUntilDecodable reads until a decodable start is found, the wait expires or the buffer cap
 // is reached. When it returns, r.buf holds the bytes to deliver from the boundary onward.
-func (r *decodeStartReader) fillUntilDecodable(p []byte) error {
+func (r *decodeStartReader) fillUntilDecodable(p []byte) {
 	for {
 		select {
 		case <-r.done:
-			return io.EOF
+			// Ending the session must not throw away bytes that were already read: the gate
+			// hands them on, and the next call reports the end.
+			r.buf = r.pending
+			r.pending = nil
+			r.ready = true
+			r.cancelled = true
+
+			return
 		default:
 		}
 
@@ -86,7 +98,7 @@ func (r *decodeStartReader) fillUntilDecodable(p []byte) error {
 				}
 				r.pending = nil
 
-				return nil
+				return
 			}
 		}
 
@@ -98,15 +110,18 @@ func (r *decodeStartReader) fillUntilDecodable(p []byte) error {
 			log.Warnf("webrtc decode start: no decodable boundary within %s or %d bytes; passing the stream through as is",
 				decodeStartWait, decodeStartMaxBytes)
 
-			return nil
+			return
 		}
 
 		if err != nil {
+			// The source ended before a boundary appeared. Hand over what was read and stop
+			// reading: the stream is over either way.
 			r.buf = r.pending
 			r.pending = nil
 			r.ready = true
+			r.cancelled = true
 
-			return nil
+			return
 		}
 	}
 }

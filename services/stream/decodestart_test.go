@@ -158,3 +158,51 @@ func TestDecodeStartFindsAKeyframeInsideAContinuingPES(t *testing.T) {
 		t.Fatalf("gate dropped %d bytes from an already decodable stream", len(stream)-len(got))
 	}
 }
+
+// Ending the session must not discard bytes the gate already read. They belong to the stream and
+// are delivered before the reader reports the end.
+func TestDecodeStartDeliversBufferedBytesOnCancel(t *testing.T) {
+	partial := buildTS(tsPacket(0x100, true, []byte{0, 0, 0, 1, 0x41, 0x9a})) // no PAT, no SPS
+
+	done := make(chan struct{})
+	src := &cancellingReader{data: partial, done: done}
+	r := newDecodeStartReader(src, done)
+
+	// The first read pulls the packet in and finds no boundary; then the session ends.
+	var got []byte
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Read(buf)
+		got = append(got, buf[:n]...)
+		if err != nil {
+			if err != io.EOF {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			break
+		}
+	}
+	if !bytes.Equal(got, partial) {
+		t.Fatalf("gate delivered %d of %d buffered bytes before EOF", len(got), len(partial))
+	}
+}
+
+// cancellingReader yields its data and then closes the session channel, modelling a publisher
+// that disconnects while the gate is still looking for a decodable start.
+type cancellingReader struct {
+	data []byte
+	done chan struct{}
+	sent bool
+}
+
+func (r *cancellingReader) Read(p []byte) (int, error) {
+	if r.sent {
+		close(r.done)
+
+		return 0, io.EOF
+	}
+	r.sent = true
+	n := copy(p, r.data)
+
+	return n, nil
+}
