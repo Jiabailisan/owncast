@@ -156,12 +156,9 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 		flags = append(flags, variant.getVariantString(t)...)
 	}
 	flags = append(flags, t.codec.ExtraArguments()...)
-	flags = append(
-		flags,
-		"-pix_fmt", t.codec.PixelFormat(),
-		"-sc_threshold", "0",
-		"-max_muxing_queue_size", "400",
-	)
+	flags = append(flags, "-pix_fmt", t.codec.PixelFormat())
+	flags = append(flags, scThresholdFlags(t.codec)...)
+	flags = append(flags, "-max_muxing_queue_size", "400")
 	flags = append(flags, t.sharedAudioEncoderFlags()...)
 
 	slaves := make([]string, 0, len(t.variants)+2*len(t.rtpOutputs))

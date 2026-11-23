@@ -99,6 +99,18 @@ func ScaleExpression(width, height int) string {
 	return ""
 }
 
+// scThresholdFlags returns the scene change threshold flag only for the encoder that defines it.
+// sc_threshold is a libx264 AVOption; hardware encoders such as h264_nvenc do not use it and
+// report "Codec AVOption sc_threshold has not been used for any stream" on every start, once per
+// output, which buries the real startup diagnostics in the log.
+func scThresholdFlags(codec Codec) []string {
+	if codec == nil || codec.Name() != codecNameLibx264 {
+		return nil
+	}
+
+	return []string{"-sc_threshold", "0"}
+}
+
 // rtpVideoOutputFlags renders the video RTP output for one leg.
 func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 	args := make([]string, 0, 24)
@@ -152,7 +164,10 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 			"-bf", "0",
 			"-g", strconv.Itoa(output.GOPFrames),
 			"-keyint_min", strconv.Itoa(output.GOPFrames),
-			"-sc_threshold", "0",
+		)
+		args = append(args, scThresholdFlags(legCodec)...)
+		args = append(
+			args,
 			"-b:v", strconv.Itoa(targetKbps)+"k",
 			"-minrate", strconv.Itoa(minKbps)+"k",
 			"-maxrate", strconv.Itoa(maxKbps)+"k",

@@ -70,9 +70,13 @@ func IsCodecSupported(name string) bool {
 // Libx264Codec represents an instance of the Libx264 Codec.
 type Libx264Codec struct{}
 
+// codecNameLibx264 is the FFmpeg encoder name for the software H.264 encoder. It is the only
+// encoder here that defines the libx264-only AVOptions.
+const codecNameLibx264 = "libx264"
+
 // Name returns the codec name.
 func (c *Libx264Codec) Name() string {
-	return "libx264"
+	return codecNameLibx264
 }
 
 // DisplayName returns the human readable name of the codec.

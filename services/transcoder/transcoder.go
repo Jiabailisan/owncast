@@ -480,8 +480,10 @@ func (t *Transcoder) getFlags() *execInfo {
 	ffmpegFlags = append(ffmpegFlags, []string{
 		// Video settings
 		"-pix_fmt", t.codec.PixelFormat(),
-		"-sc_threshold", "0", // Disable scene change detection for creating segments
-
+	}...)
+	// Disable scene change detection for creating segments, on the encoder that has the option.
+	ffmpegFlags = append(ffmpegFlags, scThresholdFlags(t.codec)...)
+	ffmpegFlags = append(ffmpegFlags, []string{
 		// Filenames
 		"-master_pl_name", "stream.m3u8",
 
