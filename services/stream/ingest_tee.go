@@ -106,11 +106,22 @@ type ingestTee struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	runOnce   sync.Once
+
+	// ready gates the first read. A branch that joins after the pump has already delivered
+	// chunks starts mid-stream, and the WebRTC copy process needs the parameter sets and the
+	// opening keyframe to decode at all. The pump therefore waits until that branch exists.
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 // newIngestTee wraps the ingest reader.
 func newIngestTee(source io.Reader) *ingestTee {
-	return &ingestTee{source: source, done: make(chan struct{})}
+	return &ingestTee{source: source, done: make(chan struct{}), ready: make(chan struct{})}
+}
+
+// markReady lets the pump start. It is idempotent and safe to call from any branch.
+func (t *ingestTee) markReady() {
+	t.readyOnce.Do(func() { close(t.ready) })
 }
 
 // AddBranch creates a new FFmpeg stdin pipe. Critical branches block the ingest
@@ -167,6 +178,15 @@ func (t *ingestTee) RemoveBranch(name string) {
 // called. It is intended to run in its own goroutine.
 func (t *ingestTee) Run() {
 	t.runOnce.Do(func() {
+		// Hold the ingest reader until the branch that must see the stream from its first
+		// byte has been added. Without this the opening chunks go to the critical branch
+		// only, and a copy branch joining afterwards cannot decode what it receives.
+		select {
+		case <-t.ready:
+		case <-t.done:
+			return
+		}
+
 		buffer := make([]byte, teeReadChunkSize)
 		for {
 			n, err := t.source.Read(buffer)
@@ -196,6 +216,8 @@ func (t *ingestTee) Run() {
 // EOF. Callers stop the FFmpeg processes themselves.
 func (t *ingestTee) Close() {
 	t.closeOnce.Do(func() {
+		// Release a pump that is still waiting for its first branch.
+		t.markReady()
 		close(t.done)
 		t.finishAll()
 	})
