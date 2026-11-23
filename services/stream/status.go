@@ -85,6 +85,20 @@ func (s *Service) currentStreamTitle() string {
 	return s.configRepository.GetStreamTitle()
 }
 
+// SaveDefaultTitle persists a new default title and reports whether the title viewers see
+// actually changes. A live publisher may set its own title from its stream key, and that
+// title overrides the default, so saving a new default while one is set changes nothing for
+// viewers: the save still succeeds and the admin field still shows the new default, but
+// there is nothing to announce.
+func (s *Service) SaveDefaultTitle(save func(string) error, value string) (bool, error) {
+	before := s.currentStreamTitle()
+	if err := save(value); err != nil {
+		return false, err
+	}
+
+	return value != "" && s.currentStreamTitle() != before, nil
+}
+
 // GetCurrentBroadcast returns the in-flight broadcast settings, or nil
 // if no stream is currently live.
 func (s *Service) GetCurrentBroadcast() *models.CurrentBroadcast {

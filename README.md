@@ -131,8 +131,8 @@ working exactly as before.
 
 Verified with FFmpeg 8.1.3 (Jellyfin build) against a local instance with RTMP on TCP 1935 and
 SRT on UDP 1935: #GameTime and a Chinese title both reach /api/status and the HLS playlist for
-both protocols. OBS itself was not available in the build environment, so the OBS key-field
-behaviour is still to be confirmed by hand.
+both protocols. Appending ?title= in the OBS stream key field works on OBS 30.x and later, tested
+by hand on Windows with OBS 30.2.3 and 31.1.2.
 
 ## Building from Source
 

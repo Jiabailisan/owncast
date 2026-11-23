@@ -83,11 +83,14 @@ func (a *Admin) SetStreamTitle(w http.ResponseWriter, r *http.Request) {
 	}
 	configRepository := a.configRepository
 
-	if err := configRepository.SetStreamTitle(value); err != nil {
+	// Saving the default is not the same as changing what viewers see: a publisher that set a
+	// title in its stream key keeps that title until its stream ends.
+	changed, err := a.stream.SaveDefaultTitle(configRepository.SetStreamTitle, value)
+	if err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
-	if value != "" {
+	if changed {
 		a.sendSystemChatAction(fmt.Sprintf("Stream title changed to **%s**", value), true)
 		go a.webhooks.SendStreamStatusEvent(models.StreamTitleUpdated, value)
 	}
