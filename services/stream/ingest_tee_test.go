@@ -188,3 +188,60 @@ func TestIngestTeeLateBranchSeesTheFirstByte(t *testing.T) {
 		t.Fatalf("late branch received %q, want the whole stream %q: it must not start mid-stream", webrtcData, payload)
 	}
 }
+
+// An SRT source delivers small reads. With the queue bounded only by chunk count, 256 chunks of
+// 1.5 KB was 382 KB - about 0.3 s of a 12 Mbps stream - and a brief stall overflowed it. Small
+// reads must be merged so the byte budget is what applies.
+func TestIngestTeeCoalescesSmallReadsIntoTheByteBudget(t *testing.T) {
+	const reads = 4000
+	const readSize = 1500
+	payload := bytes.Repeat([]byte("x"), reads*readSize)
+
+	tee := newIngestTee(&chunkedReader{data: payload, chunk: readSize})
+	slow := tee.AddBranch("webrtc", false, nil)
+	tee.markReady()
+	go tee.Run()
+
+	// Drain slowly but steadily: slower than the source, faster than the byte budget allows to
+	// accumulate. Without coalescing the 256-chunk limit would fire at 382 KB.
+	var got int
+	buf := make([]byte, 64*1024)
+	for {
+		n, err := slow.Read(buf)
+		got += n
+		if err != nil {
+			break
+		}
+		if got >= len(payload) {
+			break
+		}
+	}
+
+	if got != len(payload) {
+		t.Fatalf("branch received %d of %d bytes: with 1.5 KB reads the 256-chunk bound fires long before the byte budget", got, len(payload))
+	}
+}
+
+// chunkedReader hands out the payload in fixed-size reads, the way an SRT socket does.
+type chunkedReader struct {
+	data  []byte
+	chunk int
+	pos   int
+}
+
+func (r *chunkedReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := r.chunk
+	if n > len(p)-0 {
+		n = len(p)
+	}
+	if r.pos+n > len(r.data) {
+		n = len(r.data) - r.pos
+	}
+	copy(p, r.data[r.pos:r.pos+n])
+	r.pos += n
+
+	return n, nil
+}

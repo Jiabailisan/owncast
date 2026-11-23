@@ -75,9 +75,10 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			// Overflow: stop this process; HLS keeps running.
 			tr.Stop()
 		}))
-		// The branch exists now, so the pump may start delivering: this process will see the
-		// stream from its first chunk, including the parameter sets it needs to decode.
-		tee.markReady()
+		// The branch exists, but its process has not started reading yet. Releasing the pump
+		// here let the queue fill while FFmpeg was still initialising, and a burst at connect
+		// time was enough to overflow it on the first second of a stream. The release below
+		// waits for the process itself.
 
 		completed := make(chan error, 1)
 		tr.TranscoderCompleted = func(err error) {
@@ -99,6 +100,9 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			return
 		}
 		go tr.Start(false)
+		// The process is running now, so the pump can deliver without filling a queue nobody
+		// is draining yet.
+		tee.markReady()
 
 		select {
 		case err := <-completed:

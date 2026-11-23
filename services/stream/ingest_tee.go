@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -16,6 +18,16 @@ const (
 	// critical branch and applies backpressure; the WebRTC branch is optional
 	// and is failed (never allowed to stall HLS) if it cannot keep up.
 	teeBranchQueueChunks = 256
+	// teeBranchQueueBytes bounds an optional branch by bytes, which is what the memory limit is
+	// actually about. Counting chunks alone made the budget depend on how the source delivers:
+	// a file-like read fills a 32 KB chunk, while an SRT read is about 1.5 KB, so 256 chunks was
+	// 8 MB for one source and 382 KB for the other - about 0.3 s of a 12 Mbps stream, which any
+	// brief stall overflowed.
+	teeBranchQueueBytes = 4 << 20
+	// teeCoalesceWindow is how long the pump may hold small reads to merge them into one chunk.
+	// Merging keeps byte order and keeps the chunk count meaningful without adding latency a
+	// viewer would notice.
+	teeCoalesceWindow = 20 * time.Millisecond
 )
 
 // errTeeBranchOverflow is the close reason for an optional FFmpeg branch
@@ -30,6 +42,16 @@ type teeBranch struct {
 	reader *io.PipeReader
 	writer *io.PipeWriter
 	queue  chan []byte
+
+	// pending is the number of bytes accepted for this branch but not yet written to its
+	// process: queued plus the chunk currently in the pipe write. It is the memory this branch
+	// can hold, so it is what the byte budget is checked against.
+	pending atomic.Int64
+
+	// Diagnostics, written only by the pump and the fan-out.
+	bytesQueued  atomic.Uint64
+	bytesOut     atomic.Uint64
+	oldestQueued atomic.Int64 // unix nanos when the queue first became non-empty
 
 	onOverflow func()
 
@@ -77,6 +99,11 @@ func (b *teeBranch) pump() {
 				b.fail(err)
 				return
 			}
+			b.pending.Add(-int64(len(chunk)))
+			b.bytesOut.Add(uint64(len(chunk)))
+			if len(b.queue) == 0 {
+				b.oldestQueued.Store(0)
+			}
 		case <-b.failCh:
 			return
 		case <-b.endCh:
@@ -112,11 +139,52 @@ type ingestTee struct {
 	// opening keyframe to decode at all. The pump therefore waits until that branch exists.
 	ready     chan struct{}
 	readyOnce sync.Once
+
+	// Diagnostics: how much the pump has taken from the source, and when it last delivered.
+	// They answer whether a branch fell behind because the input arrived in a burst or because
+	// nothing was draining it.
+	bytesIn  atomic.Uint64
+	lastRead atomic.Int64 // unix nanos of the last successful read
 }
 
 // newIngestTee wraps the ingest reader.
 func newIngestTee(source io.Reader) *ingestTee {
 	return &ingestTee{source: source, done: make(chan struct{}), ready: make(chan struct{})}
+}
+
+// overBudget reports whether an optional branch would exceed its bounds, and stops it when it
+// would. Both bounds apply: bytes, which is the real memory limit, and the chunk count, which
+// keeps a flood of tiny objects from being accepted just because it is small in bytes.
+func (t *ingestTee) overBudget(branch *teeBranch, next int) bool {
+	if branch.pending.Load()+int64(next) <= teeBranchQueueBytes && len(branch.queue) < teeBranchQueueChunks {
+		return false
+	}
+
+	log.Warnf("ingest tee: branch %q exceeded its byte or chunk budget; stopping it so the critical path continues "+
+		"reason=%s queue_depth=%d pending_bytes=%d source_bytes=%d",
+		branch.name, branch.overflowReason(next), len(branch.queue),
+		branch.pending.Load(), t.bytesIn.Load())
+	branch.fail(errTeeBranchOverflow)
+
+	return true
+}
+
+// overflowReason names which bound was hit, so the log says why a branch was stopped.
+func (b *teeBranch) overflowReason(next int) string {
+	if b.pending.Load()+int64(next) > teeBranchQueueBytes {
+		return "byte_budget"
+	}
+	return "chunk_count"
+}
+
+// queueBytes reports how much has been queued but not yet written, without underflowing for a
+// branch whose enqueue path does not count (the critical branch blocks instead of queueing).
+func queueBytes(b *teeBranch) uint64 {
+	queued, out := b.bytesQueued.Load(), b.bytesOut.Load()
+	if queued <= out {
+		return 0
+	}
+	return queued - out
 }
 
 // markReady lets the pump start. It is idempotent and safe to call from any branch.
@@ -176,6 +244,10 @@ func (t *ingestTee) RemoveBranch(name string) {
 
 // Run copies the ingest stream to every branch until it ends or Close is
 // called. It is intended to run in its own goroutine.
+// The loop reads, coalesces, fans out and handles the source ending in one place because they
+// share the pending buffer; splitting it would mean passing that buffer and its deadline around.
+//
+//nolint:cyclop // the branches are the read/flush/EOF cases of one buffer, not independent logic
 func (t *ingestTee) Run() {
 	t.runOnce.Do(func() {
 		// Hold the ingest reader until the branch that must see the stream from its first
@@ -188,16 +260,82 @@ func (t *ingestTee) Run() {
 		}
 
 		buffer := make([]byte, teeReadChunkSize)
+
+		// Low-frequency timeline. Without it the only evidence is the overflow line, which says
+		// that a queue was full but not whether the input burst or nothing was draining it.
+		statsDone := make(chan struct{})
+		defer close(statsDone)
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			lastBytes := uint64(0)
+			for {
+				select {
+				case <-ticker.C:
+					in := t.bytesIn.Load()
+					delta := in - lastBytes
+					lastBytes = in
+					t.mu.Lock()
+					branches := make([]*teeBranch, len(t.branches))
+					copy(branches, t.branches)
+					t.mu.Unlock()
+					for _, b := range branches {
+						queued, out := b.bytesQueued.Load(), b.bytesOut.Load()
+						var pending uint64
+						if queued > out {
+							pending = queued - out
+						}
+						oldest := int64(0)
+						if ts := b.oldestQueued.Load(); ts != 0 {
+							oldest = time.Since(time.Unix(0, ts)).Milliseconds()
+						}
+						log.Infof("ingest tee stats: branch=%s queue_depth=%d queue_bytes=%d "+
+							"written_total=%d oldest_queued_ms=%d source_total=%d source_delta_10s=%d",
+							b.name, len(b.queue), pending,
+							b.bytesOut.Load(), oldest, in, delta)
+					}
+				case <-statsDone:
+					return
+				case <-t.done:
+					return
+				}
+			}
+		}()
+
+		// Small reads are merged before fan-out. An SRT source delivers roughly 1.5 KB per read,
+		// and forwarding each one separately made the chunk-count bound the real limit long
+		// before the byte budget was reached. Merging keeps byte order and only delays a chunk
+		// by at most teeCoalesceWindow.
+		pending := make([]byte, 0, teeReadChunkSize)
+		var since time.Time
+
 		for {
 			n, err := t.source.Read(buffer)
 			if n > 0 {
-				chunk := make([]byte, n)
-				copy(chunk, buffer[:n])
+				t.bytesIn.Add(uint64(n))
+				t.lastRead.Store(time.Now().UnixNano())
+				if len(pending) == 0 {
+					since = time.Now()
+				}
+				pending = append(pending, buffer[:n]...)
+				if len(pending) < teeReadChunkSize && time.Since(since) < teeCoalesceWindow {
+					continue
+				}
+				chunk := make([]byte, len(pending))
+				copy(chunk, pending)
+				pending = pending[:0]
 				t.fanOut(chunk)
 			}
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
 					log.Debugln("ingest tee: source ended:", err)
+				}
+				// Anything still held for coalescing belongs to the stream and must reach the
+				// branches before they see EOF.
+				if len(pending) > 0 {
+					chunk := make([]byte, len(pending))
+					copy(chunk, pending)
+					t.fanOut(chunk)
 				}
 				t.finishAll()
 				return
@@ -238,12 +376,33 @@ func (t *ingestTee) fanOut(chunk []byte) {
 			}
 			continue
 		}
+		// Both bounds apply: bytes, which is the real memory limit, and the chunk count, which
+		// keeps a flood of tiny objects from being accepted just because it is small in bytes.
+		if t.overBudget(branch, len(chunk)) {
+			continue
+		}
 		select {
 		case branch.queue <- chunk:
+			branch.bytesQueued.Add(uint64(len(chunk)))
+			branch.pending.Add(int64(len(chunk)))
+			branch.oldestQueued.CompareAndSwap(0, time.Now().UnixNano())
 		case <-branch.endCh:
 		case <-branch.failCh:
 		default:
-			log.Warnf("ingest tee: branch %q fell behind; stopping it so the critical path continues", branch.name)
+			oldest := int64(0)
+			if ts := branch.oldestQueued.Load(); ts != 0 {
+				oldest = time.Since(time.Unix(0, ts)).Milliseconds()
+			}
+			lastReadAgo := int64(-1)
+			if ts := t.lastRead.Load(); ts != 0 {
+				lastReadAgo = time.Since(time.Unix(0, ts)).Milliseconds()
+			}
+			log.Warnf("ingest tee: branch %q fell behind; stopping it so the critical path continues "+
+				"queue_depth=%d queue_bytes=%d queued_total=%d written_total=%d oldest_queued_ms=%d "+
+				"source_bytes=%d source_last_read_ms_ago=%d",
+				branch.name, len(branch.queue), queueBytes(branch),
+				branch.bytesQueued.Load(), branch.bytesOut.Load(), oldest,
+				t.bytesIn.Load(), lastReadAgo)
 			branch.fail(errTeeBranchOverflow)
 		}
 	}
