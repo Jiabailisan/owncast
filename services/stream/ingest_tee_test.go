@@ -414,13 +414,12 @@ func TestIngestTeeByteBudgetIsTheBoundThatFires(t *testing.T) {
 					// Record which bound fired. The byte budget is the memory bound; the chunk
 					// cap is a safety net that must never fire first.
 					b := tee.branchByName("webrtc")
-					reason := b.overflowReason(chunk)
 					// The bound that stops a branch depends on how the coalescing timer splits
 					// the reads: the timer can flush partial chunks, so a slow producer reaches
 					// the chunk cap before the byte budget. Record what happened rather than
 					// asserting one of them.
-					t.Logf("read size %d: stopped by %q with %d queued chunks, %d pending bytes",
-						chunk, reason, len(b.queue), b.pending.Load())
+					t.Logf("read size %d: stopped with %d queued chunks, %d pending bytes",
+						chunk, len(b.queue), b.pending.Load())
 
 					return
 				case <-deadline:
@@ -472,4 +471,66 @@ func (t *ingestTee) branchByName(name string) *teeBranch {
 	}
 
 	return nil
+}
+
+// Close must deliver what the tee already read. The owner flushes on done and only then finishes
+// the branches; finishing first would close them while bytes were still being merged.
+func TestIngestTeeCloseDeliversTheTail(t *testing.T) {
+	payload := []byte("tail-before-close")
+	tee := newIngestTee(&dataAndEOFReader{data: payload})
+	branch := tee.AddBranch("hls", true, nil)
+	go tee.Run()
+
+	// Let the reader deliver, then close before the coalescing timer fires.
+	time.Sleep(5 * time.Millisecond)
+	tee.Close()
+
+	got := readAllWithin(t, branch, len(payload))
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("close delivered %q, want %q", got, payload)
+	}
+}
+
+// A consumer that has stopped reading must not keep Close waiting forever.
+func TestIngestTeeCloseCompletesWhenTheBranchIsStuck(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), teeReadChunkSize*8)
+	tee := newIngestTee(&slowChunkReader{data: payload, chunk: 4096})
+	tee.AddBranch("hls", true, nil) // nobody reads it, so its pipe blocks
+	go tee.Run()
+
+	time.Sleep(50 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		tee.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(teeCloseTimeout + 3*time.Second):
+		t.Fatal("Close did not return while a branch was stuck")
+	}
+}
+
+// The reason recorded for stopping a branch must be the condition that stopped it.
+func TestIngestTeeBudgetReasonMatchesTheSnapshot(t *testing.T) {
+	tee := newIngestTee(bytes.NewReader(nil))
+	tee.AddBranch("webrtc", false, nil)
+
+	branch := tee.branchByName("webrtc")
+	if branch == nil {
+		t.Fatal("branch not found")
+	}
+
+	// Under both bounds: not over budget.
+	if tee.overBudget(branch, 1024) {
+		t.Fatal("a small chunk must not stop the branch")
+	}
+
+	// A chunk that alone exceeds the byte budget must be reported as the byte budget.
+	big := teeBranchQueueBytes + 1
+	if !tee.overBudget(branch, big) {
+		t.Fatalf("a %d byte chunk must exceed the %d byte budget", big, teeBranchQueueBytes)
+	}
 }

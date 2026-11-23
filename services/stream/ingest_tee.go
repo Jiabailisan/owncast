@@ -32,6 +32,8 @@ const (
 	// Merging keeps byte order and keeps the chunk count meaningful without adding latency a
 	// viewer would notice.
 	teeCoalesceWindow = 20 * time.Millisecond
+	// teeCloseTimeout bounds how long Close waits for the sender to flush and finish.
+	teeCloseTimeout = 2 * time.Second
 	// teeReadBuffer bounds how many read results wait for the owner to merge them.
 	teeReadBuffer = 4
 )
@@ -137,6 +139,7 @@ type ingestTee struct {
 	branches []*teeBranch
 
 	done      chan struct{}
+	stopped   chan struct{}
 	closeOnce sync.Once
 	runOnce   sync.Once
 
@@ -149,32 +152,33 @@ type ingestTee struct {
 
 // newIngestTee wraps the ingest reader.
 func newIngestTee(source io.Reader) *ingestTee {
-	return &ingestTee{source: source, done: make(chan struct{})}
+	return &ingestTee{source: source, done: make(chan struct{}), stopped: make(chan struct{})}
 }
 
 // overBudget reports whether an optional branch would exceed its bounds, and stops it when it
 // would. Both bounds apply: bytes, which is the real memory limit, and the chunk count, which
 // keeps a flood of tiny objects from being accepted just because it is small in bytes.
 func (t *ingestTee) overBudget(branch *teeBranch, next int) bool {
-	if branch.pending.Load()+int64(next) <= teeBranchQueueBytes && len(branch.queue) < teeBranchQueueChunks {
+	// One snapshot decides and is what the log reports. Reading the counters again afterwards
+	// described a different moment, which is how a branch stopped by the byte budget could be
+	// logged as a chunk-count stop.
+	pending := branch.pending.Load()
+	depth := len(branch.queue)
+	if pending+int64(next) <= teeBranchQueueBytes && depth < teeBranchQueueChunks {
 		return false
 	}
 
+	reason := "chunk_count"
+	if pending+int64(next) > teeBranchQueueBytes {
+		reason = "byte_budget"
+	}
+
 	log.Warnf("ingest tee: branch %q exceeded its byte or chunk budget; stopping it so the critical path continues "+
-		"reason=%s queue_depth=%d pending_bytes=%d source_bytes=%d",
-		branch.name, branch.overflowReason(next), len(branch.queue),
-		branch.pending.Load(), t.bytesIn.Load())
+		"reason=%s queue_depth=%d pending_bytes=%d next_bytes=%d byte_budget=%d chunk_cap=%d source_bytes=%d",
+		branch.name, reason, depth, pending, next, teeBranchQueueBytes, teeBranchQueueChunks, t.bytesIn.Load())
 	branch.fail(errTeeBranchOverflow)
 
 	return true
-}
-
-// overflowReason names which bound was hit, so the log says why a branch was stopped.
-func (b *teeBranch) overflowReason(next int) string {
-	if b.pending.Load()+int64(next) > teeBranchQueueBytes {
-		return "byte_budget"
-	}
-	return "chunk_count"
 }
 
 // queueBytes reports how much has been queued but not yet written, without underflowing for a
@@ -245,6 +249,9 @@ func (t *ingestTee) RemoveBranch(name string) {
 //nolint:cyclop // the branches are the read/flush/EOF cases of one buffer, not independent logic
 func (t *ingestTee) Run() {
 	t.runOnce.Do(func() {
+		// Signals Close that the owner has flushed and finished, so Close does not have to
+		// finish the branches itself.
+		defer close(t.stopped)
 		// Low-frequency timeline. Without it the only evidence is the overflow line, which says
 		// that a queue was full but not whether the input burst or nothing was draining it.
 		statsDone := make(chan struct{})
@@ -387,7 +394,15 @@ func (t *ingestTee) Run() {
 func (t *ingestTee) Close() {
 	t.closeOnce.Do(func() {
 		close(t.done)
-		t.finishAll()
+		// The owner flushes what it still holds and then finishes the branches. Waiting for it
+		// keeps the tail of the stream from being dropped: finishing here directly would close
+		// the branches while the owner was still merging.
+		select {
+		case <-t.stopped:
+		case <-time.After(teeCloseTimeout):
+			log.Warnln("ingest tee: close timed out waiting for the sender; finishing branches")
+			t.finishAll()
+		}
 	})
 }
 
