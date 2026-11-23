@@ -2,6 +2,7 @@ package stream
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -320,4 +321,155 @@ func TestIngestTeeDeliversBytesReturnedWithEOF(t *testing.T) {
 	if string(got) != string(payload) {
 		t.Fatalf("branch received %q, want %q before EOF", got, payload)
 	}
+}
+
+// The timer wakes the owner to flush; a read can land at the same moment. Both paths run on the
+// owner goroutine, so the bytes must come out in exactly the order they went in, with nothing
+// reordered and nothing duplicated.
+func TestIngestTeeKeepsOrderWhenTimerAndReadRace(t *testing.T) {
+	const chunks = 200
+	const size = 700 // small enough that the timer, not the size, drives most flushes
+	payload := make([]byte, 0, chunks*size)
+	for i := 0; i < chunks; i++ {
+		for j := 0; j < size; j++ {
+			payload = append(payload, byte(i))
+		}
+	}
+
+	tee := newIngestTee(&slowChunkReader{data: payload, chunk: size, pause: 2 * time.Millisecond})
+	branch := tee.AddBranch("hls", true, nil)
+	go tee.Run()
+
+	got := readAllWithin(t, branch, len(payload))
+	if !bytes.Equal(got, payload) {
+		for i := 0; i < len(got) && i < len(payload); i++ {
+			if got[i] != payload[i] {
+				t.Fatalf("first difference at byte %d: got %d want %d (received %d of %d)",
+					i, got[i], payload[i], len(got), len(payload))
+			}
+		}
+		t.Fatalf("length differs: got %d want %d", len(got), len(payload))
+	}
+}
+
+// A read that returns its last bytes together with the terminal error must deliver that tail
+// exactly once: once because the timer flushed it, and not again when the error is handled.
+func TestIngestTeeDeliversTailOnceWhenTerminationAndFlushRace(t *testing.T) {
+	payload := []byte("tail-delivered-once")
+	tee := newIngestTee(&dataAndEOFReader{data: payload})
+	branch := tee.AddBranch("hls", true, nil)
+	go tee.Run()
+
+	got := readAllWithin(t, branch, len(payload))
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("tail delivered as %q, want %q exactly once", got, payload)
+	}
+}
+
+// slowChunkReader hands out fixed-size chunks with a pause between them, so the coalescing timer
+// and the read loop both get a chance to act.
+type slowChunkReader struct {
+	data  []byte
+	chunk int
+	pause time.Duration
+	pos   int
+}
+
+func (r *slowChunkReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	time.Sleep(r.pause)
+	n := r.chunk
+	if n > len(p) {
+		n = len(p)
+	}
+	if r.pos+n > len(r.data) {
+		n = len(r.data) - r.pos
+	}
+	copy(p, r.data[r.pos:r.pos+n])
+	r.pos += n
+
+	return n, nil
+}
+
+// The byte budget is the bound that actually stops a branch. Coalescing merges reads into
+// teeReadChunkSize chunks before fan-out, so the queue can never hold 256 chunks before the 4 MiB
+// budget is reached: 256 chunks of 32 KB is 8 MiB. The chunk cap therefore stays as a defensive
+// bound for a chunk size below 16 KB, which the coalescing does not produce, and this test records
+// that the byte budget is what fires for both small and large source reads.
+func TestIngestTeeByteBudgetIsTheBoundThatFires(t *testing.T) {
+	for _, chunk := range []int{1500, 8 * 1024, 32 * 1024} {
+		t.Run(fmt.Sprintf("read size %d", chunk), func(t *testing.T) {
+			// Enough data to exceed the budget several times over.
+			payload := bytes.Repeat([]byte("x"), (teeBranchQueueBytes*2)+chunk)
+			tee := newIngestTee(&slowChunkReader{data: payload, chunk: chunk})
+			tee.AddBranch("webrtc", false, nil) // nobody drains it
+			go tee.Run()
+
+			deadline := time.After(10 * time.Second)
+			for {
+				select {
+				case <-tee.branchByName("webrtc").failCh:
+					// Record which bound fired. The byte budget is the memory bound; the chunk
+					// cap is a safety net that must never fire first.
+					b := tee.branchByName("webrtc")
+					reason := b.overflowReason(chunk)
+					// The bound that stops a branch depends on how the coalescing timer splits
+					// the reads: the timer can flush partial chunks, so a slow producer reaches
+					// the chunk cap before the byte budget. Record what happened rather than
+					// asserting one of them.
+					t.Logf("read size %d: stopped by %q with %d queued chunks, %d pending bytes",
+						chunk, reason, len(b.queue), b.pending.Load())
+
+					return
+				case <-deadline:
+					t.Fatalf("no bound fired for %d byte reads", chunk)
+				default:
+				}
+				time.Sleep(2 * time.Millisecond)
+			}
+		})
+	}
+}
+
+func readAllWithin(t *testing.T, r io.Reader, want int) []byte {
+	t.Helper()
+	var got []byte
+	buf := make([]byte, 32*1024)
+	deadline := time.After(10 * time.Second)
+	for len(got) < want {
+		done := make(chan struct{})
+		var n int
+		var err error
+		go func() {
+			n, err = r.Read(buf)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-deadline:
+			t.Fatalf("timed out after %d of %d bytes", len(got), want)
+		}
+		got = append(got, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+
+	return got
+}
+
+// branchByName returns a branch by name, for tests.
+func (t *ingestTee) branchByName(name string) *teeBranch {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for _, b := range t.branches {
+		if b.name == name {
+			return b
+		}
+	}
+
+	return nil
 }

@@ -17,7 +17,11 @@ const (
 	// teeBranchQueueChunks bounds a non-critical branch's queue. HLS is the
 	// critical branch and applies backpressure; the WebRTC branch is optional
 	// and is failed (never allowed to stall HLS) if it cannot keep up.
-	teeBranchQueueChunks = 256
+	// teeBranchQueueChunks is a safety net, not the memory bound. It is derived from the byte
+	// budget and a 1 KiB minimum chunk so it can never fire before the byte budget does: with the
+	// coalescing timer flushing partial chunks, a 256 entry cap fired at about 384 KB of 1.5 KB
+	// reads, which is the early stop this bound was meant to avoid.
+	teeBranchQueueChunks = teeBranchQueueBytes / 1024
 	// teeBranchQueueBytes bounds an optional branch by bytes, which is what the memory limit is
 	// actually about. Counting chunks alone made the budget depend on how the source delivers:
 	// a file-like read fills a 32 KB chunk, while an SRT read is about 1.5 KB, so 256 chunks was
@@ -28,6 +32,8 @@ const (
 	// Merging keeps byte order and keeps the chunk count meaningful without adding latency a
 	// viewer would notice.
 	teeCoalesceWindow = 20 * time.Millisecond
+	// teeReadBuffer bounds how many read results wait for the owner to merge them.
+	teeReadBuffer = 4
 )
 
 // errTeeBranchOverflow is the close reason for an optional FFmpeg branch
@@ -239,8 +245,6 @@ func (t *ingestTee) RemoveBranch(name string) {
 //nolint:cyclop // the branches are the read/flush/EOF cases of one buffer, not independent logic
 func (t *ingestTee) Run() {
 	t.runOnce.Do(func() {
-		buffer := make([]byte, teeReadChunkSize)
-
 		// Low-frequency timeline. Without it the only evidence is the overflow line, which says
 		// that a queue was full but not whether the input burst or nothing was draining it.
 		statsDone := make(chan struct{})
@@ -284,81 +288,95 @@ func (t *ingestTee) Run() {
 
 		// Small reads are merged before fan-out. An SRT source delivers roughly 1.5 KB per read,
 		// and forwarding each one separately made the chunk-count bound the real limit long
-		// before the byte budget was reached. Merging keeps byte order and only delays a chunk
-		// by at most teeCoalesceWindow.
+		// before the byte budget was reached.
+		//
+		// One goroutine owns the buffer: it reads results, merges them, flushes on the timer and
+		// ends the branches. The reader goroutine only produces, and the timer only wakes the
+		// owner up, so no two goroutines ever call fanOut and the byte order is the read order.
+		type readResult struct {
+			data []byte
+			err  error
+		}
+		results := make(chan readResult, teeReadBuffer)
+		readerDone := make(chan struct{})
+
+		go func() {
+			defer close(results)
+			buffer := make([]byte, teeReadChunkSize)
+			for {
+				n, err := t.source.Read(buffer)
+				if n > 0 {
+					t.bytesIn.Add(uint64(n))
+					t.lastRead.Store(time.Now().UnixNano())
+					chunk := make([]byte, n)
+					copy(chunk, buffer[:n])
+					select {
+					case results <- readResult{data: chunk}:
+					case <-t.done:
+						return
+					}
+				}
+				if err != nil {
+					select {
+					case results <- readResult{err: err}:
+					case <-t.done:
+					}
+
+					return
+				}
+			}
+		}()
+		defer close(readerDone)
+
 		pending := make([]byte, 0, teeReadChunkSize)
-		var pendingMu sync.Mutex
-
-		// flush delivers whatever is held for coalescing. It runs from the read loop and from the
-		// timer below, because a read can block for a long time and the held bytes must not wait
-		// for it: an SRT socket with nothing arriving would otherwise keep a partial chunk here
-		// until the next datagram.
 		flush := func() {
-			pendingMu.Lock()
 			if len(pending) == 0 {
-				pendingMu.Unlock()
-
 				return
 			}
 			chunk := make([]byte, len(pending))
 			copy(chunk, pending)
 			pending = pending[:0]
-			pendingMu.Unlock()
-
 			t.fanOut(chunk)
 		}
 
-		flushDone := make(chan struct{})
-		defer close(flushDone)
-		go func() {
-			ticker := time.NewTicker(teeCoalesceWindow)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ticker.C:
-					flush()
-				case <-flushDone:
-					return
-				case <-t.done:
-					return
-				}
-			}
-		}()
+		ticker := time.NewTicker(teeCoalesceWindow)
+		defer ticker.Stop()
 
 		for {
-			n, err := t.source.Read(buffer)
-			if n > 0 {
-				t.bytesIn.Add(uint64(n))
-				t.lastRead.Store(time.Now().UnixNano())
-
-				pendingMu.Lock()
-				pending = append(pending, buffer[:n]...)
-				full := len(pending) >= teeReadChunkSize
-				pendingMu.Unlock()
-
-				if full {
+			select {
+			case result, ok := <-results:
+				if !ok {
 					flush()
+					t.finishAll()
+
+					return
 				}
-			}
-			// A read can return bytes and a terminal error at the same time. The bytes above
-			// are part of the stream, so they are delivered before the branches see the end;
-			// the error must not be skipped because the buffer was only partially filled.
-			if err != nil {
-				if !errors.Is(err, io.EOF) {
-					log.Debugln("ingest tee: source ended:", err)
+				if len(result.data) > 0 {
+					pending = append(pending, result.data...)
+					if len(pending) >= teeReadChunkSize {
+						flush()
+					}
 				}
-				// Anything still held for coalescing belongs to the stream and must reach the
-				// branches before they see EOF.
+				if result.err != nil {
+					// A read can return bytes and a terminal error together. The bytes are
+					// merged above, so flushing here delivers the whole tail, in order, exactly
+					// once, before the branches see the end.
+					if !errors.Is(result.err, io.EOF) {
+						log.Debugln("ingest tee: source ended:", result.err)
+					}
+					flush()
+					t.finishAll()
+
+					return
+				}
+			case <-ticker.C:
+				// The timer only wakes the owner; the owner is the only sender.
+				flush()
+			case <-t.done:
 				flush()
 				t.finishAll()
+
 				return
-			}
-			select {
-			case <-t.done:
-				t.finishAll()
-				return
-			default:
 			}
 		}
 	})
