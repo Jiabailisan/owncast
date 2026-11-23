@@ -64,7 +64,12 @@ const customPlayerConfig = (): Partial<ClientConfig> => ({
   },
 });
 
-const renderWithConfig = (config: Partial<ClientConfig>, online = true, className?: string) => {
+const renderWithConfig = (
+  config: Partial<ClientConfig>,
+  online = true,
+  className?: string,
+  streamIdentity = '',
+) => {
   const store = createStore();
   store.set(clientConfigStateAtom, { ...makeEmptyClientConfig(), ...config });
   return render(
@@ -72,6 +77,7 @@ const renderWithConfig = (config: Partial<ClientConfig>, online = true, classNam
       <PlayerContainer
         source="/hls/stream.m3u8"
         online={online}
+        streamIdentity={streamIdentity}
         title="Test stream"
         className={className}
       />
@@ -124,7 +130,10 @@ describe('PlayerContainer protocol selection', () => {
     // The ported player renders the reference-style top-right error banner
     // from this prop (5s), replacing the old bottom notice.
     expect(screen.getByTestId('hls-player')).toHaveAttribute('data-transport-error', 'full');
-    expect(sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY)).toBe('true');
+    expect(JSON.parse(sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY) || '{}')).toEqual({
+      value: true,
+      identity: '',
+    });
   });
 
   test('renders the custom player module instead of WebRTC/HLS when configured', () => {
@@ -158,13 +167,19 @@ describe('PlayerContainer protocol selection', () => {
   });
 
   test('remembers the fallback for the tab so a remount does not retry', () => {
-    sessionStorage.setItem(WEBRTC_FALLBACK_SESSION_KEY, 'true');
+    sessionStorage.setItem(
+      WEBRTC_FALLBACK_SESSION_KEY,
+      JSON.stringify({ value: true, identity: '' }),
+    );
     renderWithConfig(enabledConfig());
     expect(screen.getByTestId('hls-player')).toBeInTheDocument();
   });
 
   test('clears a stored fallback when a new stream comes online', () => {
-    sessionStorage.setItem(WEBRTC_FALLBACK_SESSION_KEY, 'true');
+    sessionStorage.setItem(
+      WEBRTC_FALLBACK_SESSION_KEY,
+      JSON.stringify({ value: true, identity: '' }),
+    );
     const store = createStore();
     store.set(clientConfigStateAtom, { ...makeEmptyClientConfig(), ...enabledConfig() });
     const { rerender } = render(
@@ -182,5 +197,28 @@ describe('PlayerContainer protocol selection', () => {
 
     expect(screen.getByTestId('webrtc-player')).toBeInTheDocument();
     expect(sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY)).toBeNull();
+  });
+
+  // A fast switch can go from one stream to the next without the page ever seeing the offline
+  // gap, so the previous stream's fallback must not follow the viewer into the new one.
+  test('a fallback from a previous stream does not apply to a new stream', () => {
+    sessionStorage.setItem(
+      WEBRTC_FALLBACK_SESSION_KEY,
+      JSON.stringify({ value: true, identity: 'stream-A' }),
+    );
+    renderWithConfig(enabledConfig(), true, undefined, 'stream-B');
+    expect(screen.getByTestId('webrtc-player')).toBeInTheDocument();
+    expect(screen.queryByTestId('hls-player')).not.toBeInTheDocument();
+  });
+
+  // Within one stream the fallback has to hold, otherwise every status poll would reconnect.
+  test('a fallback stays for the stream that produced it', () => {
+    sessionStorage.setItem(
+      WEBRTC_FALLBACK_SESSION_KEY,
+      JSON.stringify({ value: true, identity: 'stream-A' }),
+    );
+    renderWithConfig(enabledConfig(), true, undefined, 'stream-A');
+    expect(screen.getByTestId('hls-player')).toBeInTheDocument();
+    expect(screen.queryByTestId('webrtc-player')).not.toBeInTheDocument();
   });
 });

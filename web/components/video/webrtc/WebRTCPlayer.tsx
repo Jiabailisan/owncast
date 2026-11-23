@@ -925,6 +925,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           // Hides the centre play button while the session is being negotiated; the
           // connecting overlay draws its own status text on top.
           loading={phase === 'connecting' || buffering}
+          // A failed session cannot be recovered by pressing play. The error overlay carries
+          // the retry action, so the centre button is not rendered at all rather than being
+          // covered by the overlay.
+          hideCenterPlay={phase === 'error'}
           stats={stats}
           sparklines={sparklines}
           statsOpen={statsOpen}

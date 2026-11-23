@@ -276,6 +276,7 @@ export const Content: FC = () => {
             <PlayerContainer
               source="/hls/stream.m3u8"
               online={online}
+              streamIdentity={lastConnectTime ? String(lastConnectTime) : ''}
               title={streamTitle || name}
               autoplay={autoplay}
               className={styles.topSectionElement}

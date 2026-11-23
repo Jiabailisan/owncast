@@ -46,6 +46,8 @@ export type PlayerControlsProps = {
   latencyEnabled: boolean;
   liveEdge: boolean;
   loading?: boolean;
+  // hideCenterPlay suppresses the centre play button without implying a load is in progress.
+  hideCenterPlay?: boolean;
   stats: StatsSnapshot;
   sparklines: SparklineState;
   statsOpen: boolean;
@@ -72,6 +74,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   latencyEnabled,
   liveEdge,
   loading = false,
+  hideCenterPlay = false,
   stats,
   sparklines,
   statsOpen,
@@ -269,7 +272,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
             aria-label="Loading"
           />
         )}
-        {!playing && !loading && (
+        {!playing && !loading && !hideCenterPlay && (
           <button
             type="button"
             className={styles.centerPlay}

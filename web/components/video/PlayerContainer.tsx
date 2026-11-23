@@ -28,6 +28,9 @@ export type PlayerContainerProps = {
   // HLS playlist URL; the unchanged default playback path.
   source: string;
   online: boolean;
+  // Identifies the current stream. The server changes it on every new publish, so it is what
+  // tells one stream apart from the next when the page never sees an offline gap.
+  streamIdentity?: string;
   initiallyMuted?: boolean;
   autoplay?: AutoplaySetting;
   title: string;
@@ -39,18 +42,31 @@ export type PlayerContainerProps = {
   onProtocolChange?: (protocol: Protocol) => void;
 };
 
-function readSessionFallback(): boolean {
+// The stored fallback remembers which stream failed with it. A different stream means a new
+// publisher, a new encoder and possibly a working WebRTC path, so the old failure says nothing
+// about it. Without this a page that never observed the offline gap kept the previous stream's
+// HLS fallback for the next one.
+function readSessionFallback(streamIdentity: string): boolean {
   try {
-    return sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY) === 'true';
+    const raw = sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY);
+    if (!raw) return false;
+    const stored = JSON.parse(raw) as { identity?: string; value?: boolean };
+    return stored.value === true && stored.identity === streamIdentity;
   } catch {
     return false;
   }
 }
 
-function writeSessionFallback(value: boolean): void {
+function writeSessionFallback(value: boolean, streamIdentity: string): void {
   try {
-    if (value) sessionStorage.setItem(WEBRTC_FALLBACK_SESSION_KEY, 'true');
-    else sessionStorage.removeItem(WEBRTC_FALLBACK_SESSION_KEY);
+    if (value) {
+      sessionStorage.setItem(
+        WEBRTC_FALLBACK_SESSION_KEY,
+        JSON.stringify({ value: true, identity: streamIdentity }),
+      );
+    } else {
+      sessionStorage.removeItem(WEBRTC_FALLBACK_SESSION_KEY);
+    }
   } catch {
     // Storage can be unavailable (private mode); fallback stays in memory.
   }
@@ -63,6 +79,7 @@ function writeSessionFallback(value: boolean): void {
 export const PlayerContainer: FC<PlayerContainerProps> = ({
   source,
   online,
+  streamIdentity = '',
   initiallyMuted = false,
   autoplay = AutoplaySetting.Off,
   title,
@@ -77,7 +94,9 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
   const [transportPreference, setTransportPreference] = useState<TransportPreference>(() =>
     readTransportPreference(),
   );
-  const [sessionFallback, setSessionFallback] = useState<boolean>(() => readSessionFallback());
+  const [sessionFallback, setSessionFallback] = useState<boolean>(() =>
+    readSessionFallback(streamIdentity),
+  );
   const [fallbackReason, setFallbackReason] = useState<WHEPError | null>(null);
   const [customPlayerFailed, setCustomPlayerFailed] = useState(false);
   const previousOnlineRef = useRef(online);
@@ -86,13 +105,25 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
   // network conditions may have changed since.
   useEffect(() => {
     if (!previousOnlineRef.current && online) {
-      writeSessionFallback(false);
+      writeSessionFallback(false, streamIdentity);
       setSessionFallback(false);
       setFallbackReason(null);
       setCustomPlayerFailed(false);
     }
     previousOnlineRef.current = online;
   }, [online]);
+
+  // A new stream clears the previous one's fallback even when the page never observed the
+  // offline gap: a fast switch can go from online to online, and the old failure must not
+  // stop the new stream from trying WebRTC.
+  const previousIdentityRef = useRef(streamIdentity);
+  useEffect(() => {
+    if (previousIdentityRef.current === streamIdentity) return;
+    previousIdentityRef.current = streamIdentity;
+    writeSessionFallback(false, streamIdentity);
+    setSessionFallback(false);
+    setFallbackReason(null);
+  }, [streamIdentity]);
 
   const webRTCSupported = typeof window !== 'undefined' && typeof RTCPeerConnection !== 'undefined';
   const webRTCConfigured = Boolean(webrtcConfig?.enabled && webrtcConfig?.whepUrl);
@@ -122,7 +153,7 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
     setTransportPreference(next);
     writeTransportPreference(next);
     if (next !== 'hls') {
-      writeSessionFallback(false);
+      writeSessionFallback(false, streamIdentity);
       setSessionFallback(false);
       setFallbackReason(null);
     }
@@ -130,7 +161,7 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
 
   const handleWebRTCFallback = useCallback(
     (error: WHEPError) => {
-      writeSessionFallback(true);
+      writeSessionFallback(true, streamIdentity);
       setSessionFallback(true);
       setFallbackReason(error);
       onProtocolChange?.('hls');

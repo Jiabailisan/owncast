@@ -513,36 +513,32 @@ test('closes the local connection first and releases the session exactly once', 
   expect(deleteCalls).toBe(1);
 });
 
-  // The server separates an offer it cannot accept from a stream it cannot deliver. The
-  // viewer sees different wording for each instead of one message that blames the browser
-  // for a source the server already knows is unsuitable.
-  test('uses the server code to word a rejected offer', () => {
-    const unsupported = mapWhepResponseError(
-      422,
-      null,
-      JSON.stringify({ code: 'webrtc_unsupported_media', message: 'no opus audio' }),
-    );
-    expect(unsupported.code).toBe('bad_request');
-    expect(unsupported.message).toMatch(/format/i);
-    expect(unsupported.message).not.toMatch(/offer was rejected/i);
+// The server separates an offer it cannot accept from a stream it cannot deliver. The
+// viewer sees different wording for each instead of one message that blames the browser
+// for a source the server already knows is unsuitable.
+test('uses the server code to word a rejected offer', () => {
+  const unsupported = mapWhepResponseError(
+    422,
+    null,
+    JSON.stringify({ code: 'webrtc_unsupported_media', message: 'no opus audio' }),
+  );
+  expect(unsupported.code).toBe('bad_request');
+  expect(unsupported.message).toMatch(/format/i);
+  expect(unsupported.message).not.toMatch(/offer was rejected/i);
 
-    const badOffer = mapWhepResponseError(
-      400,
-      null,
-      JSON.stringify({ code: 'webrtc_bad_offer', message: 'no video' }),
-    );
-    expect(badOffer.code).toBe('bad_request');
-    expect(badOffer.message).toMatch(/offer was rejected/i);
+  const badOffer = mapWhepResponseError(
+    400,
+    null,
+    JSON.stringify({ code: 'webrtc_bad_offer', message: 'no video' }),
+  );
+  expect(badOffer.code).toBe('bad_request');
+  expect(badOffer.message).toMatch(/offer was rejected/i);
 
-    const unknownCode = mapWhepResponseError(
-      400,
-      null,
-      JSON.stringify({ code: 'something_new' }),
-    );
-    expect(unknownCode.code).toBe('bad_request');
-    expect(unknownCode.message).not.toMatch(/offer was rejected/i);
-    expect(unknownCode.message).not.toMatch(/format/i);
+  const unknownCode = mapWhepResponseError(400, null, JSON.stringify({ code: 'something_new' }));
+  expect(unknownCode.code).toBe('bad_request');
+  expect(unknownCode.message).not.toMatch(/offer was rejected/i);
+  expect(unknownCode.message).not.toMatch(/format/i);
 
-    const noBody = mapWhepResponseError(422, null, '');
-    expect(noBody.code).toBe('bad_request');
-  });
+  const noBody = mapWhepResponseError(422, null, '');
+  expect(noBody.code).toBe('bad_request');
+});
