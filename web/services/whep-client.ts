@@ -160,7 +160,20 @@ export function mapWhepResponseError(
     return new WHEPError('rate_limited', 'Too many signaling requests', options);
   }
   if (status === 400 || status === 422) {
-    return new WHEPError('bad_request', 'The playback offer was rejected', options);
+    // The server distinguishes an offer it cannot accept from a stream it cannot deliver.
+    // Collapsing both into one message told viewers their browser was at fault when the
+    // stream's format was the problem, so the server code decides the wording.
+    if (serverCode === 'webrtc_unsupported_media') {
+      return new WHEPError(
+        'bad_request',
+        'This stream uses a video format WebRTC cannot play',
+        options,
+      );
+    }
+    if (serverCode === 'webrtc_bad_offer') {
+      return new WHEPError('bad_request', 'The playback offer was rejected', options);
+    }
+    return new WHEPError('bad_request', 'WebRTC playback could not start', options);
   }
   return new WHEPError('signaling', 'WebRTC signaling failed', options);
 }
