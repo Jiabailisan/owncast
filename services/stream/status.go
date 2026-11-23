@@ -91,12 +91,46 @@ func (s *Service) currentStreamTitle() string {
 // viewers: the save still succeeds and the admin field still shows the new default, but
 // there is nothing to announce.
 func (s *Service) SaveDefaultTitle(save func(string) error, value string) (bool, error) {
-	before := s.currentStreamTitle()
+	// The comparison is only meaningful within one stream. A publish may start or end while the
+	// default is being written, and comparing titles across two sessions would report a change
+	// that viewers never saw, so the session identity is sampled on both sides of the save.
+	sessionBefore, titleBefore := s.effectiveTitleWithSession()
+
 	if err := save(value); err != nil {
 		return false, err
 	}
 
-	return value != "" && s.currentStreamTitle() != before, nil
+	sessionAfter, titleAfter := s.effectiveTitleWithSession()
+
+	if sessionAfter != sessionBefore {
+		// A different session (started, ended or replaced) means this save spans two streams.
+		// It still succeeded; there is simply nothing to announce.
+		return false, nil
+	}
+
+	if sessionAfter != nil && titleAfter != "" {
+		// A stable publisher with its own title overrides the default, so viewers keep seeing it.
+		return false, nil
+	}
+
+	return value != "" && titleAfter != titleBefore, nil
+}
+
+// effectiveTitleWithSession returns the title viewers see right now together with the session it
+// came from. The session is nil when the default applies, and it is what tells two reads apart:
+// the same pointer means the same stream.
+func (s *Service) effectiveTitleWithSession() (ingest.Session, string) {
+	s.sessionMu.RLock()
+	session := s.currentSession
+	s.sessionMu.RUnlock()
+
+	if session != nil {
+		if title := session.StreamTitle(); title != "" {
+			return session, title
+		}
+	}
+
+	return session, s.configRepository.GetStreamTitle()
 }
 
 // GetCurrentBroadcast returns the in-flight broadcast settings, or nil
