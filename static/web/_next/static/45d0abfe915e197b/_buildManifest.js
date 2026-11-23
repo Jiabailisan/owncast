@@ -1,6 +1,6 @@
 self.__BUILD_MANIFEST = {
   "/": [
-    "static/chunks/26golciaz1zyl.js"
+    "static/chunks/0xtz4olkmkbc6.js"
   ],
   "/_error": [
     "static/chunks/29a_jpa_bvh0a.js"
@@ -90,7 +90,7 @@ self.__BUILD_MANIFEST = {
     "static/chunks/44qnsexnzfhf7.js"
   ],
   "/embed/video": [
-    "static/chunks/2rtbonwr26t43.js"
+    "static/chunks/38p25k29b2z_8.js"
   ],
   "__rewrites": {
     "afterFiles": [],

@@ -16,8 +16,8 @@ __turbopack_load_page_chunks__("/embed/video", [
   "static/chunks/2sts603s6vz2_.js",
   "static/chunks/2ln-03xpwc5sv.js",
   "static/chunks/3w8mz3zrl0mnd.js",
-  "static/chunks/1zrjptf1j7q-l.js",
+  "static/chunks/3bgh-aeimdmpy.js",
   "static/chunks/1wu1j7kq-3qif.css",
   "static/chunks/199bn-mcw7k-6.css",
-  "static/chunks/turbopack-3m3dg0sag6cd6.js"
+  "static/chunks/turbopack-0mgod_bxjhqr4.js"
 ])
