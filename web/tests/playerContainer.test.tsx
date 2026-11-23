@@ -221,4 +221,46 @@ describe('PlayerContainer protocol selection', () => {
     expect(screen.getByTestId('hls-player')).toBeInTheDocument();
     expect(screen.queryByTestId('webrtc-player')).not.toBeInTheDocument();
   });
+
+  // A switch happens inside one mounted component: the fallback callback has to use the
+  // identity of the stream that failed now, not the one that was current when it was created.
+  test('a failure after a switch stores the new stream identity', () => {
+    const store = createStore();
+    store.set(clientConfigStateAtom, { ...makeEmptyClientConfig(), ...enabledConfig() });
+    const { rerender } = render(
+      <Provider store={store}>
+        <PlayerContainer
+          source="/hls/stream.m3u8"
+          online
+          streamIdentity="stream-A"
+          title="Test stream"
+        />
+      </Provider>,
+    );
+    rerender(
+      <Provider store={store}>
+        <PlayerContainer
+          source="/hls/stream.m3u8"
+          online
+          streamIdentity="stream-B"
+          title="Test stream"
+        />
+      </Provider>,
+    );
+    fireEvent.click(screen.getByTestId('force-fallback'));
+    expect(JSON.parse(sessionStorage.getItem(WEBRTC_FALLBACK_SESSION_KEY) || '{}')).toEqual({
+      value: true,
+      identity: 'stream-B',
+    });
+  });
+
+  // And that stored fallback belongs to B: remounting for B keeps it.
+  test('the fallback stored for the new stream survives a remount of that stream', () => {
+    sessionStorage.setItem(
+      WEBRTC_FALLBACK_SESSION_KEY,
+      JSON.stringify({ value: true, identity: 'stream-B' }),
+    );
+    renderWithConfig(enabledConfig(), true, undefined, 'stream-B');
+    expect(screen.getByTestId('hls-player')).toBeInTheDocument();
+  });
 });

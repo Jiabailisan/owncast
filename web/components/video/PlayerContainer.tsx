@@ -166,7 +166,10 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
       setFallbackReason(error);
       onProtocolChange?.('hls');
     },
-    [onProtocolChange],
+    // The identity belongs in the dependencies: without it the callback keeps the identity of
+    // the stream that mounted it, and a failure after a switch stores the previous stream's
+    // fallback, which then applies to the wrong stream.
+    [onProtocolChange, streamIdentity],
   );
 
   useEffect(() => {
