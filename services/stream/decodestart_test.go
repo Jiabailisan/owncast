@@ -206,3 +206,77 @@ func (r *cancellingReader) Read(p []byte) (int, error) {
 
 	return n, nil
 }
+
+// blockingSource delivers one chunk and then parks, the way a quiet SRT socket does. The gate's
+// wait has to expire while that read is still pending.
+type blockingSource struct {
+	data []byte
+	sent bool
+}
+
+func (s *blockingSource) Read(p []byte) (int, error) {
+	if !s.sent {
+		s.sent = true
+		n := copy(p, s.data)
+
+		return n, nil
+	}
+	select {} // parked forever
+}
+
+func TestDecodeStartTimeoutFiresWhileTheReadIsBlocked(t *testing.T) {
+	partial := buildTS(tsPacket(0x100, true, []byte{0, 0, 0, 1, 0x41, 0x9a})) // no PAT, no SPS
+	r := newDecodeStartReader(&blockingSource{data: partial}, make(chan struct{}))
+
+	start := time.Now()
+	var got []byte
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Read(buf)
+		got = append(got, buf[:n]...)
+		if err != nil || len(got) >= len(partial) {
+			break
+		}
+	}
+
+	elapsed := time.Since(start)
+	if elapsed > decodeStartWait+2*time.Second {
+		t.Fatalf("gate waited %s while the read was blocked, bound is %s", elapsed, decodeStartWait)
+	}
+	if !bytes.HasPrefix(got, partial) {
+		t.Fatalf("gate delivered %d bytes, want the %d bytes it had buffered", len(got), len(partial))
+	}
+}
+
+func TestDecodeStartCancelReleasesTheBlockedRead(t *testing.T) {
+	partial := buildTS(tsPacket(0x100, true, []byte{0, 0, 0, 1, 0x41, 0x9a}))
+	done := make(chan struct{})
+	r := newDecodeStartReader(&blockingSource{data: partial}, done)
+
+	// The first read pulls the chunk in and blocks waiting for a boundary.
+	gotCh := make(chan []byte, 1)
+	go func() {
+		var got []byte
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			got = append(got, buf[:n]...)
+			if err != nil {
+				break
+			}
+		}
+		gotCh <- got
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(done)
+
+	select {
+	case got := <-gotCh:
+		if !bytes.HasPrefix(got, partial) {
+			t.Fatalf("cancel delivered %d bytes, want the %d buffered bytes", len(got), len(partial))
+		}
+	case <-time.After(decodeStartWait + 3*time.Second):
+		t.Fatal("cancel did not release the blocked read")
+	}
+}

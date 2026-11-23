@@ -25,22 +25,67 @@ const (
 )
 
 // decodeStartReader forwards an MPEG-TS stream beginning at a decodable boundary.
+//
+// One goroutine reads the source and only that goroutine reads it. The gate consumes its results,
+// so the wait can expire while a read is blocked and a closed session can release the reader
+// instead of leaving it parked inside the source forever.
 type decodeStartReader struct {
-	src  io.Reader
 	done <-chan struct{}
+
+	results chan readChunk
 
 	mu        sync.Mutex
 	buf       []byte
+	pending   []byte
 	ready     bool
-	skipped   int64
-	gaveUp    bool
 	cancelled bool
+	skipped   int64
 	start     time.Time
-	pending   []byte // leftover bytes carried between Reads
+}
+
+// readChunk is one result from the reader goroutine.
+type readChunk struct {
+	data []byte
+	err  error
 }
 
 func newDecodeStartReader(src io.Reader, done <-chan struct{}) *decodeStartReader {
-	return &decodeStartReader{src: src, done: done, start: time.Now()}
+	r := &decodeStartReader{
+		done:    done,
+		results: make(chan readChunk, 2),
+		start:   time.Now(),
+	}
+
+	go r.readLoop(src)
+
+	return r
+}
+
+// readLoop is the only reader of src.
+func (r *decodeStartReader) readLoop(src io.Reader) {
+	defer close(r.results)
+
+	buffer := make([]byte, tsPacketSize*8)
+	for {
+		n, err := src.Read(buffer)
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buffer[:n])
+			select {
+			case r.results <- readChunk{data: chunk}:
+			case <-r.done:
+				return
+			}
+		}
+		if err != nil {
+			select {
+			case r.results <- readChunk{err: err}:
+			case <-r.done:
+			}
+
+			return
+		}
+	}
 }
 
 // Read forwards the stream, dropping everything before the first decodable boundary.
@@ -49,10 +94,9 @@ func (r *decodeStartReader) Read(p []byte) (int, error) {
 	defer r.mu.Unlock()
 
 	if !r.ready {
-		r.fillUntilDecodable(p)
+		r.fillUntilDecodable()
 	}
 
-	// Serve what the boundary search already buffered.
 	if len(r.buf) > 0 {
 		n := copy(p, r.buf)
 		r.buf = r.buf[n:]
@@ -61,69 +105,96 @@ func (r *decodeStartReader) Read(p []byte) (int, error) {
 	}
 
 	if r.cancelled {
-		// The session ended while the gate was holding bytes. They have been delivered by the
-		// branch above; only now does the reader report the end.
 		return 0, io.EOF
 	}
 
-	return r.src.Read(p)
-}
-
-// fillUntilDecodable reads until a decodable start is found, the wait expires or the buffer cap
-// is reached. When it returns, r.buf holds the bytes to deliver from the boundary onward.
-func (r *decodeStartReader) fillUntilDecodable(p []byte) {
-	for {
-		select {
-		case <-r.done:
-			// Ending the session must not throw away bytes that were already read: the gate
-			// hands them on, and the next call reports the end.
-			r.buf = r.pending
-			r.pending = nil
-			r.ready = true
+	// Forward the rest of the stream as it arrives.
+	select {
+	case chunk, ok := <-r.results:
+		if !ok {
 			r.cancelled = true
 
-			return
-		default:
+			return 0, io.EOF
 		}
+		if len(chunk.data) > 0 {
+			n := copy(p, chunk.data)
+			if n < len(chunk.data) {
+				r.buf = append(r.buf, chunk.data[n:]...)
+			}
 
-		n, err := r.src.Read(p)
-		if n > 0 {
-			r.pending = append(r.pending, p[:n]...)
-			if offset, pat, pmt, ok := firstDecodableOffset(r.pending); ok {
-				r.buf = append(append(append([]byte{}, pat...), pmt...), r.pending[offset:]...)
-				r.ready = true
-				if r.skipped > 0 || offset > 0 {
-					log.Infof("webrtc decode start: skipped %d bytes to begin at a keyframe with parameter sets",
-						r.skipped+int64(offset))
-				}
+			return n, nil
+		}
+		r.cancelled = true
+
+		return 0, io.EOF
+	case <-r.done:
+		r.cancelled = true
+
+		return 0, io.EOF
+	}
+}
+
+// fillUntilDecodable consumes results until a decodable start is found, the wait expires or the
+// session ends. It never blocks on the source itself, so both bounds hold while a read is pending.
+func (r *decodeStartReader) fillUntilDecodable() {
+	deadline := time.NewTimer(decodeStartWait)
+	defer deadline.Stop()
+
+	for {
+		select {
+		case chunk, ok := <-r.results:
+			if !ok {
+				r.finish(r.pending)
 				r.pending = nil
 
 				return
 			}
-		}
+			if len(chunk.data) > 0 {
+				r.pending = append(r.pending, chunk.data...)
+				if offset, pat, pmt, found := firstDecodableOffset(r.pending); found {
+					r.ready = true
+					if offset > 0 {
+						r.skipped += int64(offset)
+						log.Infof("webrtc decode start: skipped %d bytes to begin at a keyframe with parameter sets", offset)
+					}
+					r.buf = append(append(append([]byte{}, pat...), pmt...), r.pending[offset:]...)
+					r.pending = nil
 
-		if len(r.pending) > decodeStartMaxBytes || time.Since(r.start) > decodeStartWait {
-			r.gaveUp = true
-			r.buf = r.pending
-			r.ready = true
+					return
+				}
+				if len(r.pending) > decodeStartMaxBytes {
+					log.Warnf("webrtc decode start: no decodable boundary within %d bytes; passing the stream through as is", decodeStartMaxBytes)
+					r.finish(r.pending)
+					r.pending = nil
+
+					return
+				}
+			}
+			if chunk.err != nil {
+				r.finish(r.pending)
+				r.pending = nil
+
+				return
+			}
+		case <-deadline.C:
+			log.Warnf("webrtc decode start: no decodable boundary within %s; passing the stream through as is", decodeStartWait)
+			r.finish(r.pending)
 			r.pending = nil
-			log.Warnf("webrtc decode start: no decodable boundary within %s or %d bytes; passing the stream through as is",
-				decodeStartWait, decodeStartMaxBytes)
 
 			return
-		}
-
-		if err != nil {
-			// The source ended before a boundary appeared. Hand over what was read and stop
-			// reading: the stream is over either way.
-			r.buf = r.pending
+		case <-r.done:
+			r.finish(r.pending)
 			r.pending = nil
-			r.ready = true
-			r.cancelled = true
 
 			return
 		}
 	}
+}
+
+// finish hands over the bytes read so far and ends the search.
+func (r *decodeStartReader) finish(buffered []byte) {
+	r.buf = buffered
+	r.ready = true
 }
 
 // tsScan is the state carried while looking for a decodable boundary.
