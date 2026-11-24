@@ -78,10 +78,70 @@ export interface LiveWarning {
   message: string;
 }
 
+// Inbound properties a WebRTC leg decision was made from. Zero values mean
+// "unknown": the copy eligibility rules are conservative about unknown values.
+export interface WebRTCLegSource {
+  protocol?: string;
+  videoCodec?: string;
+  videoProfile?: string;
+  videoLevel?: string;
+  hasBFrames: boolean | null;
+  width?: number;
+  height?: number;
+  fps: number | null;
+  videoBitrateKbps: number | null;
+  // Where videoBitrateKbps came from: "measured" (SRT PES statistics) or
+  // "declared" (RTMP onMetaData); empty when unknown.
+  bitrateSource?: string;
+}
+
+// One resolved WebRTC delivery decision for an output variant. Values are the
+// planned settings, not measured output, except outputBitrateKbps.
+export interface WebRTCLegStatus {
+  variantIndex: number;
+  name?: string;
+  // Configured mode: "inherit" | "transcode" | "copy"; empty when the variant
+  // is not WebRTC-enabled.
+  requestedMode: string;
+  // Set only for requestedMode "inherit": "hls-copy" | "hls-transcode" | "no-hls".
+  inheritedFrom?: string;
+  // Applied mode: "copy" | "transcode" | "disabled".
+  mode: string;
+  source: WebRTCLegSource;
+  // Transcode target bitrate.
+  videoBitrateKbps?: number;
+  gopFrames?: number;
+  framerate?: number;
+  // Encoder output profile.
+  h264Profile?: string;
+  // Transcode output size; 0/absent keeps the source size.
+  scaledWidth?: number;
+  scaledHeight?: number;
+  // Measured at this rendition's RTP leg (average since the leg opened); null
+  // while the leg is not open or has not run for a second.
+  outputBitrateKbps: number | null;
+  ineligibilityReasons: string[];
+  warnings: string[];
+}
+
+// The H.264 profile-level-id the WHEP SDP answer advertises. Deliberately
+// separate from the source SPS profile/level and from the encoder output
+// profile: only this value is what the browser negotiates against.
+export interface WebRTCAdvertisedH264 {
+  profile: string;
+  level: string;
+  profileLevelId: string;
+  fmtp: string;
+}
+
 export interface LiveWebRTCStatus {
   enabled: boolean;
   capacity: { used: number; limit: number };
   warnings: LiveWarning[];
+  // One entry per output variant exposed over WebRTC; empty when no variant is
+  // exposed. Additive: older payloads omit it, so treat a missing array as empty.
+  legs: WebRTCLegStatus[];
+  advertised?: WebRTCAdvertisedH264;
 }
 
 // One loaded (or attempted) GeoIP database file. Sources are ordered primary
@@ -248,7 +308,7 @@ export function makeEmptyLiveStatus(): LiveStatus {
     },
     viewers: { total: 0, webrtc: 0, hls: 0 },
     ffmpeg: { processModel: '', processes: [] },
-    webrtc: { enabled: false, capacity: { used: 0, limit: 0 }, warnings: [] },
+    webrtc: { enabled: false, capacity: { used: 0, limit: 0 }, warnings: [], legs: [] },
     warnings: [],
     geoip: { configured: false, databaseType: '', buildDate: '' },
     outbound: { streams: [] },

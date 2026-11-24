@@ -184,13 +184,69 @@ func findHLSPlaylistEnd(argv []string) int {
 	return fallback
 }
 
+// teeOutputSplit is the display decomposition of a "-f tee" output, which is the
+// shared HLS+WebRTC layout. The tee muxer puts every HLS and RTP target into a
+// single pipe-joined argument, so the argv is one unreadable line without this
+// split; the HLS playlist URLs are embedded in it, which is also why the legacy
+// "find the playlist URL" classification could not see them.
+type teeOutputSplit struct {
+	// prefix is everything between the input and "-f tee": the variant encoders
+	// and the muxer-wide options.
+	prefix []string
+	// marker is "-f", "tee".
+	marker []string
+	// hlsTargets and rtpTargets are the tee slaves, one entry each.
+	hlsTargets []string
+	rtpTargets []string
+	// suffix is everything after the tee argument: independent WebRTC encodes
+	// and the dedicated copy legs.
+	suffix []string
+}
+
+// splitTeeOutput decomposes a tee output. It reports false when the argv has no
+// "-f tee" output.
+func splitTeeOutput(argv []string) (teeOutputSplit, bool) {
+	for index := 0; index+2 < len(argv); index++ {
+		if argv[index] != "-f" || argv[index+1] != "tee" {
+			continue
+		}
+		split := teeOutputSplit{
+			prefix: argv[:index],
+			marker: []string{argv[index], argv[index+1]},
+			suffix: argv[index+3:],
+		}
+		for _, slave := range strings.Split(argv[index+2], "|") {
+			if strings.Contains(slave, "f=hls") {
+				split.hlsTargets = append(split.hlsTargets, slave)
+
+				continue
+			}
+			split.rtpTargets = append(split.rtpTargets, slave)
+		}
+
+		return split, true
+	}
+
+	return teeOutputSplit{}, false
+}
+
 // ClassifyArgv groups an executed argv into the panel's collapsible sections.
 // Classification is structural, not flag-based: everything up to and including
 // the input ("-i pipe:0") is common; for HLS processes the HLS output block
 // runs through the in-process HLS playlist URL; everything after it is a WebRTC
 // RTP output block (and for the isolated WebRTC-only process everything after
-// the input is WebRTC). Every element of argv appears exactly once across
-// Common+HLS+WebRTC by construction; Environment is not part of argv.
+// the input is WebRTC).
+//
+// The shared HLS+WebRTC layout uses one tee muxer output instead of separate
+// HLS and RTP outputs. There the tee's single pipe-joined argument is expanded
+// into one entry per target, and the targets are split by muxer: HLS slaves go
+// to the HLS section and RTP slaves to the WebRTC section, with the variant
+// encoders before them and any independent WebRTC encode or copy leg after.
+// argv itself is never modified; only this display view is.
+//
+// Every element of argv appears exactly once across Common+HLS+WebRTC, except
+// the tee slave list, which appears once per target. Environment is not part of
+// argv.
 func ClassifyArgv(argv []string, environment []string) ArgvSections {
 	sections := ArgvSections{
 		Common:      make([]string, 0, 16),
@@ -220,6 +276,15 @@ func ClassifyArgv(argv []string, environment []string) ArgvSections {
 	sections.Common = append(sections.Common, argv[:inputEnd]...)
 
 	rest := argv[inputEnd:]
+	if split, ok := splitTeeOutput(rest); ok {
+		sections.HLS = append(sections.HLS, split.prefix...)
+		sections.HLS = append(sections.HLS, split.marker...)
+		sections.HLS = append(sections.HLS, split.hlsTargets...)
+		sections.WebRTC = append(sections.WebRTC, split.rtpTargets...)
+		sections.WebRTC = append(sections.WebRTC, split.suffix...)
+
+		return sections
+	}
 	hlsEnd := findHLSPlaylistEnd(rest)
 	if hlsEnd >= 0 {
 		sections.HLS = append(sections.HLS, rest[:hlsEnd]...)

@@ -43,19 +43,24 @@ func (s *Service) resolveWebRTCSource(session ingest.Session, webrtcVariants []m
 }
 
 // resolveWebRTCLegs decides how each WebRTC-enabled variant is delivered and
-// returns the decisions keyed by variant index, the warnings to report, and
-// whether any variant is deliverable at all.
+// returns the decisions keyed by variant index, the same decisions rendered for
+// the admin status payload, the warnings to report, and whether any variant is
+// deliverable at all.
 //
 // A variant whose leg cannot be delivered is disabled in the published set while
 // keeping its slice position, so WHEP variant indices stay stable for the client.
+// Its decision is still reported: "this tier was withdrawn" is an answer the
+// operator needs, not a silent absence.
+//
+//nolint:cyclop // linear per-variant plan assembly
 func (s *Service) resolveWebRTCLegs(
-	session ingest.Session,
 	webrtcVariants []models.StreamOutputVariant,
 	webrtcConfig models.WebRTCConfig,
 	source webrtc.SourceInfo,
-) (map[int]webrtc.LegDecision, []models.StatusWarning, bool) {
+) (map[int]webrtc.LegDecision, []models.WebRTCLegStatus, []models.StatusWarning, bool) {
 	warnings := make([]models.StatusWarning, 0, len(webrtcVariants))
 	decisions := make(map[int]webrtc.LegDecision, len(webrtcVariants))
+	legStatuses := make([]models.WebRTCLegStatus, 0, len(webrtcVariants))
 	hasEnabled := false
 
 	for index := range webrtcVariants {
@@ -78,12 +83,9 @@ func (s *Service) resolveWebRTCLegs(
 		}
 
 		appendLegDiagnostics(decision, &warnings)
-		// RTMP cannot provide the strict copy-eligibility metadata. When the
-		// operator asked for passthrough (explicit copy or inheritance from a
-		// passthrough HLS variant), deliver the copy leg with an honest warning.
-		// The forwarder supplies cached SPS/PPS per IDR, so a viewer joining
-		// mid-stream can still decode it.
-		decision = rtmpCopyFallback(session, variant, decision, source, webrtcConfig, &warnings, index)
+
+		legStatuses = append(legStatuses, legStatusFromDecision(index, variant, decision))
+		logLegDecision(legStatuses[len(legStatuses)-1])
 
 		if !decision.Enabled {
 			if webrtcVariants[index].Outputs != nil && webrtcVariants[index].Outputs.WebRTC != nil {
@@ -97,7 +99,7 @@ func (s *Service) resolveWebRTCLegs(
 		hasEnabled = true
 	}
 
-	return decisions, warnings, hasEnabled
+	return decisions, legStatuses, warnings, hasEnabled
 }
 
 // openWebRTCLegs opens one loopback media leg per decided variant and returns the
@@ -154,11 +156,14 @@ func (s *Service) openWebRTCLegs(
 			VideoPayloadType: webrtc.PayloadTypeVideo,
 			AudioPayloadType: webrtc.PayloadTypeAudio,
 			VideoBitrateKbps: decision.VideoBitrateKbps,
-			// The isolated WebRTC process decodes the raw source, so a transcode
-			// leg must be told the variant's size explicitly or it keeps the
-			// source resolution (a 1440p source stayed 1440p at 6 Mbps).
-			Scale:           webrtcLegScale(variant, decision),
+			BitratePeakKbps:  decision.BitratePeakKbps,
+			// The decision owns the scale: a transcode leg for a variant that
+			// does not scale keeps the source resolution ("transcode at source
+			// size"), and the isolated WebRTC process decodes the raw source, so
+			// it must be told the size explicitly when there is one.
+			Scale:           decision.Scale,
 			GOPFrames:       decision.GOPFrames,
+			Framerate:       decision.Framerate,
 			CopyVideo:       decision.Copy,
 			H264Profile:     decision.H264Profile,
 			VideoCodec:      videoCodec,

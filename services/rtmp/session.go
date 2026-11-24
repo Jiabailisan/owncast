@@ -4,12 +4,15 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/teris-io/shortid"
 
+	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/services/ingest"
+	"github.com/owncast/owncast/services/ingest/flv"
 )
 
 // errStreamDisconnectedByAdmin is the close reason used for forced
@@ -38,6 +41,28 @@ type session struct {
 	conn   net.Conn
 	reader *countingReader
 	writer *io.PipeWriter
+
+	// inspector extracts the H.264 source properties from the FLV tags the
+	// packet pump forwards, so RTMP runs the same copy-eligibility rules as SRT.
+	inspector *flv.Inspector
+
+	// sourceMu guards declared, lastSourceKey and publishedBFrames.
+	sourceMu sync.Mutex
+	// declared is the onMetaData claim, used only where the probe has no value.
+	declared      models.InboundStreamDetails
+	lastSourceKey string
+	// publishedBFrames records the published B-frame verdict; a published "true"
+	// is never replaced by an older snapshot.
+	publishedBFrames bool
+
+	// sourceReady is closed once the B-frame verdict has been published, so a
+	// copy decision does not have to wait for the next statistics tick.
+	sourceReady     chan struct{}
+	sourceReadyOnce sync.Once
+	sourceDecided   atomic.Bool
+	// bitratePublished records that the measured video bitrate has been
+	// published, so the packet path stops sampling for it.
+	bitratePublished atomic.Bool
 }
 
 // newSession builds an RTMP session. onClose is called exactly once when the
@@ -53,9 +78,11 @@ func newSession(conn net.Conn, reader *io.PipeReader, writer *io.PipeWriter, key
 			ingest.FLVInputFormat(),
 			onClose,
 		),
-		conn:   conn,
-		reader: &countingReader{reader: reader},
-		writer: writer,
+		conn:        conn,
+		reader:      &countingReader{reader: reader},
+		writer:      writer,
+		inspector:   flv.NewInspector(),
+		sourceReady: make(chan struct{}),
 	}
 }
 
@@ -80,6 +107,10 @@ func (s *session) startStatsSampler() {
 				last = current
 				kbps := float64(delta*8) / 1000.0
 				s.SetStats(ingest.Stats{BitrateKbps: &kbps})
+				// The inspector runs on the packet pump, so the tick also
+				// publishes properties it discovered since the last one (the
+				// bitrate window, for example, needs a second of media time).
+				s.refreshSourceMetadata()
 			}
 		}
 	}()

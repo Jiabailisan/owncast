@@ -85,7 +85,7 @@ func TestPrefetchReaderPreservesOrderAndExitsOnEOF(t *testing.T) {
 		payload := incrementingPayload(64 * 1024)
 		reader := newPrefetchReader(bytes.NewReader(payload))
 
-		reader.Prefetch(4096)
+		reader.Prefetch(time.Now().Add(time.Minute), 4096)
 
 		select {
 		case <-reader.BudgetSpent():
@@ -111,7 +111,7 @@ func TestPrefetchReaderPreservesOrderAndExitsOnEOF(t *testing.T) {
 
 		// The budget is far larger than the source, so the prefetch ends on the
 		// EOF that arrives together with the last bytes.
-		reader.Prefetch(1 << 20)
+		reader.Prefetch(time.Now().Add(time.Minute), 1<<20)
 
 		got, err := readAllWithinDeadline(t, reader, 2*time.Second)
 		if err != nil {
@@ -129,7 +129,7 @@ func TestPrefetchReaderPreservesOrderAndExitsOnEOF(t *testing.T) {
 
 		// The budget is far larger than the source, so only the EOF can end the
 		// prefetch goroutine.
-		reader.Prefetch(1 << 20)
+		reader.Prefetch(time.Now().Add(time.Minute), 1<<20)
 
 		got, err := readAllWithinDeadline(t, reader, 2*time.Second)
 		if err != nil {
@@ -153,4 +153,42 @@ func TestPrefetchReaderPreservesOrderAndExitsOnEOF(t *testing.T) {
 			t.Fatalf("reading past the end returned (%d, %v), want (0, io.EOF)", n, readErr)
 		}
 	})
+
+	// The read-ahead window is a media-time budget, so a source that never
+	// reaches the byte ceiling still ends the prefetch at its deadline. A byte
+	// budget alone stopped the inspector too early on high-bitrate sources: 1 MiB
+	// is about 0.6 s of a 13 Mbps 1440p60 stream, less than the ~1 s the B-frame
+	// verdict needs, so every such source lost its copy verdict.
+	t.Run("a source below the byte ceiling stops at the deadline", func(t *testing.T) {
+		// A live source that keeps delivering: it never reaches the byte
+		// ceiling, so only the deadline can end the read-ahead.
+		reader := newPrefetchReader(&endlessReader{})
+
+		reader.Prefetch(time.Now().Add(150*time.Millisecond), 1<<20)
+
+		select {
+		case <-reader.BudgetSpent():
+		case <-time.After(2 * time.Second):
+			t.Fatal("the prefetch goroutine never closed the budget at its deadline")
+		}
+
+		// The bytes read before the deadline are still served in order.
+		probe := make([]byte, 32*1024)
+		n, err := reader.Read(probe)
+		if err != nil || n == 0 {
+			t.Fatalf("reading buffered bytes after the deadline returned (%d, %v)", n, err)
+		}
+	})
+}
+
+// endlessReader is a live source that never ends, so the prefetch can only stop
+// on its byte ceiling or its deadline.
+type endlessReader struct{}
+
+func (r *endlessReader) Read(p []byte) (int, error) {
+	for index := range p {
+		p[index] = byte(index)
+	}
+
+	return len(p), nil
 }

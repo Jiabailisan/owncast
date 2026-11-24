@@ -5,6 +5,7 @@ import (
 
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/services/geoip"
+	"github.com/owncast/owncast/services/webrtc"
 )
 
 type stubWebRTCProvider struct {
@@ -14,6 +15,10 @@ type stubWebRTCProvider struct {
 func (s stubWebRTCProvider) ViewerCount() int                 { return len(s.rows) }
 func (s stubWebRTCProvider) LiveViewers() []models.LiveViewer { return s.rows }
 func (s stubWebRTCProvider) Warnings() []string               { return nil }
+
+func (s stubWebRTCProvider) MediaLegStats(int) (webrtc.MediaLegStats, bool) {
+	return webrtc.MediaLegStats{}, false
+}
 
 // TestCollectLiveViewersLabelsWebRTCViewers guards the admin Live viewers table
 // for WHEP sessions: the WebRTC delivery service knows the viewer address but

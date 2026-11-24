@@ -71,6 +71,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		tr.SetRTPOnly(true)
 		tr.SetInputFormat(session.InputFormat())
 		tr.SetRTPOutputs(webrtc.outputs)
+		tr.SetSourceVideoOnly(sessionVideoOnly(session))
 		// The branch reads the stream as the tee delivers it. A gate that held the stream until
 		// it could start at a keyframe was tried and removed: measured against captured streams
 		// it did not reduce the parameter-set errors, and on a capture with no recoverable

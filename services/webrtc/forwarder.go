@@ -47,14 +47,19 @@ type MediaLegStats struct {
 	RebaseCount           uint64  `json:"rebaseCount"`
 	ReorderedPackets      uint64  `json:"reorderedPackets"`
 	MeasuredVideoFPS      float64 `json:"measuredVideoFps"`
-	SPSSeen               bool    `json:"spsSeen"`
-	PPSSeen               bool    `json:"ppsSeen"`
-	LastKeyframeAgeMs     int64   `json:"lastKeyframeAgeMs"`
-	LastPacketAgeMs       int64   `json:"lastPacketAgeMs"`
-	VideoLastSequence     uint16  `json:"videoLastSequence"`
-	VideoLastTimestamp    uint32  `json:"videoLastTimestamp"`
-	AudioLastSequence     uint16  `json:"audioLastSequence"`
-	AudioLastTimestamp    uint32  `json:"audioLastTimestamp"`
+	// VideoBitrateKbps is the average video bitrate measured at this RTP leg
+	// since it opened: what the encoder actually produced for this rendition, as
+	// opposed to the planned target. Zero until the leg has been open for a
+	// second.
+	VideoBitrateKbps   float64 `json:"videoBitrateKbps"`
+	SPSSeen            bool    `json:"spsSeen"`
+	PPSSeen            bool    `json:"ppsSeen"`
+	LastKeyframeAgeMs  int64   `json:"lastKeyframeAgeMs"`
+	LastPacketAgeMs    int64   `json:"lastPacketAgeMs"`
+	VideoLastSequence  uint16  `json:"videoLastSequence"`
+	VideoLastTimestamp uint32  `json:"videoLastTimestamp"`
+	AudioLastSequence  uint16  `json:"audioLastSequence"`
+	AudioLastTimestamp uint32  `json:"audioLastTimestamp"`
 }
 
 type forwarderCounters struct {
@@ -481,8 +486,10 @@ func (l *MediaLeg) Stats() MediaLegStats {
 	// Reordered packets are counted across both forwarders.
 	reordered := l.videoForwarder.counters.reordered.Load() + l.audioForwarder.counters.reordered.Load()
 	measuredFPS := 0.0
+	measuredBitrateKbps := 0.0
 	if elapsed := now.Sub(l.videoForwarder.startedAt).Seconds(); elapsed > 1 {
 		measuredFPS = float64(l.videoForwarder.counters.frames.Load()) / elapsed
+		measuredBitrateKbps = float64(videoBytes) * 8 / elapsed / 1000
 	}
 
 	return MediaLegStats{
@@ -497,6 +504,7 @@ func (l *MediaLeg) Stats() MediaLegStats {
 		RebaseCount:           videoRebases + audioRebases,
 		ReorderedPackets:      reordered,
 		MeasuredVideoFPS:      measuredFPS,
+		VideoBitrateKbps:      measuredBitrateKbps,
 		SPSSeen:               len(sps) > 0,
 		PPSSeen:               len(pps) > 0,
 		LastKeyframeAgeMs:     ageMillis(now, l.videoForwarder.lastIDRAt()),

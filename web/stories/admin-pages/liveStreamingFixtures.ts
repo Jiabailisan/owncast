@@ -174,14 +174,106 @@ export const liveStatus = {
       },
     ],
   },
-  webrtc: { enabled: true, capacity: { used: 1, limit: 100 }, warnings: [] },
+  webrtc: { enabled: true, capacity: { used: 1, limit: 100 }, warnings: [], legs: [] },
   warnings: [],
   geoip: { configured: false, databaseType: '', buildDate: '' },
 };
 
+// Per-variant WebRTC delivery decisions: one explicit transcode leg, one
+// inherited copy leg and one explicit copy leg that fell back to a transcode
+// because the source uses B-frames.
+export const webrtcLegs = [
+  {
+    variantIndex: 0,
+    name: '720p @1200 kbps',
+    requestedMode: 'transcode',
+    mode: 'transcode',
+    source: {
+      protocol: 'srt',
+      videoCodec: 'h264',
+      videoProfile: 'high',
+      videoLevel: '4.1',
+      hasBFrames: true,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      videoBitrateKbps: 2500,
+      bitrateSource: 'measured',
+    },
+    videoBitrateKbps: 1200,
+    gopFrames: 60,
+    framerate: 30,
+    h264Profile: 'high',
+    scaledWidth: 1280,
+    scaledHeight: 720,
+    outputBitrateKbps: 1180,
+    ineligibilityReasons: [],
+    warnings: [],
+  },
+  {
+    variantIndex: 1,
+    name: 'Source',
+    requestedMode: 'inherit',
+    inheritedFrom: 'hls-copy',
+    mode: 'copy',
+    source: {
+      protocol: 'srt',
+      videoCodec: 'h264',
+      videoProfile: 'high',
+      videoLevel: '4.1',
+      hasBFrames: false,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      videoBitrateKbps: 2500,
+      bitrateSource: 'measured',
+    },
+    outputBitrateKbps: 2490,
+    ineligibilityReasons: [],
+    warnings: [],
+  },
+  {
+    variantIndex: 2,
+    name: 'Source (WebRTC copy)',
+    requestedMode: 'copy',
+    mode: 'transcode',
+    source: {
+      protocol: 'rtmp',
+      videoCodec: 'h264',
+      videoProfile: 'main',
+      videoLevel: '4.0',
+      hasBFrames: true,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      videoBitrateKbps: null,
+      bitrateSource: '',
+    },
+    videoBitrateKbps: 2500,
+    gopFrames: 30,
+    framerate: 30,
+    h264Profile: 'main',
+    outputBitrateKbps: null,
+    ineligibilityReasons: [
+      'webrtc_copy_ineligible_b_frames: source uses B-frames',
+      'webrtc_copy_ineligible_unverified_profile: source profile-level-id was not verified',
+    ],
+    warnings: [
+      'webrtc_inherited_copy_fallback: copy was not possible, transcoding at the source resolution instead',
+    ],
+  },
+];
+
+export const webrtcAdvertised = {
+  profile: 'constrained-baseline',
+  level: '3.1',
+  profileLevelId: '42e01f',
+  fmtp: 'level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f',
+};
+
 // Additive live-status details added by task-29/task-28: SRT audio codec
-// details, dual GeoIP databases and planned outbound streams (with a
-// passthrough variant whose bitrates are unknown -> N/A).
+// details, dual GeoIP databases, planned outbound streams (with a passthrough
+// variant whose bitrates are unknown -> N/A) and per-variant WebRTC legs.
 export const liveStatusDetailed = {
   ...liveStatus,
   source: {
@@ -189,6 +281,11 @@ export const liveStatusDetailed = {
     audioProfile: 'LC',
     audioSampleRate: 48000,
     audioChannels: 2,
+  },
+  webrtc: {
+    ...liveStatus.webrtc,
+    legs: webrtcLegs,
+    advertised: webrtcAdvertised,
   },
   geoip: {
     configured: true,

@@ -13,12 +13,10 @@ import (
 	"github.com/teris-io/shortid"
 )
 
-// sharedOutputEnabled reports whether HLS and the WebRTC RTP legs can be fed
-// from one tee output. That output encodes each HLS transcode variant exactly
-// once (WebRTC reuses the same encoded stream) and encodes WebRTC's Opus audio
-// exactly once for every leg. It requires at least one RTP leg, variants whose
-// WebRTC legs map back to them, and identical Opus settings across legs.
-// Isolated-process and S3 configurations keep the legacy layout.
+// sharedOutputEnabled reports whether at least one WebRTC RTP leg can reuse an
+// HLS encode. It requires a shared-capable codec, no S3 output, legs that can
+// share one Opus encode, and at least one leg whose whole output plan matches an
+// HLS variant. Isolated-process configurations keep the legacy layout.
 func (t *Transcoder) sharedOutputEnabled() bool {
 	if t.rtpOnly || len(t.rtpOutputs) == 0 || len(t.variants) == 0 {
 		return false
@@ -32,29 +30,45 @@ func (t *Transcoder) sharedOutputEnabled() bool {
 	if !sharedAudioCompatible(t.rtpOutputs) {
 		return false
 	}
-	for _, output := range t.rtpOutputs {
-		if _, ok := t.sharedVideoVariantFor(output); !ok {
-			return false
+
+	return len(t.sharedPlan()) > 0
+}
+
+// sharedPlan maps each RTP leg that may reuse an HLS encode to the index of the
+// variant whose encode feeds it. Legs absent from the map get their own encode
+// in the same FFmpeg process (see getSharedOutputFlags).
+//
+// Reuse is allowed only when the HLS encode already satisfies the leg's whole
+// output plan: resolution, frame rate, rate-control target, H.264 profile, GOP
+// and B-frame setting. A leg that asks for something the HLS encode does not
+// produce must never be fed that encode, because the viewer would silently
+// receive a different rendition: the field report was a 1440p passthrough tier
+// served from the 1080p rendition's encode, at that rendition's 5 s GOP.
+func (t *Transcoder) sharedPlan() map[int]int {
+	plan := make(map[int]int, len(t.rtpOutputs))
+	for index, output := range t.rtpOutputs {
+		if output.CopyVideo {
+			// Copy legs keep the dedicated copy output: there is no encode to share.
+			continue
 		}
-	}
-	for _, output := range t.rtpOutputs {
-		if output.VariantIndex < 0 || output.VariantIndex >= len(t.variants) {
-			return false
+		variantIndex, ok := t.sharedVideoVariantFor(output)
+		if !ok {
+			continue
 		}
+		plan[index] = variantIndex
 	}
 
-	return true
+	return plan
 }
 
 // sharedVideoVariantFor maps a WebRTC leg to the HLS variant whose encoded
-// stream it can reuse. A transcode leg must select a transcoded HLS variant and
-// a copy leg a passthrough variant; the same logical index is preferred, then
-// any variant with matching encoding. The false return means the leg cannot be
-// shared and the caller must fall back to the legacy layout.
+// stream it can reuse. The same logical index is preferred, then any variant
+// with a matching output plan. The false return means the leg cannot be shared
+// and must get its own encode.
 func (t *Transcoder) sharedVideoVariantFor(output RTPOutput) (int, bool) {
 	if output.VariantIndex >= 0 && output.VariantIndex < len(t.variants) {
 		if t.variantMatchesLeg(t.variants[output.VariantIndex], output) {
-			return output.VariantIndex, true
+			return t.variants[output.VariantIndex].index, true
 		}
 	}
 	for _, variant := range t.variants {
@@ -66,22 +80,47 @@ func (t *Transcoder) sharedVideoVariantFor(output RTPOutput) (int, bool) {
 	return 0, false
 }
 
-// variantMatchesLeg reports whether a variant's encode can feed this leg. The
-// passthrough flag must agree: a transcode leg must never be fed the raw source
-// stream, and a copy leg must never be fed an encoded one.
+// variantMatchesLeg reports whether this variant's encode satisfies the leg's
+// entire output plan.
+//
+// The passthrough flag must agree: a transcode leg must never be fed the raw
+// source stream, and a copy leg must never be fed an encoded one. For a
+// transcode leg every parameter the encoder writes has to match, because the
+// tee hands the viewer the HLS variant's bitstream as-is:
+//
+//   - resolution: the leg's scale expression is what FFmpeg is told; the variant
+//     renders the same string when it scales, and "" when neither scales;
+//   - frame rate: one constant rate per encode;
+//   - rate control: the shared encode is pinned to the variant's video bitrate,
+//     so the leg's target must be that same number;
+//   - GOP: the shared encode forces a keyframe every HLS segment, so a leg that
+//     asks for a different keyframe interval cannot use it;
+//   - profile: the shared encode writes the configured WebRTC profile;
+//   - B-frames: the shared encode is rendered with bframes=0 (see
+//     SharedVariantFlags), which is what every transcode leg asks for.
 func (t *Transcoder) variantMatchesLeg(variant HLSVariant, output RTPOutput) bool {
 	if variant.isVideoPassthrough != output.CopyVideo {
 		return false
 	}
-	if !output.CopyVideo && output.VideoBitrateKbps > 0 && variant.videoBitrate != output.VideoBitrateKbps {
-		// Sharing still saves an encode, but the viewer receives the HLS
-		// variant's bitrate rather than the WebRTC-specific override; make that
-		// visible instead of silent.
-		log.Debugf("transcoder: WebRTC leg %d requests %d kbps but shares the %d kbps HLS variant",
-			output.VariantIndex, output.VideoBitrateKbps, variant.videoBitrate)
+	if output.CopyVideo {
+		// A copy leg forwards the source bitstream, which is exactly what a
+		// passthrough variant does.
+		return true
+	}
+	if variant.videoSize.getString() != output.Scale {
+		return false
+	}
+	if variant.framerate != output.Framerate {
+		return false
+	}
+	if variant.getAllocatedVideoBitrate() != output.VideoBitrateKbps {
+		return false
+	}
+	if variant.framerate*t.currentLatencyLevel.SecondsPerSegment != output.GOPFrames {
+		return false
 	}
 
-	return true
+	return normalizeH264Profile(output.H264Profile) == normalizeSharedH264Profile(variant.h264Profile)
 }
 
 // sharedHLSFlags mirrors the HLS muxer flags used by the legacy HLS output.
@@ -146,12 +185,46 @@ func (t *Transcoder) sharedAudioEncoderFlags() []string {
 
 // getSharedOutputFlags renders the single tee output used when HLS and WebRTC
 // share video encodes. Every HLS variant is a single-variant HLS muxer slave;
-// each RTP leg selects the already-encoded variant video stream and the shared
-// Opus audio stream.
+// each shared RTP leg selects the already-encoded variant video stream and the
+// shared Opus audio stream. Legs whose plan no HLS encode satisfies, and the
+// copy legs, are rendered as separate outputs after the tee in this same
+// process.
 func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string {
+	plan := t.sharedPlan()
+	t.markSharedVariants(plan)
+	defer t.clearSharedVariants()
+
 	flags := make([]string, 0, len(t.variants)*24+64)
+	flags = t.appendSharedVariantEncoders(flags)
+	slaves := t.sharedTeeSlaves(localListenerAddress, plan)
+	flags = append(flags, "-f", "tee", strings.Join(slaves, "|"))
+	flags = t.appendIndependentLegOutputs(flags, plan)
+	flags = t.appendCopyLegOutputs(flags)
+
+	return flags
+}
+
+// markSharedVariants flags the variants whose encode a leg actually reuses. Only
+// those get the WebRTC-compatible encoder constraints; a variant that no leg
+// shares keeps the plain HLS encode.
+func (t *Transcoder) markSharedVariants(plan map[int]int) {
 	t.sharedMode = true
-	defer func() { t.sharedMode = false }()
+	for legIndex := range plan {
+		t.variants[plan[legIndex]].sharedEncode = true
+	}
+}
+
+// clearSharedVariants resets the shared-mode markers once the flags are built.
+func (t *Transcoder) clearSharedVariants() {
+	t.sharedMode = false
+	for index := range t.variants {
+		t.variants[index].sharedEncode = false
+	}
+}
+
+// appendSharedVariantEncoders renders the per-variant encoders and the
+// muxer-wide options that precede the tee output.
+func (t *Transcoder) appendSharedVariantEncoders(flags []string) []string {
 	for _, variant := range t.variants {
 		flags = append(flags, variant.getVariantString(t)...)
 	}
@@ -159,51 +232,36 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 	flags = append(flags, "-pix_fmt", t.codec.PixelFormat())
 	flags = append(flags, scThresholdFlags(t.codec)...)
 	flags = append(flags, "-max_muxing_queue_size", "400")
-	flags = append(flags, t.sharedAudioEncoderFlags()...)
+	if !t.sourceVideoOnly {
+		flags = append(flags, t.sharedAudioEncoderFlags()...)
+	}
 
+	return flags
+}
+
+// sharedTeeSlaves renders the tee slave list: one HLS slave per variant, then
+// the shared video and audio RTP targets for every leg that reuses an encode.
+func (t *Transcoder) sharedTeeSlaves(localListenerAddress string, plan map[int]int) []string {
 	slaves := make([]string, 0, len(t.variants)+2*len(t.rtpOutputs))
 	hlsFlags := strings.Join(t.sharedHLSFlags(), "+")
 	segmentIdentifier := t.segmentIdentifier
 	if segmentIdentifier == "" {
 		segmentIdentifier = shortid.MustGenerate()
 	}
-
-	// Each variant's getVariantString maps exactly one video and one audio
-	// stream, in that order.
 	for index := range t.variants {
-		options := []string{
-			// HLS writes go over HTTP to Owncast and can occasionally block;
-			// a deep FIFO keeps that from stalling the RTP slaves (which are
-			// written directly so their packets stay real-time).
-			teeOptionString("use_fifo", "1"),
-			teeOptionString("fifo_options", "queue_size=10000"),
-			teeOptionString("f", "hls"),
-			teeOptionString("select", teeSelect(fmt.Sprintf("v:%d,a:%d", index, index))),
-			teeOptionString("hls_time", strconv.Itoa(t.currentLatencyLevel.SecondsPerSegment)),
-			teeOptionString("hls_list_size", strconv.Itoa(t.currentLatencyLevel.SegmentCount)),
-			teeOptionString("hls_flags", hlsFlags),
-			teeOptionString("method", "PUT"),
-			teeOptionString("hls_segment_filename",
-				teeEscapeColons(localListenerAddress+"/"+strconv.Itoa(index)+"/stream-"+segmentIdentifier+"-%d.ts")),
-		}
-		if t.isEvent {
-			options = append(options, teeOptionString("hls_playlist_type", "event"))
-		}
-		playlistURL := localListenerAddress + "/" + strconv.Itoa(index) + "/stream.m3u8"
-		slaves = append(slaves, "["+strings.Join(options, ":")+"]"+playlistURL)
+		slaves = append(slaves, t.sharedHLSSlave(localListenerAddress, index, hlsFlags, segmentIdentifier))
 	}
 
 	// Tee select specifiers are stream ordinals within each media type: the
-	// shared Opus stream is the Nth audio stream, and each video leg selects
-	// its HLS variant's video ordinal.
+	// shared Opus stream is the Nth audio stream, and each shared video leg
+	// selects its HLS variant's video ordinal.
 	opusAudioOrdinal := len(t.variants)
-	for _, output := range t.rtpOutputs {
-		// Copy legs keep a dedicated RTP output (the legacy, known-good path);
-		// only encoded legs share the tee video stream. The source packets are
-		// still copied, not re-encoded.
+	for legIndex, output := range t.rtpOutputs {
 		if !output.CopyVideo {
-			videoVariant, ok := t.sharedVideoVariantFor(output)
+			videoVariant, ok := plan[legIndex]
 			if !ok {
+				// This leg's plan does not match any HLS encode, so it gets its
+				// own encode after the tee instead of a wrong rendition.
 				continue
 			}
 			videoSlaveOptions := []string{
@@ -214,6 +272,9 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 			slaves = append(slaves, "["+strings.Join(videoSlaveOptions, ":")+"]"+withRTPPacketSize(output.VideoURL))
 		}
 
+		if t.sourceVideoOnly {
+			continue
+		}
 		audioSlaveOptions := []string{
 			teeOptionString("select", teeSelect("a:"+strconv.Itoa(opusAudioOrdinal))),
 			teeOptionString("f", "rtp"),
@@ -222,18 +283,67 @@ func (t *Transcoder) getSharedOutputFlags(localListenerAddress string) []string 
 		slaves = append(slaves, "["+strings.Join(audioSlaveOptions, ":")+"]"+withRTPPacketSize(output.AudioURL))
 	}
 
-	flags = append(flags, "-f", "tee", strings.Join(slaves, "|"))
+	return slaves
+}
 
-	// Dedicated copy video legs: keep the legacy RTP output shape for sources
-	// whose copied bitstream browsers are known to accept.
+// sharedHLSSlave renders the HLS muxer slave for one variant.
+func (t *Transcoder) sharedHLSSlave(localListenerAddress string, index int, hlsFlags, segmentIdentifier string) string {
+	selectStreams := fmt.Sprintf("v:%d,a:%d", index, index)
+	if t.sourceVideoOnly {
+		selectStreams = fmt.Sprintf("v:%d", index)
+	}
+	options := []string{
+		// HLS writes go over HTTP to Owncast and can occasionally block; a deep
+		// FIFO keeps that from stalling the RTP slaves (which are written
+		// directly so their packets stay real-time).
+		teeOptionString("use_fifo", "1"),
+		teeOptionString("fifo_options", "queue_size=10000"),
+		teeOptionString("f", "hls"),
+		teeOptionString("select", teeSelect(selectStreams)),
+		teeOptionString("hls_time", strconv.Itoa(t.currentLatencyLevel.SecondsPerSegment)),
+		teeOptionString("hls_list_size", strconv.Itoa(t.currentLatencyLevel.SegmentCount)),
+		teeOptionString("hls_flags", hlsFlags),
+		teeOptionString("method", "PUT"),
+		teeOptionString("hls_segment_filename",
+			teeEscapeColons(localListenerAddress+"/"+strconv.Itoa(index)+"/stream-"+segmentIdentifier+"-%d.ts")),
+	}
+	if t.isEvent {
+		options = append(options, teeOptionString("hls_playlist_type", "event"))
+	}
+	playlistURL := localListenerAddress + "/" + strconv.Itoa(index) + "/stream.m3u8"
+
+	return "[" + strings.Join(options, ":") + "]" + playlistURL
+}
+
+// appendIndependentLegOutputs renders one independent encode for every leg whose
+// plan no HLS encode satisfies, in this same FFmpeg process, so the viewer still
+// gets the rendition the plan describes instead of a reused one that does not
+// match it.
+func (t *Transcoder) appendIndependentLegOutputs(flags []string, plan map[int]int) []string {
+	for legIndex, output := range t.rtpOutputs {
+		if output.CopyVideo {
+			continue
+		}
+		if _, shared := plan[legIndex]; shared {
+			continue
+		}
+		flags = append(flags, t.rtpVideoOutputFlags(output)...)
+	}
+
+	return flags
+}
+
+// appendCopyLegOutputs renders the dedicated copy legs: the legacy RTP output
+// shape for sources whose copied bitstream browsers are known to accept.
+func (t *Transcoder) appendCopyLegOutputs(flags []string) []string {
+	// h264_mp4toannexb is a no-op for already-Annex-B sources and converts
+	// FLV/AVCC copy legs; dump_extra then injects SPS/PPS on keyframes so
+	// WebRTC copy legs are decodable for mid-stream viewers.
+	const copyBitstreamFilter = "h264_mp4toannexb,dump_extra=freq=keyframe"
 	for _, output := range t.rtpOutputs {
 		if !output.CopyVideo {
 			continue
 		}
-		// h264_mp4toannexb is a no-op for already-Annex-B sources and converts
-		// FLV/AVCC copy legs; dump_extra then injects SPS/PPS on keyframes so
-		// WebRTC copy legs are decodable for mid-stream viewers.
-		copyBitstreamFilter := "h264_mp4toannexb,dump_extra=freq=keyframe"
 		flags = append(
 			flags,
 			ffmpegFlagMap, "0:v:0",

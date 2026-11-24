@@ -1,6 +1,8 @@
 package stream
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,7 +18,13 @@ import (
 // metadata before planning WebRTC legs. The MPEG-TS inspector usually publishes
 // within about a second; without metadata any copy intent falls back to
 // transcode, which is the safe default.
-const webRTCSourceWaitTimeout = 2500 * time.Millisecond
+const webRTCSourceWaitTimeout = 3500 * time.Millisecond
+
+// webRTCReadAheadMaxBytes is the hard memory ceiling for the copy-decision
+// read-ahead. The read-ahead itself is bounded by webRTCSourceWaitTimeout; this
+// only protects against a source whose bitrate makes that window very large
+// (32 MiB covers a 75 Mbps source for the whole window).
+const webRTCReadAheadMaxBytes = 32 << 20
 
 // WebRTCMediaLeg is the loopback RTP leg contract exposed by the WebRTC
 // delivery service. One leg carries one video and one audio RTP stream.
@@ -90,23 +98,6 @@ func effectiveWebRTCVariants(variants []models.StreamOutputVariant) []models.Str
 // hasWebRTCCopyIntent reports whether any WebRTC-enabled variant asks for copy
 // delivery (explicitly or by inheriting a passthrough HLS variant). Copy
 // eligibility needs source metadata, so only these streams wait for it.
-// variantWantsCopy reports an explicit copy mode or inheritance from a
-// passthrough HLS variant.
-func variantWantsCopy(variant models.StreamOutputVariant) bool {
-	mode := ""
-	if variant.Outputs != nil && variant.Outputs.WebRTC != nil {
-		mode = strings.ToLower(strings.TrimSpace(variant.Outputs.WebRTC.Mode))
-	}
-	switch mode {
-	case models.OutputModeTranscode:
-		return false
-	case models.OutputModeCopy:
-		return true
-	default:
-		return variant.IsVideoPassthrough
-	}
-}
-
 func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 	for _, variant := range variants {
 		if !variant.WebRTCEnabled() {
@@ -153,7 +144,7 @@ func (s *Service) webRTCCopyPlanPending(session ingest.Session, variants []model
 		return false
 	}
 
-	return session.Protocol() == ingest.ProtocolSRT && hasWebRTCCopyIntent(variants)
+	return hasWebRTCCopyIntent(variants) && sessionCanReportSourceInfo(session)
 }
 
 // sourceInfoReadyWaiter is implemented by ingest sessions that can report the
@@ -219,22 +210,56 @@ func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeou
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+	// The metadata sampler publishes on its own tick, so a source that will
+	// never decide (a non-H.264 codec, where the B-frame verdict is irrelevant)
+	// is noticed here instead of sitting out the whole timeout.
+	poll := time.NewTicker(sourceInfoPollInterval)
+	defer poll.Stop()
 
-	select {
-	case <-ready:
-		// The verdict is published; the broadcaster carries it now.
-	case <-budgetSpent:
-		// The read-ahead budget is spent and no consumer drains it yet, so the
-		// inspector cannot observe another slice. Stop waiting: the verdict
-		// stays unknown and the existing rules fall back to transcode.
-	case <-session.Done():
-		// The publisher went away while the verdict was still pending. This is a
-		// cancellation: there is no stream to plan for any more.
-		return session.Broadcaster(), true
-	case <-timer.C:
+	for {
+		select {
+		case <-ready:
+			// The verdict is published; the broadcaster carries it now.
+			return session.Broadcaster(), false
+		case <-budgetSpent:
+			// The read-ahead window is over and no consumer drains it yet, so the
+			// inspector cannot observe another slice. Stop waiting: the verdict
+			// stays unknown and the existing rules fall back to transcode.
+			return session.Broadcaster(), false
+		case <-session.Done():
+			// The publisher went away while the verdict was still pending. This is a
+			// cancellation: there is no stream to plan for any more.
+			return session.Broadcaster(), true
+		case <-poll.C:
+			if broadcaster := session.Broadcaster(); sourceDecisionSettled(broadcaster) {
+				return broadcaster, false
+			}
+		case <-timer.C:
+			return session.Broadcaster(), false
+		}
 	}
+}
 
-	return session.Broadcaster(), false
+// sourceInfoPollInterval is how often the wait re-reads the published source
+// metadata while the B-frame verdict is pending.
+const sourceInfoPollInterval = 100 * time.Millisecond
+
+// sourceDecisionSettled reports whether the published source metadata already
+// answers the copy question, so waiting longer cannot change the decision. A
+// known B-frame verdict settles it; so does a source whose video codec is known
+// to be something other than H.264, because such a source must be transcoded
+// regardless of its B-frames.
+func sourceDecisionSettled(broadcaster *models.Broadcaster) bool {
+	if broadcaster == nil {
+		return false
+	}
+	details := broadcaster.StreamDetails
+	if details.HasBFrames != nil {
+		return true
+	}
+	codec := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(details.VideoCodec, ".", ""), " ", ""))
+
+	return codec != "" && codec != "h264" && codec != "avc" && codec != "avc1"
 }
 
 // configureWebRTC resolves the WebRTC plan for the stream that is starting and
@@ -260,68 +285,81 @@ func appendLegDiagnostics(decision webrtc.LegDecision, warnings *[]models.Status
 	}
 }
 
-// rtmpCopyFallback delivers a copy leg for an RTMP source when the operator asked
-// for passthrough. RTMP cannot carry the strict copy-eligibility metadata, so the
-// leg is delivered with an honest warning instead of being silently downgraded;
-// the forwarder caches SPS/PPS per IDR so mid-stream joins can decode it.
-func rtmpCopyFallback(
-	session ingest.Session,
-	variant models.StreamOutputVariant,
-	decision webrtc.LegDecision,
-	source webrtc.SourceInfo,
-	webrtcConfig models.WebRTCConfig,
-	warnings *[]models.StatusWarning,
-	index int,
-) webrtc.LegDecision {
-	if session.Protocol() != ingest.ProtocolRTMP || decision.Copy || !variantWantsCopy(variant) {
-		return decision
+// sessionVideoOnly reports whether the ingest source carries no audio. The
+// WebRTC RTP outputs map audio optionally, and an optional map that resolves to
+// nothing makes the tee/RTP muxer fail the whole FFmpeg process, so a video-only
+// source must not get Opus outputs at all.
+func sessionVideoOnly(session ingest.Session) bool {
+	broadcaster := session.Broadcaster()
+	if broadcaster == nil {
+		return false
 	}
 
-	// RTMP metadata does report the source codec, so an HEVC or AV1 source must not
-	// be forced into the H.264 track: the browser would accept the tracks and then
-	// render nothing. Fall back to a transcode leg instead.
-	if codec := strings.ToLower(strings.TrimSpace(source.VideoCodec)); codec != "" && codec != "h264" {
-		*warnings = append(*warnings, models.StatusWarning{
-			Code:    "webrtc_copy_unsupported_codec",
-			Message: "The source is " + codec + "; WebRTC delivery needs an H.264 transcode leg",
-		})
-		log.Warnln("webrtc: source codec", codec, "cannot be copied to WebRTC; transcoding variant", index)
+	return broadcaster.StreamDetails.VideoOnly
+}
 
-		return webrtc.LegDecision{
-			Enabled:          true,
-			Mode:             models.OutputModeTranscode,
-			VideoBitrateKbps: webrtc.DefaultWebRTCVideoBitrateKbps,
-			GOPFrames:        webrtc.MinimumWebRTCGOPFrames,
-			H264Profile:      webrtcConfig.H264Profile,
-			Source:           source,
+// sessionCanReportSourceInfo reports whether the session can publish the source
+// properties a copy decision needs. Both protocols can now: SRT from the
+// MPEG-TS/H.264 inspector and RTMP from the FLV/AVC inspector, which run on the
+// same bitstream the transcoder receives.
+func sessionCanReportSourceInfo(session ingest.Session) bool {
+	_, ok := session.(sourceInfoReadyWaiter)
+
+	return ok
+}
+
+// legStatusFromDecision renders one resolved decision for the admin Live
+// Stream Status payload. It carries everything needed to answer "why is this
+// rendition copied or transcoded": the requested mode, what an inheritance
+// resolved against, the mode that was applied, the source properties the rules
+// used, the encoder plan, and every failed copy rule.
+func legStatusFromDecision(index int, variant models.StreamOutputVariant, decision webrtc.LegDecision) models.WebRTCLegStatus {
+	status := models.WebRTCLegStatus{
+		VariantIndex:         index,
+		Name:                 variant.GetName(),
+		RequestedMode:        decision.RequestedMode,
+		InheritedFrom:        decision.InheritedFrom,
+		Mode:                 decision.Mode,
+		IneligibilityReasons: append([]string{}, decision.IneligibilityReasons...),
+		Warnings:             append([]string{}, decision.Warnings...),
+		Source: models.WebRTCLegSource{
+			Protocol:      decision.Source.Protocol,
+			VideoCodec:    decision.Source.VideoCodec,
+			VideoProfile:  decision.Source.VideoProfile,
+			VideoLevel:    decision.Source.VideoLevel,
+			HasBFrames:    decision.Source.HasBFrames,
+			Width:         decision.Source.Width,
+			Height:        decision.Source.Height,
+			BitrateSource: decision.Source.BitrateSource,
+		},
+	}
+	if decision.Source.FPS > 0 {
+		fps := decision.Source.FPS
+		status.Source.FPS = &fps
+	}
+	if decision.Source.VideoBitrateKbps > 0 {
+		bitrate := float64(decision.Source.VideoBitrateKbps)
+		status.Source.VideoBitrateKbps = &bitrate
+	}
+	if decision.Mode == "" {
+		status.Mode = models.WebRTCLegModeDisabled
+	}
+	if decision.Mode == models.OutputModeTranscode {
+		status.VideoBitrateKbps = decision.VideoBitrateKbps
+		status.GOPFrames = decision.GOPFrames
+		status.Framerate = decision.Framerate
+		status.H264Profile = decision.H264Profile
+		if parts := strings.SplitN(decision.Scale, ":", 2); len(parts) == 2 {
+			if width, err := strconv.Atoi(parts[0]); err == nil && width > 0 {
+				status.ScaledWidth = width
+			}
+			if height, err := strconv.Atoi(parts[1]); err == nil && height > 0 {
+				status.ScaledHeight = height
+			}
 		}
 	}
 
-	*warnings = append(*warnings, models.StatusWarning{
-		Code:    "webrtc_copy_unverified",
-		Message: "RTMP copy leg is delivered without B-frame/profile verification",
-	})
-	log.Warnln("webrtc: delivering unverified RTMP copy leg for variant", index)
-
-	return webrtc.LegDecision{
-		Enabled:     true,
-		Mode:        models.OutputModeCopy,
-		Copy:        true,
-		H264Profile: webrtcConfig.H264Profile,
-		Source:      source,
-	}
-}
-
-// webrtcLegScale returns the scale expression a transcode leg must apply. A copy
-// leg forwards the source untouched, so it never scales.
-//
-//nolint:cyclop // linear per-variant plan assembly
-func webrtcLegScale(variant models.StreamOutputVariant, decision webrtc.LegDecision) string {
-	if decision.Copy {
-		return ""
-	}
-
-	return transcoder.ScaleExpression(variant.ScaledWidth, variant.ScaledHeight)
+	return status
 }
 
 // webRTCOutputs is what this stream's WebRTC delivery needs: the RTP destinations the
@@ -339,7 +377,21 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 	webrtcVariants := effectiveWebRTCVariants(variants)
 	webrtcConfig := s.configRepository.GetWebRTCConfig()
 
-	decisions, warnings, hasEnabled := s.resolveWebRTCLegs(session, webrtcVariants, webrtcConfig, source)
+	decisions, legs, warnings, hasEnabled := s.resolveWebRTCLegs(webrtcVariants, webrtcConfig, source)
+	// A transcode leg that keeps the source size and has no explicit bitrate
+	// targets the measured source rate. The bitrate window needs about a second
+	// of media time, which a copy verdict can beat, so give the measurement one
+	// bounded chance and re-plan with it. This happens once, before FFmpeg starts:
+	// a bitrate that moves later never restarts the encoder.
+	if needsMeasuredBitrate(decisions) {
+		if refreshed, ok := s.awaitSourceBitrate(session); ok {
+			source = refreshed
+			decisions, legs, warnings, hasEnabled = s.resolveWebRTCLegs(webrtcVariants, webrtcConfig, source)
+		}
+	}
+	// The per-leg decisions are recorded before any leg is opened: a tier that
+	// cannot be delivered at all is exactly what the operator needs to see.
+	s.setWebRTCLegs(legs)
 	if !hasEnabled {
 		s.setWebRTCWarnings(warnings)
 		return webRTCOutputs{}
@@ -357,12 +409,116 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 	s.webRTCVariantGen = generation
 	s.webRTCMu.Unlock()
 
-	outputs, legs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, generation, warnings)
+	outputs, mediaLegs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, generation, warnings)
 	// A variant whose leg failed must not stay selectable over WHEP.
 	s.webRTC.DisableVariants(generation, failed)
 	s.setWebRTCWarnings(warnings)
 
-	return webRTCOutputs{outputs: outputs, legs: legs}
+	return webRTCOutputs{outputs: outputs, legs: mediaLegs}
+}
+
+// webRTCBitrateWaitTimeout bounds the wait for a measured source video bitrate.
+// It is only spent when a source-size transcode leg would otherwise have to use
+// the documented default.
+const webRTCBitrateWaitTimeout = 2500 * time.Millisecond
+
+// needsMeasuredBitrate reports whether any leg is a source-size transcode leg
+// that fell back to the default target, i.e. would benefit from waiting for the
+// measured source rate.
+func needsMeasuredBitrate(decisions map[int]webrtc.LegDecision) bool {
+	for _, decision := range decisions {
+		if decision.Mode == models.OutputModeTranscode && decision.Scale == "" &&
+			decision.BitrateSource == webrtc.BitrateSourceDefault {
+			return true
+		}
+	}
+
+	return false
+}
+
+// awaitSourceBitrate waits briefly for the session to publish a measured video
+// bitrate and returns the refreshed source description. It reports false when
+// the bitrate stays unknown, in which case the caller keeps the documented
+// default.
+func (s *Service) awaitSourceBitrate(session ingest.Session) (webrtc.SourceInfo, bool) {
+	deadline := time.Now().Add(webRTCBitrateWaitTimeout)
+	ticker := time.NewTicker(sourceInfoPollInterval)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-session.Done():
+			return webrtc.SourceInfo{}, false
+		case <-ticker.C:
+		}
+
+		broadcaster := session.Broadcaster()
+		if broadcaster == nil || broadcaster.StreamDetails.VideoBitrate <= 0 {
+			continue
+		}
+
+		return webrtc.SourceInfoFromDetails(string(session.Protocol()), broadcaster.StreamDetails), true
+	}
+
+	return webrtc.SourceInfo{}, false
+}
+
+// logLegDecision writes one line per resolved WebRTC leg. The mode, the source
+// properties the decision used and the fallback reasons are exactly what the
+// admin status payload reports, so a field report can be matched against the
+// log without a rebuild.
+func logLegDecision(leg models.WebRTCLegStatus) {
+	fields := map[string]any{
+		"variant":       leg.VariantIndex,
+		"name":          leg.Name,
+		"requestedMode": leg.RequestedMode,
+		"mode":          leg.Mode,
+		"protocol":      leg.Source.Protocol,
+		"codec":         leg.Source.VideoCodec,
+		"profile":       leg.Source.VideoProfile,
+		"sourceLevel":   leg.Source.VideoLevel,
+		"width":         leg.Source.Width,
+		"height":        leg.Source.Height,
+	}
+	if leg.Source.HasBFrames != nil {
+		fields["bFrames"] = *leg.Source.HasBFrames
+	} else {
+		fields["bFrames"] = "unknown"
+	}
+	if leg.InheritedFrom != "" {
+		fields["inheritedFrom"] = leg.InheritedFrom
+	}
+	if leg.Mode == models.OutputModeTranscode {
+		fields["bitrateKbps"] = leg.VideoBitrateKbps
+		fields["gopFrames"] = leg.GOPFrames
+		fields["framerate"] = leg.Framerate
+		fields["profileOut"] = leg.H264Profile
+		if leg.ScaledWidth > 0 && leg.ScaledHeight > 0 {
+			fields["scale"] = fmt.Sprintf("%dx%d", leg.ScaledWidth, leg.ScaledHeight)
+		}
+	}
+	if len(leg.IneligibilityReasons) > 0 {
+		fields["copyIneligible"] = strings.Join(leg.IneligibilityReasons, "; ")
+	}
+
+	log.WithFields(fields).Infof("webrtc: variant %d resolved to %s", leg.VariantIndex, leg.Mode)
+}
+
+// setWebRTCLegs records the resolved per-variant decisions for the live status
+// payload.
+func (s *Service) setWebRTCLegs(legs []models.WebRTCLegStatus) {
+	s.webRTCMu.Lock()
+	defer s.webRTCMu.Unlock()
+	s.webRTCLegsStatus = legs
+}
+
+// WebRTCLegs returns the resolved WebRTC delivery decisions for the current
+// stream, one per WebRTC-enabled output variant.
+func (s *Service) WebRTCLegs() []models.WebRTCLegStatus {
+	s.webRTCMu.RLock()
+	defer s.webRTCMu.RUnlock()
+
+	return append([]models.WebRTCLegStatus{}, s.webRTCLegsStatus...)
 }
 
 // setWebRTCWarnings records the current stream's WebRTC warnings for the live
@@ -395,4 +551,5 @@ func (s *Service) closeWebRTC() {
 	}
 	_, _ = s.webRTC.SetVariants(nil)
 	s.setWebRTCWarnings(nil)
+	s.setWebRTCLegs(nil)
 }

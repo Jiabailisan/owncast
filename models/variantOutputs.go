@@ -26,12 +26,16 @@ type ProtocolOutputSettings struct {
 	CopyFallback string `json:"copyFallback,omitempty"`
 
 	// Per-protocol overrides. Zero means inherit.
-	VideoBitrate  int  `json:"videoBitrate,omitempty"`
-	AudioBitrate  int  `json:"audioBitrate,omitempty"`
-	Framerate     int  `json:"framerate,omitempty"`
-	CPUUsageLevel *int `json:"cpuUsageLevel,omitempty"`
-	ScaledWidth   int  `json:"scaledWidth,omitempty"`
-	ScaledHeight  int  `json:"scaledHeight,omitempty"`
+	VideoBitrate int `json:"videoBitrate,omitempty"`
+	// PeakBitrateKbps is the explicit VBR peak for a transcode leg. It takes
+	// priority over the derived window (target + half the target, capped at
+	// 2000 kbps) and is ignored when it is not above VideoBitrate.
+	PeakBitrateKbps int  `json:"peakBitrateKbps,omitempty"`
+	AudioBitrate    int  `json:"audioBitrate,omitempty"`
+	Framerate       int  `json:"framerate,omitempty"`
+	CPUUsageLevel   *int `json:"cpuUsageLevel,omitempty"`
+	ScaledWidth     int  `json:"scaledWidth,omitempty"`
+	ScaledHeight    int  `json:"scaledHeight,omitempty"`
 }
 
 // Protocol output modes.

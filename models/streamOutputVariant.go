@@ -6,6 +6,13 @@ import (
 	"math"
 )
 
+// VariantAudioRoomKbps is the part of a variant's configured videoBitrate that
+// the HLS muxer reserves for audio: the encoder is given the remainder as its
+// video bitrate. A WebRTC transcode leg for the same variant targets that same
+// video bitrate, so the two outputs of one variant describe one rendition and a
+// shared encode is comparable to an independent one.
+const VariantAudioRoomKbps = 192
+
 // StreamOutputVariant defines the output specifics of a single HLS stream variant.
 type StreamOutputVariant struct {
 	// Name is an optional human-readable label for this stream output.

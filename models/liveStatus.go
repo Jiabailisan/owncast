@@ -102,6 +102,104 @@ type WebRTCStatus struct {
 	Enabled  bool            `json:"enabled"`
 	Capacity WebRTCCapacity  `json:"capacity"`
 	Warnings []StatusWarning `json:"warnings"`
+	// Advertised is the H.264 profile-level-id the WHEP answer announces. It is
+	// deliberately separate from the source's SPS profile and from the encoder's
+	// output profile: the three can differ, and only this one is what the browser
+	// negotiates against.
+	Advertised *WebRTCAdvertisedH264 `json:"advertised,omitempty"`
+	// Legs reports the resolved delivery decision for every output variant that
+	// is exposed over WebRTC. It is the operator-visible answer to "why is this
+	// rendition copied or transcoded": the requested mode, the mode that was
+	// actually applied, the source properties the decision used, the encoder
+	// settings a transcode leg will use, and every reason a copy request could
+	// not be honored. Empty when no variant is exposed over WebRTC.
+	Legs []WebRTCLegStatus `json:"legs"`
+}
+
+// WebRTCAdvertisedH264 is the H.264 format the WHEP answer advertises.
+type WebRTCAdvertisedH264 struct {
+	// Profile and Level are the configured values the answer was built from.
+	Profile string `json:"profile"`
+	Level   string `json:"level"`
+	// ProfileLevelID is the three-byte profile-level-id in the fmtp.
+	ProfileLevelID string `json:"profileLevelId"`
+	// Fmtp is the full fmtp line for the video payload type.
+	Fmtp string `json:"fmtp"`
+}
+
+// WebRTC delivery modes reported per leg.
+const (
+	WebRTCLegModeCopy      = "copy"
+	WebRTCLegModeTranscode = "transcode"
+	WebRTCLegModeDisabled  = "disabled"
+)
+
+// WebRTC inheritance sources: what an "inherit" (Follow HLS settings) leg
+// resolved against.
+const (
+	WebRTCInheritFromHLSCopy      = "hls-copy"
+	WebRTCInheritFromHLSTranscode = "hls-transcode"
+	WebRTCInheritFromNoHLS        = "no-hls"
+)
+
+// WebRTCLegStatus is one resolved WebRTC delivery decision for an output
+// variant. Values are the planned settings, not measured output.
+type WebRTCLegStatus struct {
+	// VariantIndex is the configured variant position (the WHEP variant index).
+	VariantIndex int `json:"variantIndex"`
+	// Name is the operator-facing variant name.
+	Name string `json:"name,omitempty"`
+
+	// RequestedMode is the configured mode: inherit, transcode or copy.
+	RequestedMode string `json:"requestedMode"`
+	// InheritedFrom is set only for RequestedMode=inherit and names what the
+	// inheritance resolved against (hls-copy, hls-transcode, no-hls).
+	InheritedFrom string `json:"inheritedFrom,omitempty"`
+	// Mode is the mode that was actually applied: copy, transcode or disabled.
+	Mode string `json:"mode"`
+
+	// Source echoes the inbound properties the decision was made from.
+	Source WebRTCLegSource `json:"source"`
+
+	// Encoder settings, set for transcode legs only.
+	VideoBitrateKbps int    `json:"videoBitrateKbps,omitempty"`
+	GOPFrames        int    `json:"gopFrames,omitempty"`
+	Framerate        int    `json:"framerate,omitempty"`
+	H264Profile      string `json:"h264Profile,omitempty"`
+	// ScaledWidth/ScaledHeight are the transcode leg's output size, zero when
+	// it keeps the source size.
+	ScaledWidth  int `json:"scaledWidth,omitempty"`
+	ScaledHeight int `json:"scaledHeight,omitempty"`
+
+	// OutputBitrateKbps is the video bitrate measured at this rendition's RTP
+	// leg (average since the leg opened), i.e. what the encoder actually
+	// produced. Nil while the leg is not open or has not run for a second.
+	OutputBitrateKbps *float64 `json:"outputBitrateKbps"`
+
+	// IneligibilityReasons lists every rule a copy request failed, prefixed
+	// with a stable code (webrtc_copy_ineligible_*).
+	IneligibilityReasons []string `json:"ineligibilityReasons"`
+	// Warnings are operator-facing notes (fallback applied, unverified copy, ...).
+	Warnings []string `json:"warnings"`
+}
+
+// WebRTCLegSource is the inbound property set a leg decision used. Zero values
+// mean "unknown"; the eligibility rules are conservative about unknown values.
+type WebRTCLegSource struct {
+	Protocol     string   `json:"protocol,omitempty"`
+	VideoCodec   string   `json:"videoCodec,omitempty"`
+	VideoProfile string   `json:"videoProfile,omitempty"`
+	VideoLevel   string   `json:"videoLevel,omitempty"`
+	HasBFrames   *bool    `json:"hasBFrames"`
+	Width        int      `json:"width,omitempty"`
+	Height       int      `json:"height,omitempty"`
+	FPS          *float64 `json:"fps"`
+	// VideoBitrateKbps is the source video bitrate the decision saw, nil when
+	// the protocol could not measure or report it.
+	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
+	// BitrateSource names where VideoBitrateKbps came from: measured (SRT PES
+	// statistics) or declared (RTMP onMetaData), empty when unknown.
+	BitrateSource string `json:"bitrateSource,omitempty"`
 }
 
 // WebRTCCapacity is the viewer capacity gate state.

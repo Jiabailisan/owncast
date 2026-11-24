@@ -24,11 +24,16 @@ type RTPOutput struct {
 
 	// Video encoding settings.
 	VideoBitrateKbps int
+	// BitratePeakKbps is the ceiling of the leg's rate-control window. Zero
+	// means "same as VideoBitrateKbps" (a pinned/CBR leg).
+	BitratePeakKbps int
 	// Scale is the "W:H" expression a transcode leg must scale to. Empty when
 	// the leg keeps the source resolution (copy legs, or a variant without
 	// scaled dimensions).
-	Scale       string
-	GOPFrames   int
+	Scale     string
+	GOPFrames int
+	// Framerate is the leg's output frame rate. Zero leaves the source rate.
+	Framerate   int
 	CopyVideo   bool
 	H264Profile string
 
@@ -152,11 +157,13 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 
 		// Unlike HLS, the WebRTC leg gets no rate feedback from the browser (GCC runs
 		// on the sender side, not back into FFmpeg), so a wide VBR window turns into
-		// burst loss and jitter-buffer growth instead of recovered quality. Keep the
-		// leg pinned to its target.
+		// burst loss and jitter-buffer growth instead of recovered quality. The
+		// window is therefore narrow (target .. target + half the target, or the
+		// operator's explicit peak) and fixed when the stream starts: a source
+		// bitrate that moves later never restarts the encoder.
 		targetKbps := output.VideoBitrateKbps
 		minKbps := targetKbps
-		maxKbps := targetKbps
+		maxKbps := output.rateCeilingKbps()
 
 		args = append(
 			args,
@@ -165,6 +172,9 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 			"-g", strconv.Itoa(output.GOPFrames),
 			"-keyint_min", strconv.Itoa(output.GOPFrames),
 		)
+		if output.Framerate > 0 {
+			args = append(args, "-r", strconv.Itoa(output.Framerate))
+		}
 		args = append(args, scThresholdFlags(legCodec)...)
 		args = append(
 			args,
@@ -230,6 +240,16 @@ func (t *Transcoder) rtpAudioOutputFlags(output RTPOutput) []string {
 
 // opusSettings applies the WebRTC audio defaults. The frame duration and bitrate are the operator's
 // settings and are used as configured: the encoder keeps its normal variable bitrate behaviour.
+// rateCeilingKbps is the leg's rate-control ceiling: the explicit peak when it
+// is above the target, otherwise the target itself (a pinned leg).
+func (o RTPOutput) rateCeilingKbps() int {
+	if o.BitratePeakKbps > o.VideoBitrateKbps {
+		return o.BitratePeakKbps
+	}
+
+	return o.VideoBitrateKbps
+}
+
 func (o RTPOutput) opusSettings() (bitrateKbps, frameMs int) {
 	bitrateKbps = o.OpusBitrateKbps
 	if bitrateKbps <= 0 {

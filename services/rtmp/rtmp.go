@@ -165,7 +165,14 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 	s.setCurrentSession(session)
 	session.startStatsSampler()
 	log.Infoln("Inbound stream connected from", nc.RemoteAddr().String())
-	s.setStreamAsConnected(session)
+
+	// The connect callback plans the stream, and planning can wait briefly for
+	// the FLV/H.264 inspector to decide the B-frame verdict. It must not run on
+	// this goroutine: the only source of media bytes is the packet pump below, so
+	// a synchronous callback would wait for data that cannot be produced until it
+	// returns. The pump starts first, the plan runs beside it, and a refused
+	// publish closes the session, which fails the next write and ends the pump.
+	go s.setStreamAsConnected(session)
 
 	w := flv.NewMuxer(rtmpIn)
 
@@ -200,6 +207,13 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 			s.handleDisconnect(session)
 			return
 		}
+
+		// Inspect the tag after it is on its way to the media pipe: the probe is
+		// passive, so a slow or confused inspection can never stall the stream.
+		// The verdict is published from here as soon as the probe reaches it, so
+		// a WebRTC copy decision does not wait for the next statistics tick.
+		session.inspectPacket(pkt)
+		session.publishSourceInfoIfDecided()
 	}
 }
 

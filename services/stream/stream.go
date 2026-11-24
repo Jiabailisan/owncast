@@ -204,7 +204,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	var budgetSpent <-chan struct{}
 	if s.webRTCCopyPlanPending(session, webrtcVariants) {
 		prefetch := newPrefetchReader(mediaReader)
-		prefetch.Prefetch(1 << 20)
+		prefetch.Prefetch(time.Now().Add(webRTCSourceWaitTimeout), webRTCReadAheadMaxBytes)
 		mediaReader = prefetch
 		budgetSpent = prefetch.BudgetSpent()
 	}
@@ -265,6 +265,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		tr.SetStdin(mediaReader)
 		tr.SetInputFormat(session.InputFormat())
 		tr.SetRTPOutputs(webrtc.outputs)
+		tr.SetSourceVideoOnly(sessionVideoOnly(session))
 		s.setTranscoder(tr)
 		tr.Start(true)
 	}()

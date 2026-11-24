@@ -12,14 +12,29 @@ import (
 	"github.com/owncast/owncast/services/ingest"
 )
 
+// sharedCompatibleOutput returns a leg whose whole output plan matches the
+// golden fixture's single HLS variant: 1008 kbps of video (1200 - 192 audio
+// room), 24 fps, a keyframe every 3 s segment (72 frames) and the shared main
+// profile.
+func sharedCompatibleOutput(codecName string) RTPOutput {
+	output := rtpTestOutput(codecName)
+	output.VideoBitrateKbps = 1008
+	output.Framerate = 24
+	output.GOPFrames = 72
+
+	return output
+}
+
 func sharedTestTranscoder(t *testing.T) *Transcoder {
 	t.Helper()
 	tr := newGoldenTranscoder()
 	tr.codec = &NvencCodec{}
-	tr.SetRTPOutputs([]RTPOutput{
-		rtpTestOutput("h264_nvenc"),
-		rtpTestOutput("h264_nvenc"),
-	})
+	first := sharedCompatibleOutput("h264_nvenc")
+	second := sharedCompatibleOutput("h264_nvenc")
+	second.VideoURL = "rtp://127.0.0.1:40002?pkt_size=1200"
+	second.AudioURL = "rtp://127.0.0.1:40003?pkt_size=1200"
+	tr.SetRTPOutputs([]RTPOutput{first, second})
+
 	return tr
 }
 
@@ -49,7 +64,7 @@ func TestSharedTeeOutputEncodesTranscodeOnce(t *testing.T) {
 	if !strings.Contains(joined, "bframes=0") && !strings.Contains(joined, "-bf:v:0 0") {
 		t.Fatalf("shared encode must disable B-frames for WebRTC: %s", joined)
 	}
-	for _, want := range []string{"/0/stream.m3u8", "/0/stream-goldenid-", "rtp://127.0.0.1:40000", "rtp://127.0.0.1:40001"} {
+	for _, want := range []string{"/0/stream.m3u8", "/0/stream-goldenid-", "rtp://127.0.0.1:40000", "rtp://127.0.0.1:40001", "rtp://127.0.0.1:40002", "rtp://127.0.0.1:40003"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("shared output missing %q: %s", want, joined)
 		}
@@ -82,9 +97,9 @@ func TestSharedOpusOptionsUseAudioRelativeSpecifiers(t *testing.T) {
 func TestSharedOutputFallsBackWhenAudioSettingsDiffer(t *testing.T) {
 	tr := newGoldenTranscoder()
 	tr.codec = &NvencCodec{}
-	first := rtpTestOutput("h264_nvenc")
-	second := rtpTestOutput("h264_nvenc")
-	second.AudioURL = "rtp://127.0.0.1:40003?pkt_size=1200"
+	first := sharedCompatibleOutput("h264_nvenc")
+	second := sharedCompatibleOutput("h264_nvenc")
+	second.AudioURL = "rtp://127.0.0.1:40005?pkt_size=1200"
 	second.OpusBitrateKbps = 64
 	tr.SetRTPOutputs([]RTPOutput{first, second})
 
@@ -129,22 +144,165 @@ func TestSharedLegsSelectCompatibleHLSVariant(t *testing.T) {
 	tr.codec = &NvencCodec{}
 	tr.SetIdentifier("goldenid")
 	tr.AddVariant(HLSVariant{index: 0, isVideoPassthrough: true, isAudioPassthrough: true, cpuUsageLevel: 2})
-	tr.AddVariant(HLSVariant{videoBitrate: 6000, isAudioPassthrough: true, cpuUsageLevel: 2})
-	leg := rtpTestOutput("h264_nvenc")
-	leg.VariantIndex = 0
-	leg.H264Profile = "main"
-	leg2 := rtpTestOutput("h264_nvenc")
-	leg2.VariantIndex = 1
-	leg2.VideoURL = "rtp://127.0.0.1:41000?pkt_size=1200"
-	leg2.AudioURL = "rtp://127.0.0.1:41001?pkt_size=1200"
-	tr.SetRTPOutputs([]RTPOutput{leg, leg2})
+	tr.AddVariant(HLSVariant{videoBitrate: 6000, framerate: 30, videoSize: VideoSize{Width: 1920, Height: 1080}, isAudioPassthrough: true, cpuUsageLevel: 2})
+
+	// Leg 0 is the passthrough tier forced to transcode at the source size: it
+	// must never be fed the passthrough stream (a transcode leg) nor the 1080p
+	// encode (wrong resolution and frame rate).
+	leg0 := rtpTestOutput("h264_nvenc")
+	leg0.VariantIndex = 0
+	leg0.VideoBitrateKbps = 5808
+	leg0.Framerate = 60
+	leg0.GOPFrames = 60
+	leg0.VideoURL = "rtp://127.0.0.1:41000?pkt_size=1200"
+	leg0.AudioURL = "rtp://127.0.0.1:41001?pkt_size=1200"
+	// Leg 1 matches the 1080p variant's whole plan.
+	leg1 := rtpTestOutput("h264_nvenc")
+	leg1.VariantIndex = 1
+	leg1.VideoBitrateKbps = 5808
+	leg1.Framerate = 30
+	leg1.GOPFrames = 90
+	leg1.Scale = ScaleExpression(1920, 1080)
+	leg1.VideoURL = "rtp://127.0.0.1:41002?pkt_size=1200"
+	leg1.AudioURL = "rtp://127.0.0.1:41003?pkt_size=1200"
+	tr.SetRTPOutputs([]RTPOutput{leg0, leg1})
+
 	if !tr.sharedOutputEnabled() {
-		t.Fatal("expected shared output")
+		t.Fatal("expected shared output for the compatible leg")
 	}
 	joined := strings.Join(tr.getSharedOutputFlags("http://127.0.0.1:8927"), " ")
-	// WebRTC leg 0 is a transcode leg while HLS variant 0 is passthrough, so it
-	// must select the transcode variant (v:1), never the source copy stream.
+
+	// The compatible leg reuses the encoded HLS variant.
 	if !strings.Contains(joined, "select=\\'v:1\\'") {
-		t.Fatalf("transcode leg did not select the encoded HLS variant: %s", joined)
+		t.Fatalf("compatible leg did not select the encoded HLS variant: %s", joined)
+	}
+	// The source-size leg gets its own encode: an input-mapped RTP output with
+	// no scale and the 1 s GOP, in the same process.
+	if !strings.Contains(joined, "-map 0:v:0 -c:v h264_nvenc") {
+		t.Fatalf("source-size leg did not get an independent encode: %s", joined)
+	}
+	// The source-size leg's own encode keeps its own GOP and resolution.
+	if !strings.Contains(joined, "-g 60") || !strings.Contains(joined, "-r 60") {
+		t.Fatalf("the source-size leg lost its own GOP/frame rate: %s", joined)
+	}
+	if strings.Contains(joined, "-filter:v scale") {
+		t.Fatalf("the source-size leg must not scale: %s", joined)
+	}
+}
+
+// TestSharedOutputRejectsGOPMismatch pins the keyframe-interval rule: an HLS
+// encode with a 5 s GOP cannot serve a WebRTC leg that asks for 1 s, because a
+// joining viewer would wait for the segment boundary. The leg gets its own
+// encode instead of the mismatched one.
+func TestSharedOutputRejectsGOPMismatch(t *testing.T) {
+	tr := new(Transcoder)
+	tr.cfg = &config.Config{LogDirectory: "data/logs"}
+	tr.ffmpegPath = "ffmpeg"
+	tr.internalListenerPort = "8927"
+	tr.input = "pipe:0"
+	tr.inputFormat = ingest.FLVInputFormat()
+	tr.currentLatencyLevel = models.GetLatencyLevel(2) // 3 s segments
+	tr.codec = &NvencCodec{}
+	tr.SetIdentifier("goldenid")
+	tr.AddVariant(HLSVariant{videoBitrate: 6000, framerate: 60, videoSize: VideoSize{Width: 1920, Height: 1080}, isAudioPassthrough: true, cpuUsageLevel: 2})
+
+	leg := rtpTestOutput("h264_nvenc")
+	leg.VariantIndex = 0
+	leg.VideoBitrateKbps = 5808
+	leg.Framerate = 60
+	leg.GOPFrames = 60 // 1 s, while the HLS encode forces 180
+	leg.Scale = ScaleExpression(1920, 1080)
+	tr.SetRTPOutputs([]RTPOutput{leg, leg})
+
+	if tr.sharedOutputEnabled() {
+		t.Fatal("a 1 s GOP leg must not reuse a 3 s GOP encode")
+	}
+	joined := strings.Join(tr.getFlags().command, " ")
+	// The legacy layout still fans the shared Opus stream out with a tee, so the
+	// check is on the video: no tee slave may select an encoded video stream.
+	if strings.Contains(joined, "select=\\'v:") {
+		t.Fatalf("a mismatched plan must not reuse an HLS video encode: %s", joined)
+	}
+	if !strings.Contains(joined, "-g 60") {
+		t.Fatalf("the leg lost its own 1 s GOP: %s", joined)
+	}
+}
+
+// TestSharedOutputSharesWhenPlanMatches is the positive control: identical
+// resolution, frame rate, bitrate, profile and GOP means one encode feeds both
+// HLS and the RTP leg.
+func TestSharedOutputSharesWhenPlanMatches(t *testing.T) {
+	tr := new(Transcoder)
+	tr.cfg = &config.Config{LogDirectory: "data/logs"}
+	tr.ffmpegPath = "ffmpeg"
+	tr.internalListenerPort = "8927"
+	tr.input = "pipe:0"
+	tr.inputFormat = ingest.FLVInputFormat()
+	tr.currentLatencyLevel = models.GetLatencyLevel(2)
+	tr.codec = &NvencCodec{}
+	tr.SetIdentifier("goldenid")
+	tr.AddVariant(HLSVariant{videoBitrate: 6000, framerate: 60, videoSize: VideoSize{Width: 1920, Height: 1080}, isAudioPassthrough: true, cpuUsageLevel: 2})
+
+	leg := rtpTestOutput("h264_nvenc")
+	leg.VariantIndex = 0
+	leg.VideoBitrateKbps = 5808
+	leg.Framerate = 60
+	leg.GOPFrames = 180 // 60 fps * 3 s segment
+	leg.Scale = ScaleExpression(1920, 1080)
+	second := leg
+	second.VideoURL = "rtp://127.0.0.1:42000?pkt_size=1200"
+	second.AudioURL = "rtp://127.0.0.1:42001?pkt_size=1200"
+	tr.SetRTPOutputs([]RTPOutput{leg, second})
+
+	if !tr.sharedOutputEnabled() {
+		t.Fatal("a matching plan must share the encode")
+	}
+	joined := strings.Join(tr.getSharedOutputFlags("http://127.0.0.1:8927"), " ")
+	if got := strings.Count(joined, "-c:v:0 h264_nvenc"); got != 1 {
+		t.Fatalf("expected exactly one video encoder, got %d: %s", got, joined)
+	}
+	if got := strings.Count(joined, "select=\\'v:0\\'"); got != 2 {
+		t.Fatalf("expected both legs to select v:0, got %d: %s", got, joined)
+	}
+}
+
+// TestSharedOutputConstrainsOnlySharedVariants proves a variant no leg reuses
+// keeps the plain HLS encode (its own profile and rate-control window), so the
+// WebRTC constraints cannot leak into an unrelated HLS rendition.
+func TestSharedOutputConstrainsOnlySharedVariants(t *testing.T) {
+	tr := new(Transcoder)
+	tr.cfg = &config.Config{LogDirectory: "data/logs"}
+	tr.ffmpegPath = "ffmpeg"
+	tr.internalListenerPort = "8927"
+	tr.input = "pipe:0"
+	tr.inputFormat = ingest.FLVInputFormat()
+	tr.currentLatencyLevel = models.GetLatencyLevel(2)
+	tr.codec = &Libx264Codec{}
+	tr.SetIdentifier("goldenid")
+	// Variant 0 is shared; variant 1 is not (different frame rate).
+	tr.AddVariant(HLSVariant{videoBitrate: 6000, framerate: 60, videoSize: VideoSize{Width: 1920, Height: 1080}, isAudioPassthrough: true, cpuUsageLevel: 2})
+	tr.AddVariant(HLSVariant{videoBitrate: 3000, framerate: 30, videoSize: VideoSize{Width: 1280, Height: 720}, isAudioPassthrough: true, cpuUsageLevel: 2})
+
+	leg := rtpTestOutput("libx264")
+	leg.VariantIndex = 0
+	leg.VideoBitrateKbps = 5808
+	leg.Framerate = 60
+	leg.GOPFrames = 180
+	leg.Scale = ScaleExpression(1920, 1080)
+	second := leg
+	second.VideoURL = "rtp://127.0.0.1:43000?pkt_size=1200"
+	second.AudioURL = "rtp://127.0.0.1:43001?pkt_size=1200"
+	tr.SetRTPOutputs([]RTPOutput{leg, second})
+
+	joined := strings.Join(tr.getSharedOutputFlags("http://127.0.0.1:8927"), " ")
+	if !strings.Contains(joined, "bframes=0") {
+		t.Fatalf("the shared variant must be WebRTC-constrained: %s", joined)
+	}
+	// Variant 1 keeps the plain x264 flags: a VBR window and no bframes=0.
+	if !strings.Contains(joined, "-minrate:v:1") {
+		t.Fatalf("the unshared variant lost its own rate-control window: %s", joined)
+	}
+	if strings.Contains(joined, "-minrate:v:1 2748k") {
+		t.Fatalf("the unshared variant was pinned by the shared mode: %s", joined)
 	}
 }

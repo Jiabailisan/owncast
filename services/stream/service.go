@@ -148,10 +148,13 @@ type Service struct {
 	// Cleanup uses it so a finished stream cannot withdraw the next stream's
 	// variants at the same indices.
 	webRTCVariantGen uint64
-	// webRTCMu guards webRTCWarnings.
+	// webRTCMu guards webRTCWarnings and webRTCLegsStatus.
 	webRTCMu sync.RWMutex
 	// webRTCWarnings are the leg-planning warnings for the current stream.
 	webRTCWarnings []models.StatusWarning
+	// webRTCLegsStatus are the resolved per-variant delivery decisions for the
+	// current stream (one per WebRTC-enabled output variant).
+	webRTCLegsStatus []models.WebRTCLegStatus
 
 	// sessionMu guards currentSession, which is replaced on connect and
 	// cleared on disconnect while status handlers read it.

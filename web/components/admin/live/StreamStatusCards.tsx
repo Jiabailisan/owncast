@@ -105,6 +105,9 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
   const totalGpuMemoryBytes =
     gpuMemoryValues.length > 0 ? gpuMemoryValues.reduce((sum, value) => sum + value, 0) : null;
   const hasGpuMetrics = maxGpuPercent !== null || totalGpuMemoryBytes !== null;
+  // WebRTC-level warnings (fallback applied, unverified copy, ...) belong in the
+  // same list as stream-level warnings so an operator sees them in one place.
+  const allWarnings = [...warnings, ...(webrtc?.warnings ?? [])];
 
   return (
     <div className={styles.streamStatus}>
@@ -149,9 +152,9 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
         </div>
       </Card>
 
-      {warnings.length > 0 && (
+      {allWarnings.length > 0 && (
         <div className={styles.warnings}>
-          {warnings.map(warning => (
+          {allWarnings.map(warning => (
             <Alert
               key={warning.code + warning.message}
               type="warning"

@@ -1,0 +1,166 @@
+package rtmp
+
+import (
+	"io"
+	"net"
+	"testing"
+	"time"
+
+	"github.com/nareix/joy5/av"
+
+	"github.com/owncast/owncast/models"
+)
+
+// newTestSession builds a session with a loopback connection and a discarded
+// media pipe, so the metadata path can be exercised without a publisher.
+func newTestSession(t *testing.T) *session {
+	t.Helper()
+	server, client := net.Pipe()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = client.Close()
+	})
+
+	reader, writer := io.Pipe()
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+
+	return newSession(server, reader, writer, "key:test", func(error) {})
+}
+
+// avcConfigRecord is an AVCDecoderConfigurationRecord for the x264 720p
+// High@3.1 stream the FLV inspector tests use.
+func avcConfigRecord() []byte {
+	sps := []byte{
+		0x67, 0x64, 0x00, 0x1f, 0xac, 0xd9, 0x40, 0x50, 0x05, 0xbb, 0x01, 0x10,
+		0x00, 0x00, 0x03, 0x00, 0x10, 0x00, 0x00, 0x03, 0x03, 0xc0, 0xf1, 0x83, 0x19, 0x60,
+	}
+	pps := []byte{0x68, 0xef, 0xbc, 0xb0}
+
+	record := []byte{1, sps[1], sps[2], sps[3], 0xFF, 0xE1}
+	record = append(record, byte(len(sps)>>8), byte(len(sps)))
+	record = append(record, sps...)
+	record = append(record, 1, byte(len(pps)>>8), byte(len(pps)))
+	record = append(record, pps...)
+
+	return record
+}
+
+// avccSlice wraps a coded-slice NAL in the AVCC length prefix.
+func avccSlice(nal []byte) []byte {
+	payload := []byte{byte(len(nal) >> 24), byte(len(nal) >> 16), byte(len(nal) >> 8), byte(len(nal))}
+
+	return append(payload, nal...)
+}
+
+// TestRTMPMetadataMergesBitstreamOverDeclaration proves the bitstream wins over
+// onMetaData where it has a value, and that the encoder name (which only the
+// metadata carries) survives.
+func TestRTMPMetadataMergesBitstreamOverDeclaration(t *testing.T) {
+	session := newTestSession(t)
+
+	session.setDeclaredDetails(models.InboundStreamDetails{
+		Encoder:      "obs-output module (libobs version 30.0)",
+		Width:        1920,
+		Height:       1080,
+		VideoCodec:   "H.264",
+		AudioCodec:   "AAC",
+		VideoBitrate: 9000,
+		AudioBitrate: 160,
+	})
+
+	session.inspectPacket(av.Packet{Type: av.H264DecoderConfig, Data: avcConfigRecord()})
+	// A B slice settles the verdict immediately.
+	session.inspectPacket(av.Packet{Type: av.H264, Data: avccSlice([]byte{0x41, 0xA0})})
+
+	broadcaster := session.Broadcaster()
+	if broadcaster == nil {
+		t.Fatal("the session published no broadcaster")
+	}
+	details := broadcaster.StreamDetails
+
+	if details.Width != 1280 || details.Height != 720 {
+		t.Fatalf("size = %dx%d, want the bitstream's 1280x720", details.Width, details.Height)
+	}
+	if details.VideoProfile != "high" || details.VideoLevel != "3.1" {
+		t.Fatalf("profile/level = %q/%q, want high/3.1", details.VideoProfile, details.VideoLevel)
+	}
+	if details.HasBFrames == nil || !*details.HasBFrames {
+		t.Fatalf("hasBFrames = %v, want true from the bitstream", details.HasBFrames)
+	}
+	if details.Encoder != "obs-output module (libobs version 30.0)" {
+		t.Fatalf("encoder = %q, want the declared encoder name", details.Encoder)
+	}
+	if details.VideoBitrate != 9000 || details.VideoBitrateSource != models.VideoBitrateDeclared {
+		t.Fatalf("bitrate = %d (%q), want the declared 9000 kbps before a measurement exists",
+			details.VideoBitrate, details.VideoBitrateSource)
+	}
+
+	// A measured bitrate replaces the declaration and says so.
+	for index := 0; index < 21; index++ {
+		session.inspectPacket(av.Packet{
+			Type: av.H264,
+			Data: avccSlice([]byte{0x41, 0xC0}),
+			Time: timeMillis(index * 100),
+		})
+	}
+	details = session.Broadcaster().StreamDetails
+	if details.VideoBitrateSource != models.VideoBitrateMeasured {
+		t.Fatalf("bitrate source = %q, want measured", details.VideoBitrateSource)
+	}
+	if details.VideoBitrate >= 9000 {
+		t.Fatalf("bitrate = %d, want the measured value to replace the declaration", details.VideoBitrate)
+	}
+}
+
+// TestRTMPMetadataPublishesVerdictOnce proves SourceInfoReady closes exactly
+// when the verdict is published, which is what the copy decision waits on.
+func TestRTMPMetadataPublishesVerdictOnce(t *testing.T) {
+	session := newTestSession(t)
+	session.inspectPacket(av.Packet{Type: av.H264DecoderConfig, Data: avcConfigRecord()})
+
+	select {
+	case <-session.SourceInfoReady():
+		t.Fatal("the verdict was announced before the inspector decided")
+	default:
+	}
+
+	for index := 0; index < 60; index++ {
+		session.inspectPacket(av.Packet{
+			Type: av.H264,
+			Data: avccSlice([]byte{0x41, 0xC0}),
+			Time: timeMillis(index * 33),
+		})
+		session.publishSourceInfoIfDecided()
+	}
+
+	select {
+	case <-session.SourceInfoReady():
+	default:
+		t.Fatal("the verdict was not announced after 60 non-B slices")
+	}
+	details := session.Broadcaster().StreamDetails
+	if details.HasBFrames == nil || *details.HasBFrames {
+		t.Fatalf("hasBFrames = %v, want false", details.HasBFrames)
+	}
+}
+
+// TestRTMPMetadataKeepsVideoOnlyFlag proves a source without audio stays marked
+// video-only, which the transcoder needs to avoid emitting audio outputs.
+func TestRTMPMetadataKeepsVideoOnlyFlag(t *testing.T) {
+	session := newTestSession(t)
+	session.setDeclaredDetails(models.InboundStreamDetails{
+		VideoCodec: "H.264",
+		VideoOnly:  true,
+	})
+	session.inspectPacket(av.Packet{Type: av.H264DecoderConfig, Data: avcConfigRecord()})
+
+	if details := session.Broadcaster().StreamDetails; !details.VideoOnly {
+		t.Fatal("the video-only flag was lost")
+	}
+}
+
+// timeMillis converts milliseconds to the duration av.Packet carries.
+func timeMillis(ms int) time.Duration { return time.Duration(ms) * time.Millisecond }

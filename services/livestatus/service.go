@@ -14,6 +14,7 @@ import (
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/services/geoip"
 	"github.com/owncast/owncast/services/stream"
+	"github.com/owncast/owncast/services/webrtc"
 )
 
 // ConfigProvider is the narrow read-only configuration surface needed here.
@@ -35,6 +36,10 @@ type WebRTCProvider interface {
 	LiveViewers() []models.LiveViewer
 	// Warnings returns operator-visible configuration/runtime warnings.
 	Warnings() []string
+	// MediaLegStats returns the media-path statistics of one variant's RTP leg,
+	// including the video bitrate measured there. The second result is false
+	// while the leg is not open.
+	MediaLegStats(variantIndex int) (webrtc.MediaLegStats, bool)
 }
 
 // GeoIPProvider reports the state of the optional offline GeoIP database and
@@ -170,6 +175,11 @@ func (s *Service) Status() models.LiveStatus {
 			Limit: webrtcConfig.MaxViewers,
 		},
 		Warnings: webrtcWarnings,
+		// One entry per WebRTC-enabled output variant: the requested mode, the
+		// applied mode, the source properties the rules used, the encoder plan
+		// and every failed copy rule.
+		Legs:       s.legStatuses(),
+		Advertised: advertisedH264(webrtcConfig),
 	}
 
 	status.GeoIP = geoIPStatusFromProvider(s.geoIP)
@@ -180,6 +190,47 @@ func (s *Service) Status() models.LiveStatus {
 	status.Warnings = append(status.Warnings, s.stream.WebRTCWarnings()...)
 
 	return status
+}
+
+// advertisedH264 renders the profile-level-id the WHEP answer announces, so the
+// admin can show it beside the source SPS and the encoder profile instead of
+// conflating the three.
+func advertisedH264(cfg models.WebRTCConfig) *models.WebRTCAdvertisedH264 {
+	profileLevelID, fmtp, err := webrtc.AdvertisedH264Format(cfg)
+	if err != nil {
+		return nil
+	}
+
+	return &models.WebRTCAdvertisedH264{
+		Profile:        cfg.H264Profile,
+		Level:          cfg.H264Level,
+		ProfileLevelID: profileLevelID,
+		Fmtp:           fmtp,
+	}
+}
+
+// legStatuses returns the planned per-variant WebRTC decisions, enriched with
+// the video bitrate measured at each open RTP leg. The plan is fixed when the
+// stream starts; the measured bitrate is a point-in-time value, which is why it
+// is filled here rather than stored with the plan.
+func (s *Service) legStatuses() []models.WebRTCLegStatus {
+	legs := s.stream.WebRTCLegs()
+	if legs == nil {
+		return []models.WebRTCLegStatus{}
+	}
+	if s.webrtc == nil {
+		return legs
+	}
+	for index := range legs {
+		stats, ok := s.webrtc.MediaLegStats(legs[index].VariantIndex)
+		if !ok || stats.VideoBitrateKbps <= 0 {
+			continue
+		}
+		bitrate := stats.VideoBitrateKbps
+		legs[index].OutputBitrateKbps = &bitrate
+	}
+
+	return legs
 }
 
 // Viewers returns a filtered, sorted, paginated snapshot of live viewers.

@@ -238,7 +238,10 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		assert.True(t, decision.Enabled)
 		assert.Equal(t, models.OutputModeTranscode, decision.Mode)
 		assert.False(t, decision.Copy)
-		assert.Equal(t, 2500, decision.VideoBitrateKbps)
+		// The variant's 2500 kbps is the HLS muxed total; the video encoder gets
+		// the remainder after the 192 kbps audio room, and the WebRTC leg targets
+		// that same video bitrate.
+		assert.Equal(t, 2500-models.VariantAudioRoomKbps, decision.VideoBitrateKbps)
 		assert.Equal(t, 30, decision.GOPFrames)
 		assert.Equal(t, "constrained-baseline", decision.H264Profile)
 	})
@@ -270,11 +273,17 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, models.OutputModeTranscode, decision.Mode)
 		assert.False(t, decision.Copy)
-		// Inherited copy falling back to transcode is normal (the operator did
-		// not ask for copy), so it must not surface warnings or reasons.
+		// An inherited copy that cannot be honored must be visible: it changes
+		// what the viewer receives, so the operator gets the inherited-fallback
+		// code and the failed rules. It is a distinct code from an explicit copy
+		// request so the two cannot be confused in the status panel.
 		assert.Empty(t, decision.IneligibilityReasons)
+		assert.True(t, hasWarning(decision.Warnings, WarningInheritedCopyFallback))
 		assert.False(t, hasWarning(decision.Warnings, WarningCopyFallbackTranscode))
+		assert.Equal(t, models.OutputModeTranscode, decision.Mode)
+		assert.Equal(t, models.WebRTCInheritFromHLSCopy, decision.InheritedFrom)
 		assert.Equal(t, DefaultWebRTCVideoBitrateKbps, decision.VideoBitrateKbps)
+		assert.Equal(t, BitrateSourceDefault, decision.BitrateSource)
 	})
 
 	t.Run("inherit with HLS disabled falls back to transcode", func(t *testing.T) {
@@ -310,7 +319,10 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		decision, err := ResolveWebRTCLeg(source, variant, cfg)
 		require.NoError(t, err)
 		assert.False(t, decision.Enabled)
-		assert.Empty(t, decision.Mode)
+		// A withdrawn leg reports the mode that was applied (disabled) rather
+		// than an empty string: "this tier is not delivered" is an answer the
+		// admin status must be able to show.
+		assert.Equal(t, models.WebRTCLegModeDisabled, decision.Mode)
 		assert.True(t, hasReason(decision.IneligibilityReasons, ReasonCodecUnsupported))
 		assert.True(t, hasWarning(decision.Warnings, WarningCopyDisabled))
 	})
@@ -356,7 +368,8 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		cfgHalfSecond.KeyframeIntervalSeconds = 0.5
 		decision, err := ResolveWebRTCLeg(eligibleSource(), variant, cfgHalfSecond)
 		require.NoError(t, err)
-		assert.Equal(t, 1800, decision.VideoBitrateKbps)
+		// The variant's 1800 kbps is the HLS total, so the video target is 1608.
+		assert.Equal(t, 1800-models.VariantAudioRoomKbps, decision.VideoBitrateKbps)
 		assert.Equal(t, 13, decision.GOPFrames) // round(0.5*25) = 13
 	})
 
@@ -373,9 +386,145 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		decision, err := ResolveWebRTCLeg(source, variant, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, models.OutputModeTranscode, decision.Mode)
+		// A per-protocol override is the leg's own video bitrate, so no audio
+		// room is deducted from it.
 		assert.Equal(t, 1800, decision.VideoBitrateKbps)
 		assert.True(t, hasReason(decision.IneligibilityReasons, ReasonResolutionTooLarge))
 	})
+}
+
+// TestInheritedCopyFallbackKeepsSourceSizeAndFrameRate pins the "transcode at
+// source size" policy: when a passthrough rendition's inherited copy cannot be
+// honored, the replacement encode keeps the source resolution and frame rate
+// and takes its bitrate from the measured source rate. The old behavior
+// collapsed the rendition to the 2500 kbps / 30 fps fallback, which looked like
+// a configured output.
+func TestInheritedCopyFallbackKeepsSourceSizeAndFrameRate(t *testing.T) {
+	cfg := models.DefaultWebRTCConfig()
+	variant := webRTCVariant(models.OutputModeInherit, func(v *models.StreamOutputVariant) {
+		v.IsVideoPassthrough = true
+		v.VideoBitrate = 0
+		v.Framerate = 0
+	})
+
+	source := SourceInfo{
+		Protocol:         "srt",
+		VideoCodec:       "h264",
+		VideoProfile:     "high",
+		VideoLevel:       "5.1",
+		HasBFrames:       boolPtr(true),
+		Width:            2560,
+		Height:           1440,
+		FPS:              60,
+		VideoBitrateKbps: 5808,
+		BitrateSource:    BitrateSourceMeasured,
+	}
+
+	decision, err := ResolveWebRTCLeg(source, variant, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, models.OutputModeTranscode, decision.Mode)
+	assert.True(t, hasReason(decision.IneligibilityReasons, "") == false)
+	assert.True(t, hasWarning(decision.Warnings, WarningInheritedCopyFallback))
+	// Source size and frame rate are preserved: no scale, 60 fps.
+	assert.Empty(t, decision.Scale)
+	assert.Equal(t, 60, decision.Framerate)
+	// The bitrate comes from the measured source rate, not the default.
+	assert.Equal(t, 5808, decision.VideoBitrateKbps)
+	assert.Equal(t, BitrateSourceMeasured, decision.BitrateSource)
+	// The peak is the documented window above the target.
+	assert.Equal(t, 5808+2000, decision.BitratePeakKbps)
+	// One-second keyframe interval at 60 fps.
+	assert.Equal(t, 60, decision.GOPFrames)
+}
+
+// TestInheritedCopyFallbackDisableWithdrawsOnlyTheTier proves the "copy only"
+// policy: the rendition is withdrawn and nothing else about the leg changes.
+func TestInheritedCopyFallbackDisableWithdrawsOnlyTheTier(t *testing.T) {
+	cfg := models.DefaultWebRTCConfig()
+	variant := webRTCVariant(models.OutputModeInherit, func(v *models.StreamOutputVariant) {
+		v.IsVideoPassthrough = true
+		v.VideoBitrate = 0
+		v.Outputs.WebRTC.CopyFallback = models.CopyFallbackDisable
+	})
+	source := eligibleSource()
+	source.HasBFrames = boolPtr(true)
+
+	decision, err := ResolveWebRTCLeg(source, variant, cfg)
+	require.NoError(t, err)
+	assert.False(t, decision.Enabled)
+	assert.Equal(t, models.WebRTCLegModeDisabled, decision.Mode)
+	assert.True(t, hasWarning(decision.Warnings, WarningCopyDisabled))
+	assert.Zero(t, decision.VideoBitrateKbps)
+}
+
+// TestTranscodePlanBitratePriority pins the documented priority: an explicit
+// per-protocol override, then the variant's own bitrate, then the measured
+// source rate, then a passthrough declaration, then the default.
+func TestTranscodePlanBitratePriority(t *testing.T) {
+	cfg := models.DefaultWebRTCConfig()
+
+	cases := []struct {
+		name       string
+		source     SourceInfo
+		mutate     func(*models.StreamOutputVariant)
+		wantTarget int
+		wantSource string
+	}{
+		{
+			name:       "explicit override wins",
+			source:     SourceInfo{VideoCodec: "h264", Width: 1920, Height: 1080, FPS: 30, VideoBitrateKbps: 5000},
+			mutate:     func(v *models.StreamOutputVariant) { v.Outputs.WebRTC.VideoBitrate = 1800 },
+			wantTarget: 1800,
+			wantSource: BitrateSourceExplicit,
+		},
+		{
+			name:       "variant bitrate for a transcoding variant",
+			source:     SourceInfo{VideoCodec: "h264", Width: 1920, Height: 1080, FPS: 30, VideoBitrateKbps: 5000},
+			mutate:     func(v *models.StreamOutputVariant) { v.VideoBitrate = 2500 },
+			wantTarget: 2500 - models.VariantAudioRoomKbps,
+			wantSource: BitrateSourceExplicit,
+		},
+		{
+			name: "measured source rate for a source-size transcode",
+			source: SourceInfo{
+				VideoCodec: "h264", Width: 2560, Height: 1440, FPS: 60,
+				VideoBitrateKbps: 5808, BitrateSource: BitrateSourceMeasured,
+			},
+			mutate:     func(v *models.StreamOutputVariant) { v.IsVideoPassthrough = true; v.VideoBitrate = 0 },
+			wantTarget: 5808,
+			wantSource: BitrateSourceMeasured,
+		},
+		{
+			name: "declared passthrough bitrate below a measured rate",
+			source: SourceInfo{
+				VideoCodec: "h264", Width: 2560, Height: 1440, FPS: 60,
+				VideoBitrateKbps: 5808, BitrateSource: BitrateSourceDeclared,
+			},
+			mutate: func(v *models.StreamOutputVariant) {
+				v.IsVideoPassthrough = true
+				v.VideoBitrate = 0
+			},
+			wantTarget: 5808,
+			wantSource: BitrateSourceDeclared,
+		},
+		{
+			name:       "insufficient samples fall back to the documented default",
+			source:     SourceInfo{VideoCodec: "h264", Width: 2560, Height: 1440, FPS: 60},
+			mutate:     func(v *models.StreamOutputVariant) { v.IsVideoPassthrough = true; v.VideoBitrate = 0 },
+			wantTarget: DefaultWebRTCVideoBitrateKbps,
+			wantSource: BitrateSourceDefault,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			variant := webRTCVariant(models.OutputModeTranscode, testCase.mutate)
+			decision, err := ResolveWebRTCLeg(testCase.source, variant, cfg)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.wantTarget, decision.VideoBitrateKbps)
+			assert.Equal(t, testCase.wantSource, decision.BitrateSource)
+		})
+	}
 }
 
 // TestResolveWebRTCLegT7Mapping mirrors spec T7: HLS Stream 1 (transcode) and

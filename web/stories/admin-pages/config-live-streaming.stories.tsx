@@ -164,7 +164,7 @@ const liveStatus = {
       },
     ],
   },
-  webrtc: { enabled: true, capacity: { used: 1, limit: 100 }, warnings: [] },
+  webrtc: { enabled: true, capacity: { used: 1, limit: 100 }, warnings: [], legs: [] },
   warnings: [],
   geoip: {
     configured: true,

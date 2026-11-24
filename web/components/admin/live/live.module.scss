@@ -167,6 +167,51 @@
   font-size: 0.9em;
 }
 
+.webrtcCard {
+  min-width: 0;
+  background: var(--theme-color-components-content-background, #fff);
+
+  :global(.ant-card-body) {
+    min-width: 0;
+  }
+}
+
+.webrtcExplanation {
+  margin-bottom: 8px;
+  color: rgb(0 0 0 / 55%);
+  font-size: 0.85em;
+}
+
+.webrtcAdvertised {
+  margin-top: 4px;
+  font-family: monospace;
+}
+
+.webrtcTable {
+  min-width: 0;
+}
+
+.webrtcSource {
+  font-size: 0.9em;
+}
+
+.webrtcEncoder {
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+
+.webrtcNotes {
+  max-width: 320px;
+}
+
+.webrtcNote {
+  font-size: 0.85em;
+}
+
+.webrtcNoteCode {
+  font-size: 0.95em;
+}
+
 .viewerTable {
   display: flex;
   flex-direction: column;

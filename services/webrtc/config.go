@@ -65,6 +65,33 @@ const (
 	networkTypeTCP6 = "tcp6"
 )
 
+// AdvertisedH264Format returns the H.264 profile-level-id and fmtp the WHEP
+// answer advertises for the configured encoder profile and level. The admin UI
+// shows it because it is a third, distinct value: the source's SPS profile and
+// the encoder's output profile are not the same thing as what the browser is
+// told to decode.
+func AdvertisedH264Format(cfg models.WebRTCConfig) (profileLevelID, fmtp string, err error) {
+	profile := cfg.H264Profile
+	level := cfg.H264Level
+	if strings.TrimSpace(profile) == "" {
+		profile = h264ProfileConstrainedBaseline
+	}
+	if strings.TrimSpace(level) == "" {
+		level = h264LevelAuto
+	}
+
+	profileLevelID, err = canonicalH264ProfileLevelID(profile, level)
+	if err != nil {
+		return "", "", err
+	}
+	fmtp, err = canonicalH264Fmtp(profile, level)
+	if err != nil {
+		return "", "", err
+	}
+
+	return profileLevelID, fmtp, nil
+}
+
 // canonicalH264Fmtp maps an operator-facing H.264 profile label and level to
 // the SDP fmtp we advertise for the shared track. The encoder argv mapping
 // lives in the transcoder package; this is only the SDP side. The advertised

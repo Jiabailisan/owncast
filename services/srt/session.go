@@ -322,12 +322,15 @@ func (s *session) publishSourceMetadata(info mpegts.SourceInfo) {
 		VideoOnly:    info.AudioCodec == "",
 
 		// Measured media details so the Live Stream Status source panel has
-		// the same non-N/A bitrate/audio fields RTMP gets from onMetaData.
-		VideoBitrate:    videoBitrate,
-		AudioBitrate:    audioBitrate,
-		AudioProfile:    info.AudioProfile,
-		AudioSampleRate: info.AudioSampleRate,
-		AudioChannels:   info.AudioChannels,
+		// the same non-N/A bitrate/audio fields RTMP gets from onMetaData. The
+		// provenance is recorded because the video bitrate here is measured from
+		// the PES payload, not declared by the encoder.
+		VideoBitrate:       videoBitrate,
+		VideoBitrateSource: models.VideoBitrateMeasured,
+		AudioBitrate:       audioBitrate,
+		AudioProfile:       info.AudioProfile,
+		AudioSampleRate:    info.AudioSampleRate,
+		AudioChannels:      info.AudioChannels,
 	}
 	if info.FPSValid {
 		details.VideoFramerate = float32(info.FPS)

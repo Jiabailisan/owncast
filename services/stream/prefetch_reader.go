@@ -3,6 +3,7 @@ package stream
 import (
 	"io"
 	"sync"
+	"time"
 )
 
 // prefetchReader reads ahead from an ingest reader so the SRT MPEG-TS inspector
@@ -34,9 +35,17 @@ func newPrefetchReader(src io.Reader) *prefetchReader {
 	return reader
 }
 
-// Prefetch reads ahead until maxBytes are buffered or the source ends. It runs
-// in its own goroutine.
-func (p *prefetchReader) Prefetch(maxBytes int) {
+// Prefetch reads ahead until the deadline passes, maxBytes are buffered or the
+// source ends. It runs in its own goroutine.
+//
+// The read-ahead is bounded by time, not only by bytes. The SRT inspector
+// decides the B-frame verdict after a fixed number of slice headers, which is a
+// media-time budget (about a second of video), and a byte budget is not: one
+// megabyte is roughly 0.6 s of a 13 Mbps 1440p60 source, so the budget was
+// exhausted before the inspector could decide and every high-bitrate source
+// silently lost its copy verdict. maxBytes remains as a hard memory ceiling for
+// unusually high bitrates.
+func (p *prefetchReader) Prefetch(deadline time.Time, maxBytes int) {
 	p.mu.Lock()
 	p.prefetching = true
 	p.mu.Unlock()
@@ -60,7 +69,7 @@ func (p *prefetchReader) Prefetch(maxBytes int) {
 				buffered := len(p.buf)
 				p.mu.Unlock()
 				p.cond.Broadcast()
-				if buffered >= maxBytes {
+				if buffered >= maxBytes || time.Now().After(deadline) {
 					p.budgetSpentOnce.Do(func() { close(p.budgetSpent) })
 
 					return

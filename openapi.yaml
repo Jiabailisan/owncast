@@ -5156,7 +5156,9 @@ components:
       required: [clientID, ipAddress, protocol, bitrateKbps, fps, packetLossPct, jitterMs, connectedAt, durationSeconds, source]
     AdminLiveWebRTCStatus:
       type: object
-      description: WebRTC delivery availability, capacity and warnings
+      description: |
+        WebRTC delivery availability, capacity and warnings, plus the resolved
+        delivery decision for every output variant exposed over WebRTC.
       properties:
         enabled:
           type: boolean
@@ -5166,7 +5168,109 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AdminLiveWarning'
-      required: [enabled, capacity, warnings]
+        advertised:
+          $ref: '#/components/schemas/AdminLiveAdvertisedH264'
+        legs:
+          type: array
+          description: |
+            One entry per WebRTC-enabled output variant: the requested mode, the
+            mode that was applied, the source properties the copy-eligibility
+            rules used, the encoder plan of a transcode leg, and every failed
+            copy rule. Empty when no variant is exposed over WebRTC.
+          items:
+            $ref: '#/components/schemas/AdminLiveWebRTCLeg'
+      required: [enabled, capacity, warnings, legs]
+    AdminLiveAdvertisedH264:
+      type: object
+      description: |
+        The H.264 format the WHEP SDP answer advertises. It is a distinct value
+        from the source bitstream's SPS profile/level and from the encoder's
+        output profile.
+      properties:
+        profile:
+          type: string
+        level:
+          type: string
+        profileLevelId:
+          type: string
+        fmtp:
+          type: string
+      required: [profile, level, profileLevelId, fmtp]
+    AdminLiveWebRTCLeg:
+      type: object
+      description: One resolved WebRTC delivery decision for an output variant
+      properties:
+        variantIndex:
+          type: integer
+        name:
+          type: string
+        requestedMode:
+          type: string
+          description: The configured mode (inherit, transcode or copy)
+        inheritedFrom:
+          type: string
+          description: |
+            For requestedMode=inherit, what the inheritance resolved against:
+            hls-copy, hls-transcode or no-hls.
+        mode:
+          type: string
+          description: The mode that was applied (copy, transcode or disabled)
+        source:
+          $ref: '#/components/schemas/AdminLiveWebRTCLegSource'
+        videoBitrateKbps:
+          type: integer
+          description: Transcode target bitrate
+        gopFrames:
+          type: integer
+        framerate:
+          type: integer
+        h264Profile:
+          type: string
+          description: Encoder output profile for a transcode leg
+        scaledWidth:
+          type: integer
+        scaledHeight:
+          type: integer
+        outputBitrateKbps:
+          type: ['number', 'null']
+          description: |
+            Video bitrate measured at this rendition's RTP leg (average since the
+            leg opened). Null while the leg is not open.
+        ineligibilityReasons:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+      required: [variantIndex, requestedMode, mode, source, ineligibilityReasons, warnings]
+    AdminLiveWebRTCLegSource:
+      type: object
+      description: The inbound properties a WebRTC leg decision was made from
+      properties:
+        protocol:
+          type: string
+        videoCodec:
+          type: string
+        videoProfile:
+          type: string
+        videoLevel:
+          type: string
+        hasBFrames:
+          type: ['boolean', 'null']
+        width:
+          type: integer
+        height:
+          type: integer
+        fps:
+          type: ['number', 'null']
+        videoBitrateKbps:
+          type: ['number', 'null']
+        bitrateSource:
+          type: string
+          description: Where the source video bitrate came from (measured or declared)
+      required: [hasBFrames, fps, videoBitrateKbps]
     AdminLiveGeoIPStatus:
       type: object
       description: Offline GeoIP database state

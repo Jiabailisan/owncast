@@ -112,9 +112,17 @@ type Transcoder struct {
 	// stays byte-identical while WebRTC gets its own decoder and input flags.
 	rtpOnly bool
 
-	// sharedMode is set while rendering the shared HLS+WebRTC tee output so
-	// variant encoders apply WebRTC-compatible constraints (no B-frames and a
-	// browser-supported profile) while keeping the HLS rate control.
+	// sourceVideoOnly reports that the ingest source carries no audio. A
+	// video-only source must not get Opus outputs: "-map 0:a:0?" maps nothing,
+	// and the tee muxer then fails the whole process with "Output file does not
+	// contain any stream", which also stops HLS. The zero value (audio present)
+	// keeps every existing argv unchanged.
+	sourceVideoOnly bool
+
+	// sharedMode is set while rendering the shared HLS+WebRTC tee output. It is
+	// only used to decide the layout; the per-variant encoder constraints follow
+	// HLSVariant.sharedEncode, because a variant that does not actually feed a
+	// WebRTC leg must keep the plain HLS encode.
 	sharedMode bool
 
 	// state is the inspectable live-process state for the admin FFmpeg panel.
@@ -140,6 +148,12 @@ type HLSVariant struct {
 	// high), copied from the WebRTC h264Profile setting so the encoded SPS and
 	// the negotiated SDP profile agree.
 	h264Profile string
+
+	// sharedEncode marks a variant whose encode also feeds a WebRTC RTP leg. Only
+	// such a variant is constrained to the WebRTC-compatible profile, no
+	// B-frames and pinned rate control; a variant that no leg reuses keeps the
+	// plain HLS encode.
+	sharedEncode bool
 }
 
 // VideoSize is the scaled size of the video output.
@@ -157,7 +171,7 @@ type VideoSize struct {
 // getAllocatedVideoBitrate returns the video bitrate we allocate after making some room for audio.
 // 192 is pretty average.
 func (v *HLSVariant) getAllocatedVideoBitrate() int {
-	return int(float64(v.videoBitrate) - 192)
+	return v.videoBitrate - models.VariantAudioRoomKbps
 }
 
 // getMaxVideoBitrate returns the maximum video bitrate we allow the encoder to support.
@@ -513,6 +527,9 @@ func (t *Transcoder) appendRTPOutputs(flags []string) []string {
 	for _, output := range t.rtpOutputs {
 		flags = append(flags, t.rtpVideoOutputFlags(output)...)
 	}
+	if t.sourceVideoOnly {
+		return flags
+	}
 	if shared := t.sharedRTPAudioFlags(t.rtpOutputs); shared != nil {
 		return append(flags, shared...)
 	}
@@ -521,6 +538,11 @@ func (t *Transcoder) appendRTPOutputs(flags []string) []string {
 	}
 	return flags
 }
+
+// SetSourceVideoOnly records that the ingest source carries no audio. Such a
+// source gets no Opus outputs at all: an optional audio map that resolves to
+// nothing makes the RTP/tee muxer fail the whole FFmpeg process.
+func (t *Transcoder) SetSourceVideoOnly(videoOnly bool) { t.sourceVideoOnly = videoOnly }
 
 // SetRTPOutputs configures the WebRTC RTP legs emitted by this ffmpeg process
 // alongside the HLS output. Setting an empty slice preserves HLS-only argv.
@@ -622,8 +644,8 @@ func NewTranscoder(cfg *config.Config, configRepository models.EngineConfig) *Tr
 // minRateKbps returns the floor of this variant's rate window. In the shared
 // process model the same encode feeds the WebRTC legs, which must stay pinned to
 // their target, so the window collapses onto the allocated bitrate.
-func (v *HLSVariant) minRateKbps(t *Transcoder) int {
-	if t.sharedMode {
+func (v *HLSVariant) minRateKbps() int {
+	if v.sharedEncode {
 		return v.getAllocatedVideoBitrate()
 	}
 
@@ -634,8 +656,8 @@ func (v *HLSVariant) minRateKbps(t *Transcoder) int {
 // shared process model for the same reason as minRateKbps: x264 rejects
 // nal-hrd=cbr unless the ceiling equals the bitrate, so a VBR window there only
 // produced "CBR HRD requires constant bitrate" and no HRD at all.
-func (v *HLSVariant) maxRateKbps(t *Transcoder) int {
-	if t.sharedMode {
+func (v *HLSVariant) maxRateKbps() int {
+	if v.sharedEncode {
 		return v.getAllocatedVideoBitrate()
 	}
 
@@ -682,6 +704,14 @@ func (t *Transcoder) getVariantsString() []string {
 
 	for _, variant := range t.variants {
 		variantsCommandFlags = append(variantsCommandFlags, variant.getVariantString(t)...)
+		if t.sourceVideoOnly {
+			// A video-only source has no audio stream to map: declaring a:N in
+			// var_stream_map fails the HLS muxer with "Unable to map stream at
+			// a:N", which stopped the whole stream.
+			streamMap = append(streamMap, fmt.Sprintf("v:%d", variant.index))
+
+			continue
+		}
 		streamMap = append(streamMap, fmt.Sprintf("v:%d,a:%d", variant.index, variant.index))
 	}
 	variantsCommandFlags = append(variantsCommandFlags, "-var_stream_map", strings.Join(streamMap, " "))
@@ -740,13 +770,13 @@ func (v *HLSVariant) getVideoQualityString(t *Transcoder) []string {
 		ffmpegFlagMap, "v:0",
 		fmt.Sprintf("-c:v:%d", v.index), t.codec.Name(), // Video codec used for this variant
 		fmt.Sprintf("-b:v:%d", v.index), fmt.Sprintf("%dk", v.getAllocatedVideoBitrate()), // The average bitrate for this variant allowing space for audio
-		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.minRateKbps(t)), // Floor of the VBR window, or the target when shared
-		fmt.Sprintf("-maxrate:v:%d", v.index), fmt.Sprintf("%dk", v.maxRateKbps(t)), // The max bitrate allowed for this variant
+		fmt.Sprintf("-minrate:v:%d", v.index), fmt.Sprintf("%dk", v.minRateKbps()), // Floor of the VBR window, or the target when shared
+		fmt.Sprintf("-maxrate:v:%d", v.index), fmt.Sprintf("%dk", v.maxRateKbps()), // The max bitrate allowed for this variant
 		fmt.Sprintf("-g:v:%d", v.index), fmt.Sprintf("%d", gop), // Suggested interval where i-frames are encoded into the segments
 		fmt.Sprintf("-keyint_min:v:%d", v.index), fmt.Sprintf("%d", gop), // minimum i-keyframe interval
 		fmt.Sprintf("-r:v:%d", v.index), fmt.Sprintf("%d", v.framerate),
 	)
-	if t.sharedMode {
+	if v.sharedEncode {
 		cmd = append(cmd, t.codec.SharedVariantFlags(v)...)
 	} else {
 		cmd = append(cmd, t.codec.VariantFlags(v)...)

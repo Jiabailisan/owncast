@@ -302,40 +302,28 @@ func (i *Inspector) handleNAL(nal []byte) {
 	if len(nal) < 1 {
 		return
 	}
-	nalType := nal[0] & 0x1f
-	switch nalType {
-	case 7: // SPS
-		if sps, ok := ParseSPS(unescapeEmulationPrevention(nal[1:])); ok {
-			i.info.VideoCodec = "h264"
-			i.info.Profile = sps.ProfileName()
-			i.info.Level = sps.Level()
-			i.info.Width = sps.Width
-			i.info.Height = sps.Height
-			if sps.FPSValid {
-				i.info.FPS = sps.FPS
-				i.info.FPSValid = true
-			}
-		}
-	case 1, 5: // coded slice (non-IDR / IDR)
-		r := newBitReader(unescapeEmulationPrevention(nal[1:]))
-		if _, err := r.readUE(); err != nil { // first_mb_in_slice
-			return
-		}
-		sliceType, err := r.readUE() // slice_type
-		if err != nil {
-			return
-		}
-		sliceType %= 5
-		i.sliceTypes[sliceType]++
-		i.sliceCount++
-		if sliceType == 1 {
-			i.info.HasBFrames = true
-			i.info.BFrameChecked = true
-		} else if i.sliceCount >= slicesForBFrameDecision && !i.info.HasBFrames {
-			// Enough non-B slices observed to call it a no-B-frame stream.
-			i.info.BFrameChecked = true
+	if !i.info.BFrameChecked && (nal[0]&0x1f == 1 || nal[0]&0x1f == 5) {
+		// Record the histogram before the shared probe consumes the slice, so
+		// the diagnostics keep the same meaning.
+		if sliceType, ok := sliceTypeOf(nal); ok {
+			i.sliceTypes[sliceType]++
 		}
 	}
+	analyzeNAL(&i.info, &i.sliceCount, nal)
+}
+
+// sliceTypeOf returns the normalized slice_type of a coded slice NAL.
+func sliceTypeOf(nal []byte) (uint, bool) {
+	r := newBitReader(unescapeEmulationPrevention(nal[1:]))
+	if _, err := r.readUE(); err != nil { // first_mb_in_slice
+		return 0, false
+	}
+	sliceType, err := r.readUE()
+	if err != nil {
+		return 0, false
+	}
+
+	return sliceType % 5, true
 }
 
 // BFrameDecided reports whether the B-frame verdict has been reached. It is a
@@ -415,4 +403,76 @@ func unescapeEmulationPrevention(data []byte) []byte {
 		}
 	}
 	return out
+}
+
+// analyzeNAL updates info from one H.264 NAL unit (no Annex-B start code). It is
+// the single implementation of the H.264 probe rules: the MPEG-TS inspector
+// (SRT) and the FLV inspector (RTMP) both call it, so the two protocols cannot
+// disagree about a source's profile, level, resolution or B-frame state.
+//
+// sliceCount is the number of coded slices seen so far for this stream.
+func analyzeNAL(info *SourceInfo, sliceCount *int, nal []byte) {
+	if len(nal) < 1 {
+		return
+	}
+	switch nal[0] & 0x1f {
+	case 7: // SPS
+		if sps, ok := ParseSPS(unescapeEmulationPrevention(nal[1:])); ok {
+			info.VideoCodec = "h264"
+			info.Profile = sps.ProfileName()
+			info.Level = sps.Level()
+			info.Width = sps.Width
+			info.Height = sps.Height
+			if sps.FPSValid {
+				info.FPS = sps.FPS
+				info.FPSValid = true
+			}
+		}
+	case 1, 5: // coded slice (non-IDR / IDR)
+		sliceType, ok := sliceTypeOf(nal)
+		if !ok {
+			return
+		}
+		*sliceCount++
+		if sliceType == 1 {
+			info.HasBFrames = true
+			info.BFrameChecked = true
+		} else if *sliceCount >= slicesForBFrameDecision && !info.HasBFrames {
+			// Enough non-B slices observed to call it a no-B-frame stream.
+			info.BFrameChecked = true
+		}
+	}
+}
+
+// H264Probe is the protocol-independent H.264 elementary-stream probe. It is
+// fed NAL units (with or without Annex-B start codes removed) from any
+// container: the MPEG-TS inspector uses the same rules internally, and the FLV
+// inspector feeds it the AVCC payload of RTMP video tags.
+type H264Probe struct {
+	mu         sync.Mutex
+	info       SourceInfo
+	sliceCount int
+}
+
+// FeedNAL analyzes one H.264 NAL unit. Safe for concurrent use.
+func (p *H264Probe) FeedNAL(nal []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	analyzeNAL(&p.info, &p.sliceCount, nal)
+}
+
+// Snapshot returns the current probe state.
+func (p *H264Probe) Snapshot() SourceInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.info
+}
+
+// Decided reports whether the B-frame verdict has been reached.
+func (p *H264Probe) Decided() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.info.BFrameChecked
 }

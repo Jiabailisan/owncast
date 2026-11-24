@@ -652,6 +652,16 @@ type AdminFederationConfig struct {
 	Username         *string   `json:"username,omitempty"`
 }
 
+// AdminLiveAdvertisedH264 The H.264 format the WHEP SDP answer advertises. It is a distinct value
+// from the source bitstream's SPS profile/level and from the encoder's
+// output profile.
+type AdminLiveAdvertisedH264 struct {
+	Fmtp           string `json:"fmtp"`
+	Level          string `json:"level"`
+	Profile        string `json:"profile"`
+	ProfileLevelId string `json:"profileLevelId"`
+}
+
 // AdminLiveFFmpegProcess One supervised FFmpeg process with the exact executed argv (secrets redacted)
 type AdminLiveFFmpegProcess struct {
 	Argv            *[]string `json:"argv,omitempty"`
@@ -802,7 +812,8 @@ type AdminLiveStatus struct {
 	Viewers  AdminLiveViewerCounts `json:"viewers"`
 	Warnings []AdminLiveWarning    `json:"warnings"`
 
-	// Webrtc WebRTC delivery availability, capacity and warnings
+	// Webrtc WebRTC delivery availability, capacity and warnings, plus the resolved
+	// delivery decision for every output variant exposed over WebRTC.
 	Webrtc AdminLiveWebRTCStatus `json:"webrtc"`
 }
 
@@ -865,12 +876,74 @@ type AdminLiveWarning struct {
 	Message string `json:"message"`
 }
 
-// AdminLiveWebRTCStatus WebRTC delivery availability, capacity and warnings
+// AdminLiveWebRTCLeg One resolved WebRTC delivery decision for an output variant
+type AdminLiveWebRTCLeg struct {
+	Framerate *int `json:"framerate,omitempty"`
+	GopFrames *int `json:"gopFrames,omitempty"`
+
+	// H264Profile Encoder output profile for a transcode leg
+	H264Profile          *string  `json:"h264Profile,omitempty"`
+	IneligibilityReasons []string `json:"ineligibilityReasons"`
+
+	// InheritedFrom For requestedMode=inherit, what the inheritance resolved against:
+	// hls-copy, hls-transcode or no-hls.
+	InheritedFrom *string `json:"inheritedFrom,omitempty"`
+
+	// Mode The mode that was applied (copy, transcode or disabled)
+	Mode string  `json:"mode"`
+	Name *string `json:"name,omitempty"`
+
+	// OutputBitrateKbps Video bitrate measured at this rendition's RTP leg (average since the
+	// leg opened). Null while the leg is not open.
+	OutputBitrateKbps *float32 `json:"outputBitrateKbps,omitempty"`
+
+	// RequestedMode The configured mode (inherit, transcode or copy)
+	RequestedMode string `json:"requestedMode"`
+	ScaledHeight  *int   `json:"scaledHeight,omitempty"`
+	ScaledWidth   *int   `json:"scaledWidth,omitempty"`
+
+	// Source The inbound properties a WebRTC leg decision was made from
+	Source       AdminLiveWebRTCLegSource `json:"source"`
+	VariantIndex int                      `json:"variantIndex"`
+
+	// VideoBitrateKbps Transcode target bitrate
+	VideoBitrateKbps *int     `json:"videoBitrateKbps,omitempty"`
+	Warnings         []string `json:"warnings"`
+}
+
+// AdminLiveWebRTCLegSource The inbound properties a WebRTC leg decision was made from
+type AdminLiveWebRTCLegSource struct {
+	// BitrateSource Where the source video bitrate came from (measured or declared)
+	BitrateSource    *string  `json:"bitrateSource,omitempty"`
+	Fps              *float32 `json:"fps"`
+	HasBFrames       *bool    `json:"hasBFrames"`
+	Height           *int     `json:"height,omitempty"`
+	Protocol         *string  `json:"protocol,omitempty"`
+	VideoBitrateKbps *float32 `json:"videoBitrateKbps"`
+	VideoCodec       *string  `json:"videoCodec,omitempty"`
+	VideoLevel       *string  `json:"videoLevel,omitempty"`
+	VideoProfile     *string  `json:"videoProfile,omitempty"`
+	Width            *int     `json:"width,omitempty"`
+}
+
+// AdminLiveWebRTCStatus WebRTC delivery availability, capacity and warnings, plus the resolved
+// delivery decision for every output variant exposed over WebRTC.
 type AdminLiveWebRTCStatus struct {
+	// Advertised The H.264 format the WHEP SDP answer advertises. It is a distinct value
+	// from the source bitstream's SPS profile/level and from the encoder's
+	// output profile.
+	Advertised *AdminLiveAdvertisedH264 `json:"advertised,omitempty"`
+
 	// Capacity WebRTC viewer capacity snapshot
-	Capacity WebRTCCapacity     `json:"capacity"`
-	Enabled  bool               `json:"enabled"`
-	Warnings []AdminLiveWarning `json:"warnings"`
+	Capacity WebRTCCapacity `json:"capacity"`
+	Enabled  bool           `json:"enabled"`
+
+	// Legs One entry per WebRTC-enabled output variant: the requested mode, the
+	// mode that was applied, the source properties the copy-eligibility
+	// rules used, the encoder plan of a transcode leg, and every failed
+	// copy rule. Empty when no variant is exposed over WebRTC.
+	Legs     []AdminLiveWebRTCLeg `json:"legs"`
+	Warnings []AdminLiveWarning   `json:"warnings"`
 }
 
 // AdminLog defines model for AdminLog.

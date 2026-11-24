@@ -100,6 +100,16 @@ export const VariantOutputSettings: FC<VariantOutputSettingsProps> = ({
             </div>
           )}
 
+          {draft.webrtcMode === 'inherit' && (
+            <Alert
+              type="info"
+              showIcon
+              className={styles.note}
+              data-testid="webrtc-inherit-note"
+              message={t(Localization.Admin.VideoVariantForm.inheritNote)}
+            />
+          )}
+
           {draft.webrtcMode === 'copy' && (
             <Alert
               type="info"
