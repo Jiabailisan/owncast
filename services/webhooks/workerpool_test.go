@@ -2,10 +2,14 @@ package webhooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -352,5 +356,241 @@ func TestStreamStatusEventCarriesParsedTitle(t *testing.T) {
 			t.Fatal("a successful delivery should have updated last_used")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// newRedirectServer answers every request with a 302 pointing at location, so a
+// delivery against it fails while net/http handles the redirect.
+func newRedirectServer(t *testing.T, location string) *httptest.Server {
+	t.Helper()
+
+	svr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", location)
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(svr.Close)
+
+	return svr
+}
+
+// A 302 whose Location carries a path token and query credentials fails the
+// delivery during redirect handling, and net/http reports that failure through a
+// *url.Error. What leaks depends on the Location shape:
+//
+//   - a syntactically valid relative Location is followed until the redirect
+//     limit, and url.Error.URL becomes the Location itself, so the raw text is
+//     Post "/fake-path-token-abc?cred=...": stopped after 10 redirects;
+//   - an unparseable Location is echoed verbatim by net/http in
+//     failed to parse Location header "http://[::1]:namedport/...".
+//
+// Neither may reach the returned error or the worker's log line, and a failed
+// delivery must leave last_used untouched.
+func TestRedirectFailureKeepsLocationSecretsOutOfErrorAndLog(t *testing.T) {
+	const (
+		pathToken = "fake-path-token-abc"
+		queryCred = "fake-query-cred-xyz"
+	)
+
+	tests := []struct {
+		name     string
+		location string
+	}{
+		{
+			name:     "relative Location followed until the redirect limit",
+			location: "/" + pathToken + "?cred=" + queryCred,
+		},
+		{
+			name:     "unparseable Location rejected during redirect handling",
+			location: "http://[::1]:namedport/" + pathToken + "?cred=" + queryCred,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			svr := newRedirectServer(t, testCase.location)
+
+			repo := webhookrepository.New(testDatastore)
+
+			id, err := repo.InsertWebhook(svr.URL, []models.EventType{models.MessageSent}, "abc123")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := repo.DeleteWebhook(id); err != nil {
+					t.Error(err)
+				}
+			}()
+
+			stored := findWebhook(t, repo, id)
+
+			directErr := testSvc.sendWebhook(Job{
+				payload: WebhookEvent{Type: models.MessageSent, EventData: struct{}{}},
+				webhook: stored,
+			})
+			if directErr == nil {
+				t.Fatal("a redirect failure should be reported as a failed delivery")
+			}
+			if !strings.Contains(directErr.Error(), string(deliveryFailureTransport)) {
+				t.Errorf("error %q should carry the %q class", directErr.Error(), deliveryFailureTransport)
+			}
+			assertNoURLSecrets(t, "the returned error", directErr.Error(), svr.URL, pathToken, queryCred)
+
+			// The cause stays reachable for callers even though its text - which
+			// can echo the Location - never reaches the error string.
+			var delivery *deliveryError
+			if !errors.As(directErr, &delivery) {
+				t.Fatalf("expected a *deliveryError, got %T", directErr)
+			}
+			if delivery.statusCode() != 0 {
+				t.Errorf("a redirect failure produced no response, got status %d", delivery.statusCode())
+			}
+			if delivery.Unwrap() == nil {
+				t.Error("the cause should stay reachable through Unwrap")
+			}
+
+			captured := captureErrorLogs(t)
+
+			// Go through the queue so the assertion covers the worker's own error
+			// path. The log write happens before wg.Done(), so wg.Wait() orders it
+			// before the read.
+			var wg sync.WaitGroup
+			testSvc.sendEventToWebhooks(WebhookEvent{Type: models.MessageSent, EventData: struct{}{}}, &wg)
+			wg.Wait()
+
+			output := captured.String()
+
+			if !strings.Contains(output, "level=error") {
+				t.Errorf("expected a level=error log line, got %q", output)
+			}
+			if !strings.Contains(output, fmt.Sprintf("webhook %d", id)) {
+				t.Errorf("expected the webhook ID %d in the log line, got %q", id, output)
+			}
+			if !strings.Contains(output, string(deliveryFailureTransport)) {
+				t.Errorf("expected the failure class %q in the log line, got %q", deliveryFailureTransport, output)
+			}
+			assertNoURLSecrets(t, "the failure log line", output, svr.URL, pathToken, queryCred)
+
+			if after := findWebhook(t, repo, id); after.LastUsed != nil {
+				t.Errorf("a failed delivery must not update last_used, got %v", after.LastUsed)
+			}
+		})
+	}
+}
+
+// timeoutCause stands in for net/http's own timeout error, which reports through
+// net.Error.Timeout rather than context.DeadlineExceeded.
+type timeoutCause struct{}
+
+func (timeoutCause) Error() string { return "i/o timeout" }
+
+func (timeoutCause) Timeout() bool { return true }
+
+// Temporary keeps timeoutCause assignable to net.Error, which still requires it.
+func (timeoutCause) Temporary() bool { return true }
+
+// A client.Do failure is reduced to the closed failure vocabulary so no cause
+// text can reach an error string or a log line.
+func TestClassifyDeliveryFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want deliveryFailureKind
+	}{
+		{name: "context deadline", err: context.DeadlineExceeded, want: deliveryFailureTimeout},
+		{name: "wrapped context deadline", err: fmt.Errorf("dial: %w", context.DeadlineExceeded), want: deliveryFailureTimeout},
+		{name: "net timeout", err: timeoutCause{}, want: deliveryFailureTimeout},
+		{
+			name: "url.Error wrapping a net timeout",
+			err:  &url.Error{Op: "Post", URL: "https://example.com/fake-path-token-abc", Err: timeoutCause{}},
+			want: deliveryFailureTimeout,
+		},
+		{name: "connection refused", err: errors.New("dial tcp 127.0.0.1:1: connect: connection refused"), want: deliveryFailureTransport},
+		{name: "redirect limit", err: errors.New("stopped after 10 redirects"), want: deliveryFailureTransport},
+		{name: "nil cause", err: nil, want: deliveryFailureTransport},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := classifyDeliveryFailure(testCase.err); got != testCase.want {
+				t.Errorf("classifyDeliveryFailure(%v) = %q, want %q", testCase.err, got, testCase.want)
+			}
+		})
+	}
+}
+
+// The error string carries the HTTP status or the failure class only. The cause
+// stays reachable through Unwrap so errors.Is/errors.As keep working, but its
+// text - which can embed the destination URL or a Location header - never
+// appears in the string.
+func TestDeliveryErrorRendersClassificationOnly(t *testing.T) {
+	const (
+		pathToken = "fake-path-token-abc"
+		queryCred = "fake-query-cred-xyz"
+	)
+
+	destination := "https://example.com/" + pathToken + "?cred=" + queryCred
+	cause := fmt.Errorf("Post %q: %w", destination, context.DeadlineExceeded)
+
+	tests := []struct {
+		name string
+		err  *deliveryError
+		want string
+	}{
+		{
+			name: "HTTP status",
+			err:  &deliveryError{status: http.StatusForbidden},
+			want: "webhook delivery failed with HTTP status 403",
+		},
+		{
+			name: "invalid target",
+			err:  &deliveryError{kind: deliveryFailureInvalidTarget, err: cause},
+			want: "webhook delivery failed: invalid target",
+		},
+		{
+			name: "timeout",
+			err:  &deliveryError{kind: deliveryFailureTimeout, err: cause},
+			want: "webhook delivery failed: timeout",
+		},
+		{
+			name: "transport failure",
+			err:  &deliveryError{kind: deliveryFailureTransport, err: cause},
+			want: "webhook delivery failed: transport failure",
+		},
+		{
+			name: "no detail",
+			err:  &deliveryError{},
+			want: "webhook delivery failed",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := testCase.err.Error(); got != testCase.want {
+				t.Errorf("Error() = %q, want %q", got, testCase.want)
+			}
+			assertNoURLSecrets(t, "the error string", testCase.err.Error(), destination, pathToken, queryCred)
+
+			if testCase.err.err != nil {
+				if !errors.Is(testCase.err, context.DeadlineExceeded) {
+					t.Error("errors.Is should still reach context.DeadlineExceeded through the cause")
+				}
+			}
+		})
+	}
+}
+
+// errors.As reaches the original cause, so a caller can still inspect it even
+// though deliveryError renders only a classification.
+func TestDeliveryErrorKeepsCauseReachable(t *testing.T) {
+	cause := &net.DNSError{Name: "example.com", Err: "no such host", IsNotFound: true}
+	err := &deliveryError{kind: deliveryFailureTransport, err: cause}
+
+	var dnsErr *net.DNSError
+	if !errors.As(err, &dnsErr) || dnsErr != cause {
+		t.Errorf("errors.As should reach the original cause, got %v", dnsErr)
+	}
+
+	if strings.Contains(err.Error(), "example.com") || strings.Contains(err.Error(), "no such host") {
+		t.Errorf("the error string must not render the cause, got %q", err.Error())
 	}
 }

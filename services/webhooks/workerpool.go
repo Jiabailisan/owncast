@@ -2,10 +2,12 @@ package webhooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -130,16 +132,13 @@ func (s *Service) worker(workerID int) {
 		log.Debugf("Event %s sent to Webhook %d using worker %d", job.payload.Type, job.webhook.ID, workerID)
 
 		if err := s.sendWebhook(job); err != nil {
-			// The failure line must stay diagnosable without the URL: the stored
-			// webhook ID identifies the destination, the event type says what was
-			// being delivered, and the status code (or underlying transport
-			// error) says why it failed.
-			var delivery *deliveryError
-			if errors.As(err, &delivery) && delivery.statusCode() != 0 {
-				log.Errorf("Event: %s failed to send to webhook %d: HTTP status %d", job.payload.Type, job.webhook.ID, delivery.statusCode())
-			} else {
-				log.Errorf("Event: %s failed to send to webhook %d: %s", job.payload.Type, job.webhook.ID, err)
-			}
+			// The failure line must stay diagnosable without the URL or the
+			// underlying transport text: the stored webhook ID identifies the
+			// destination, the event type says what was being delivered, and the
+			// HTTP status (when the receiver answered) or the failure class says
+			// why it failed. See deliveryFailureSummary for why the cause never
+			// reaches the log.
+			log.Errorf("Event: %s failed to send to webhook %d: %s", job.payload.Type, job.webhook.ID, deliveryFailureSummary(err))
 		}
 		log.Tracef("Done with Event %s to Webhook %d using worker %d", job.payload.Type, job.webhook.ID, workerID)
 		if job.wg != nil {
@@ -148,29 +147,64 @@ func (s *Service) worker(workerID int) {
 	}
 }
 
+// deliveryFailureKind is the closed vocabulary of reasons a delivery produced no
+// HTTP response. It is the only failure detail allowed into an error string or a
+// log line: net/http error text embeds the request URL, and redirect failures
+// can echo the raw Location header back.
+type deliveryFailureKind string
+
+const (
+	// deliveryFailureInvalidTarget means the stored destination could not be
+	// turned into a request at all.
+	deliveryFailureInvalidTarget deliveryFailureKind = "invalid target"
+	// deliveryFailureTimeout means the attempt was abandoned before the receiver
+	// answered (client deadline or a dial/handshake timeout).
+	deliveryFailureTimeout deliveryFailureKind = "timeout"
+	// deliveryFailureTransport covers every other client.Do failure: refused or
+	// reset connections, DNS failures, TLS errors, unusable redirects.
+	deliveryFailureTransport deliveryFailureKind = "transport failure"
+)
+
 // deliveryError reports a failed webhook delivery using only data that is safe
 // to log or return to a caller. The destination URL is deliberately absent: an
 // operator's webhook URL routinely embeds a path token and query credentials,
 // so it is treated as a secret. The stored webhook ID locates the destination
-// instead, and the HTTP status (when the receiver answered) or the underlying
-// transport cause explains the failure.
+// instead, and the HTTP status (when the receiver answered) or the failure class
+// explains the failure.
 type deliveryError struct {
 	// status is the HTTP status code the receiver answered with, or 0 when no
 	// response was produced (connection failure, timeout, malformed URL).
 	status int
-	// err is the underlying cause with any *url.Error unwrapped, because
-	// url.Error.Error() embeds the full request URL.
+	// kind classifies a delivery that produced no response. It stays empty when
+	// status is set.
+	kind deliveryFailureKind
+	// err is the underlying cause with any *url.Error unwrapped. It exists for
+	// errors.Is/errors.As only: url.Error text embeds the full request URL, and
+	// a redirect failure wraps text that echoes the raw Location header, so the
+	// cause never appears in Error() or in a log line.
 	err error
 }
 
 func (e *deliveryError) Error() string {
-	if e.status != 0 {
-		return fmt.Sprintf("webhook delivery failed with HTTP status %d", e.status)
+	if status := e.statusCode(); status != 0 {
+		return fmt.Sprintf("webhook delivery failed with HTTP status %d", status)
 	}
-	if e.err == nil {
-		return "webhook delivery failed"
+	if e.kind != "" {
+		return fmt.Sprintf("webhook delivery failed: %s", e.kind)
 	}
-	return fmt.Sprintf("webhook delivery failed: %s", e.err)
+	return "webhook delivery failed"
+}
+
+// summary renders the failure for a log line: the HTTP status when the receiver
+// answered, otherwise the failure class. The cause is never included.
+func (e *deliveryError) summary() string {
+	if status := e.statusCode(); status != 0 {
+		return fmt.Sprintf("HTTP status %d", status)
+	}
+	if e.kind != "" {
+		return string(e.kind)
+	}
+	return "delivery failed"
 }
 
 // Unwrap exposes the cause so errors.Is/errors.As still work for callers.
@@ -184,10 +218,39 @@ func (e *deliveryError) statusCode() int {
 	return e.status
 }
 
+// deliveryFailureSummary reduces a failed delivery to what a log line may carry:
+// the HTTP status or the failure class. A cause is never rendered, and failures
+// that happen before a request exists (payload marshalling, signature lookup)
+// collapse to a fixed label, because their text is not worth the leak risk.
+func deliveryFailureSummary(err error) string {
+	var delivery *deliveryError
+	if errors.As(err, &delivery) {
+		return delivery.summary()
+	}
+	return "internal error"
+}
+
+// classifyDeliveryFailure maps a client.Do failure to the closed failure
+// vocabulary. Timeouts are recognised through the cause, so a wrapped
+// context.DeadlineExceeded and a net.Error still report as a timeout.
+func classifyDeliveryFailure(err error) deliveryFailureKind {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return deliveryFailureTimeout
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return deliveryFailureTimeout
+	}
+	return deliveryFailureTransport
+}
+
 // unwrapURLError strips the *url.Error wrapper net/http adds around transport
 // and parse failures, keeping only the underlying cause. Both url.Error.Error()
 // and %q formatting of it include the full request URL, which carries the path
-// token and query credentials.
+// token and query credentials. Unwrapping removes that URL but not every secret:
+// a redirect that cannot be parsed leaves net/http's own
+// 'failed to parse Location header "<location>"' text in the cause, which is why
+// the cause is kept for errors.Is/errors.As and never rendered.
 func unwrapURLError(err error) error {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) && urlErr.Err != nil {
@@ -208,8 +271,9 @@ func (s *Service) sendWebhook(job Job) error {
 		// Header.Set below panics inside a worker goroutine. The URL itself is
 		// never echoed back: http.NewRequest parses through url.Parse, whose
 		// errors are *url.Error values carrying the raw URL, so only the cause
-		// survives.
-		return &deliveryError{err: fmt.Errorf("invalid webhook URL: %w", unwrapURLError(err))}
+		// survives, and deliveryError renders the failure class rather than the
+		// cause.
+		return &deliveryError{kind: deliveryFailureInvalidTarget, err: unwrapURLError(err)}
 	}
 	signature, err := s.generateSignature(jsonText, job)
 	if err != nil {
@@ -225,8 +289,10 @@ func (s *Service) sendWebhook(job Job) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		// client.Do failures arrive as *url.Error, whose message embeds the full
-		// URL (path token and query included). Only the cause is kept.
-		return &deliveryError{err: unwrapURLError(err)}
+		// URL (path token and query included). Only the cause is kept, and only
+		// its class reaches an error string or a log line.
+		cause := unwrapURLError(err)
+		return &deliveryError{kind: classifyDeliveryFailure(cause), err: cause}
 	}
 
 	defer resp.Body.Close()
@@ -244,7 +310,9 @@ func (s *Service) sendWebhook(job Job) error {
 	}
 
 	if err := s.webhookRepository.SetWebhookAsUsed(job.webhook); err != nil {
-		log.Warnln(err)
+		// The statement binds only the webhook ID, so this driver error cannot
+		// carry the destination URL; the ID is added to locate the destination.
+		log.Warnf("failed to record last_used for webhook %d: %s", job.webhook.ID, err)
 	}
 
 	return nil
