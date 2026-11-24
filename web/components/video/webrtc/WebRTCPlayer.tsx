@@ -572,28 +572,56 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
     let timer: ReturnType<typeof setInterval> | null = null;
     let lateSamples = 0;
+    // The catch-up loop compares adjacent samples, so it keeps the previous one. The interval
+    // jitter-buffer figure is a delta, and handing over no baseline made it fall back to the
+    // session average, which reacts far too slowly to steer playback.
+    let previousSample: ReturnType<typeof collectWebRTCStatsPanel>['bytes'] | null = null;
+    // Samples belong to one session. A switch starts a fresh window instead of comparing the new
+    // session against the old one's last sample.
+    let sampledSession = session;
+    // A getStats() result that lands after the loop stopped must not steer playback: cancelled
+    // covers teardown (unmount, low latency turned off, variant change) and the session identity
+    // check covers a switch that happened while a sample was in flight.
+    let cancelled = false;
+
     if (latencyEnabled) {
       timer = setInterval(() => {
         const video = videoRef.current;
         const activeSession = sessionRef.current;
         if (!video || !activeSession || video.paused) return;
-        void activeSession.pc.getStats().then(report => {
-          const liveLatency = collectWebRTCStatsPanel(report).sample.liveLatencySeconds;
-          if (liveLatency === null) return;
-          if (liveLatency > 1) {
-            lateSamples += 1;
-            if (lateSamples >= 2 && video.playbackRate === 1) {
-              video.playbackRate = 1.1;
+        if (activeSession !== sampledSession) {
+          sampledSession = activeSession;
+          previousSample = null;
+          lateSamples = 0;
+        }
+        void activeSession.pc
+          .getStats()
+          .then(report => {
+            if (cancelled || sessionRef.current !== activeSession) return;
+            const { sample, bytes } = collectWebRTCStatsPanel(report, previousSample);
+            previousSample = bytes;
+            const liveLatency = sample.liveLatencySeconds;
+            if (liveLatency === null) return;
+            if (liveLatency > 1) {
+              lateSamples += 1;
+              if (lateSamples >= 2 && video.playbackRate === 1) {
+                video.playbackRate = 1.1;
+              }
+            } else if (liveLatency < 0.7) {
+              lateSamples = 0;
+              if (video.playbackRate > 1) video.playbackRate = 1;
             }
-          } else if (liveLatency < 0.7) {
-            lateSamples = 0;
-            if (video.playbackRate > 1) video.playbackRate = 1;
-          }
-        });
+          })
+          .catch(() => {
+            // A failed sample is not a reason to touch playback.
+          });
       }, 1000);
     }
 
     return () => {
+      cancelled = true;
+      previousSample = null;
+      lateSamples = 0;
       if (timer) clearInterval(timer);
       const video = videoRef.current;
       if (video && video.playbackRate !== 1) video.playbackRate = 1;
