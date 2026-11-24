@@ -55,7 +55,7 @@ func TestWebRTCCopyPlanIsNotPendingWhenDeliveryIsDisabled(t *testing.T) {
 	// The wait gate: planning returns at once with an unknown source and no
 	// cancellation instead of sitting out the source-wait timeout.
 	start := time.Now()
-	source, cancelled := svc.resolveWebRTCSource(session, variants, nil)
+	source, cancelled := svc.resolveWebRTCSource(session, variants, nil, nil)
 	elapsed := time.Since(start)
 
 	if elapsed >= 200*time.Millisecond {

@@ -172,7 +172,7 @@ type sourceInfoReadyWaiter interface {
 // the inspector, and no verdict to wait for. The plan gate below stays as the
 // second half of the same decision (an SRT stream that asks for copy); it is not
 // a substitute for the read-ahead fact.
-func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (*models.Broadcaster, bool) {
+func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}, prefetch *prefetchReader) (*models.Broadcaster, bool) {
 	if budgetSpent == nil {
 		// No read-ahead was started for this stream, so the verdict this wait is
 		// for can never be published.
@@ -183,7 +183,19 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 		return session.Broadcaster(), false
 	}
 
-	return awaitSourceInfo(session, budgetSpent, webRTCSourceWaitTimeout)
+	broadcaster, cancelled := awaitSourceInfo(session, budgetSpent, webRTCSourceWaitTimeout)
+	// The decision is made, whatever it turned out to be: stop buffering. The
+	// read-ahead would otherwise keep reading until its deadline and hand FFmpeg
+	// megabytes of dead weight, which is pure startup latency for nothing.
+	if prefetch != nil {
+		if cancelled {
+			prefetch.Stop("cancelled")
+		} else {
+			prefetch.Stop("verdict")
+		}
+	}
+
+	return broadcaster, cancelled
 }
 
 // awaitSourceInfo waits for the B-frame verdict a copy decision needs. It returns

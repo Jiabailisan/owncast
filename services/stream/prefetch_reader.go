@@ -3,7 +3,10 @@ package stream
 import (
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // prefetchReader reads ahead from an ingest reader so the SRT MPEG-TS inspector
@@ -25,11 +28,30 @@ type prefetchReader struct {
 	// inspector until a consumer drains the buffer.
 	budgetSpent     chan struct{}
 	budgetSpentOnce sync.Once
+
+	// stopCh ends the read-ahead early, when the verdict it was feeding already
+	// landed: buffering more bytes cannot change the decision and only delays
+	// the hand-off to FFmpeg.
+	stopOnce sync.Once
+	stopCh   chan struct{}
+
+	// Diagnostics for the startup report: how much was read ahead, how long it
+	// took, and why it ended.
+	startedAt time.Time
+	bytesRead atomic.Int64
+	endOnce   sync.Once
+	endReason string
+	stoppedAt time.Time
 }
 
 // newPrefetchReader wraps an ingest reader.
 func newPrefetchReader(src io.Reader) *prefetchReader {
-	reader := &prefetchReader{src: src, budgetSpent: make(chan struct{})}
+	reader := &prefetchReader{
+		src:         src,
+		budgetSpent: make(chan struct{}),
+		stopCh:      make(chan struct{}),
+		startedAt:   time.Now(),
+	}
 	reader.cond = sync.NewCond(&reader.mu)
 
 	return reader
@@ -57,29 +79,96 @@ func (p *prefetchReader) Prefetch(deadline time.Time, maxBytes int) {
 			p.prefetching = false
 			p.cond.Broadcast()
 			p.mu.Unlock()
+			p.finish("deadline")
 		}()
 		chunk := make([]byte, chunkSize)
 		for {
+			// The verdict may land while this goroutine is parked in a read; check
+			// the stop signal before touching the source again.
+			select {
+			case <-p.stopCh:
+				p.budgetSpentOnce.Do(func() { close(p.budgetSpent) })
+				p.finish("verdict")
+
+				return
+			default:
+			}
+
 			p.readMu.Lock()
 			n, err := p.src.Read(chunk)
 			p.readMu.Unlock()
 			if n > 0 {
+				p.bytesRead.Add(int64(n))
 				p.mu.Lock()
 				p.buf = append(p.buf, chunk[:n]...)
 				buffered := len(p.buf)
 				p.mu.Unlock()
 				p.cond.Broadcast()
-				if buffered >= maxBytes || time.Now().After(deadline) {
+				if buffered >= maxBytes {
 					p.budgetSpentOnce.Do(func() { close(p.budgetSpent) })
+					p.finish("memory-ceiling")
 
 					return
 				}
 			}
 			if err != nil {
+				p.finish("source-end")
+
+				return
+			}
+			if time.Now().After(deadline) {
+				p.budgetSpentOnce.Do(func() { close(p.budgetSpent) })
+				p.finish("deadline")
+
 				return
 			}
 		}
 	}()
+}
+
+// Stop ends the read-ahead early. It is called when the copy verdict landed:
+// every further buffered byte is dead weight between here and the FFmpeg
+// hand-off. The reason is recorded only if the read-ahead has not ended yet.
+func (p *prefetchReader) Stop(reason string) {
+	p.mu.Lock()
+	if p.endReason == "" {
+		p.endReason = reason
+	}
+	p.mu.Unlock()
+	p.stopOnce.Do(func() { close(p.stopCh) })
+}
+
+// finish records the end of the read-ahead once, with the first reason that
+// applied, and logs the startup cost.
+func (p *prefetchReader) finish(reason string) {
+	p.endOnce.Do(func() {
+		p.mu.Lock()
+		if p.endReason == "" {
+			p.endReason = reason
+		}
+		p.stoppedAt = time.Now()
+		elapsed := p.stoppedAt.Sub(p.startedAt)
+		reason = p.endReason
+		p.mu.Unlock()
+
+		log.WithFields(map[string]any{
+			"bytes":     p.bytesRead.Load(),
+			"elapsedMs": elapsed.Milliseconds(),
+			"reason":    reason,
+		}).Info("webrtc: source read-ahead finished")
+	})
+}
+
+// Diagnostics returns the read-ahead cost: bytes read, wall-clock duration and
+// the reason it ended ("" while still running).
+func (p *prefetchReader) Diagnostics() (bytes int64, elapsed time.Duration, reason string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.endReason == "" {
+		return p.bytesRead.Load(), time.Since(p.startedAt), ""
+	}
+
+	return p.bytesRead.Load(), p.stoppedAt.Sub(p.startedAt), p.endReason
 }
 
 // BudgetSpent is closed when the prefetch goroutine stopped because the read

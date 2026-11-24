@@ -677,16 +677,10 @@ func transcodeTarget(source SourceInfo, variant models.StreamOutputVariant) (int
 	case override != nil && override.VideoBitrate > 0:
 		return override.VideoBitrate, BitrateSourceExplicit
 	case !variant.IsVideoPassthrough && variant.VideoBitrate > 0:
-		// The variant's bitrate is the HLS muxed total; the HLS encoder is given
-		// the remainder after the audio room. The WebRTC leg is video-only, so it
-		// targets that same video bitrate: one variant then describes one
-		// rendition whether it is encoded once (shared) or twice.
-		target := variant.VideoBitrate - models.VariantAudioRoomKbps
-		if target <= 0 {
-			target = variant.VideoBitrate
-		}
-
-		return target, BitrateSourceExplicit
+		// The admin UI field is "Video Bitrate" and the operator fills in the
+		// video rate they want, so the WebRTC leg targets exactly that value
+		// without any audio room deducted from it.
+		return variant.VideoBitrate, BitrateSourceExplicit
 	case source.VideoBitrateKbps > 0:
 		return source.VideoBitrateKbps, source.BitrateSource
 	case variant.VideoBitrate > 0:

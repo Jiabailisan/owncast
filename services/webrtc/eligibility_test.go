@@ -238,10 +238,8 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		assert.True(t, decision.Enabled)
 		assert.Equal(t, models.OutputModeTranscode, decision.Mode)
 		assert.False(t, decision.Copy)
-		// The variant's 2500 kbps is the HLS muxed total; the video encoder gets
-		// the remainder after the 192 kbps audio room, and the WebRTC leg targets
-		// that same video bitrate.
-		assert.Equal(t, 2500-models.VariantAudioRoomKbps, decision.VideoBitrateKbps)
+		// The admin field is "Video Bitrate", so the leg targets exactly that.
+		assert.Equal(t, 2500, decision.VideoBitrateKbps)
 		assert.Equal(t, 30, decision.GOPFrames)
 		assert.Equal(t, "constrained-baseline", decision.H264Profile)
 	})
@@ -368,8 +366,8 @@ func TestResolveWebRTCLegModes(t *testing.T) {
 		cfgHalfSecond.KeyframeIntervalSeconds = 0.5
 		decision, err := ResolveWebRTCLeg(eligibleSource(), variant, cfgHalfSecond)
 		require.NoError(t, err)
-		// The variant's 1800 kbps is the HLS total, so the video target is 1608.
-		assert.Equal(t, 1800-models.VariantAudioRoomKbps, decision.VideoBitrateKbps)
+		// The admin field is "Video Bitrate", so the leg targets exactly that.
+		assert.Equal(t, 1800, decision.VideoBitrateKbps)
 		assert.Equal(t, 13, decision.GOPFrames) // round(0.5*25) = 13
 	})
 
@@ -481,7 +479,7 @@ func TestTranscodePlanBitratePriority(t *testing.T) {
 			name:       "variant bitrate for a transcoding variant",
 			source:     SourceInfo{VideoCodec: "h264", Width: 1920, Height: 1080, FPS: 30, VideoBitrateKbps: 5000},
 			mutate:     func(v *models.StreamOutputVariant) { v.VideoBitrate = 2500 },
-			wantTarget: 2500 - models.VariantAudioRoomKbps,
+			wantTarget: 2500,
 			wantSource: BitrateSourceExplicit,
 		},
 		{

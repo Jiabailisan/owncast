@@ -32,6 +32,9 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	hls.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 	hls.SetPurpose([]string{publicPipelineHLS})
 	hls.SetInputFormat(session.InputFormat())
+	// The HLS process needs the flag too: its var_stream_map and tee select
+	// specifiers name the audio stream, and a video-only source has none.
+	hls.SetSourceVideoOnly(sessionVideoOnly(session))
 	hls.SetStdin(tee.AddBranch("hls", true, nil))
 	hls.TranscoderCompleted = func(err error) {
 		// One entry point for both process models. It checks ownership under the lock,

@@ -306,3 +306,74 @@ func TestSharedOutputConstrainsOnlySharedVariants(t *testing.T) {
 		t.Fatalf("the unshared variant was pinned by the shared mode: %s", joined)
 	}
 }
+// TestSharedOutputSharesWhenTheLegMatchesTheHLSEncoderRate proves a transcode
+// leg whose target equals the HLS encoder's effective video rate (the variant's
+// videoBitrate minus the 192 kbps audio room the golden argv freezes) shares
+// that encode. The admin field means the video rate, so an operator who wants
+// sharing sets the per-protocol override to the effective rate.
+func TestSharedOutputSharesWhenTheLegMatchesTheHLSEncoderRate(t *testing.T) {
+	tr := new(Transcoder)
+	tr.cfg = &config.Config{LogDirectory: "data/logs"}
+	tr.ffmpegPath = "ffmpeg"
+	tr.internalListenerPort = "8927"
+	tr.input = "pipe:0"
+	tr.inputFormat = ingest.FLVInputFormat()
+	tr.currentLatencyLevel = models.GetLatencyLevel(2) // 3 s segments
+	tr.codec = &NvencCodec{}
+	tr.SetIdentifier("goldenid")
+	tr.AddVariant(HLSVariant{videoBitrate: 6000, framerate: 60, videoSize: VideoSize{Width: 1920, Height: 1080}, isAudioPassthrough: true, cpuUsageLevel: 2})
+
+	leg := rtpTestOutput("h264_nvenc")
+	leg.VariantIndex = 0
+	leg.VideoBitrateKbps = 6000 - models.VariantAudioRoomKbps // the encoder's rate
+	leg.Framerate = 60
+	leg.GOPFrames = 180
+	leg.Scale = ScaleExpression(1920, 1080)
+	second := leg
+	second.VideoURL = "rtp://127.0.0.1:44000?pkt_size=1200"
+	second.AudioURL = "rtp://127.0.0.1:44001?pkt_size=1200"
+	tr.SetRTPOutputs([]RTPOutput{leg, second})
+
+	if !tr.sharedOutputEnabled() {
+		t.Fatal("a leg matching the HLS encoder's effective rate must share")
+	}
+	joined := strings.Join(tr.getSharedOutputFlags("http://127.0.0.1:8927"), " ")
+	if got := strings.Count(joined, "select=\\'v:0\\'"); got != 2 {
+		t.Fatalf("expected both legs to select v:0, got %d: %s", got, joined)
+	}
+}
+
+// TestSharedOutputDoesNotShareWhenTheLegTargetsTheFullVideoRate pins the other
+// side: a leg that targets the configured video rate must never be fed the
+// encode that runs 192 kbps below it.
+func TestSharedOutputDoesNotShareWhenTheLegTargetsTheFullVideoRate(t *testing.T) {
+	tr := new(Transcoder)
+	tr.cfg = &config.Config{LogDirectory: "data/logs"}
+	tr.ffmpegPath = "ffmpeg"
+	tr.internalListenerPort = "8927"
+	tr.input = "pipe:0"
+	tr.inputFormat = ingest.FLVInputFormat()
+	tr.currentLatencyLevel = models.GetLatencyLevel(2)
+	tr.codec = &NvencCodec{}
+	tr.SetIdentifier("goldenid")
+	tr.AddVariant(HLSVariant{videoBitrate: 6000, framerate: 60, videoSize: VideoSize{Width: 1920, Height: 1080}, isAudioPassthrough: true, cpuUsageLevel: 2})
+
+	leg := rtpTestOutput("h264_nvenc")
+	leg.VariantIndex = 0
+	leg.VideoBitrateKbps = 6000 // the configured video rate, 192 above the encode
+	leg.Framerate = 60
+	leg.GOPFrames = 180
+	leg.Scale = ScaleExpression(1920, 1080)
+	second := leg
+	second.VideoURL = "rtp://127.0.0.1:45000?pkt_size=1200"
+	second.AudioURL = "rtp://127.0.0.1:45001?pkt_size=1200"
+	tr.SetRTPOutputs([]RTPOutput{leg, second})
+
+	if tr.sharedOutputEnabled() {
+		t.Fatal("a leg above the encoder's rate must not share it")
+	}
+	joined := strings.Join(tr.getFlags().command, " ")
+	if strings.Contains(joined, "select=\\'v:0\\'") {
+		t.Fatalf("the leg was fed a 192 kbps slower encode: %s", joined)
+	}
+}

@@ -113,6 +113,10 @@ func (t *Transcoder) variantMatchesLeg(variant HLSVariant, output RTPOutput) boo
 	if variant.framerate != output.Framerate {
 		return false
 	}
+	// The shared encode is pinned to the variant's video bitrate minus the audio
+	// room (the HLS rate-control rule, frozen by the golden argv). A leg whose
+	// target is that same video rate therefore cannot be fed this encode without
+	// silently losing rate: only an equal effective rate shares.
 	if variant.getAllocatedVideoBitrate() != output.VideoBitrateKbps {
 		return false
 	}

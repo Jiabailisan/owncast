@@ -40,7 +40,7 @@ func TestResolveWebRTCSourceSkipsTheWaitWithoutAWebRTCService(t *testing.T) {
 	}
 
 	start := time.Now()
-	source, cancelled := svc.resolveWebRTCSource(session, variants, nil)
+	source, cancelled := svc.resolveWebRTCSource(session, variants, nil, nil)
 	elapsed := time.Since(start)
 
 	if elapsed >= 200*time.Millisecond {

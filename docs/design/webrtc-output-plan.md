@@ -69,6 +69,21 @@ the 2500 kbps / 30 fps defaults:
 - The automatic target waits at most 2.5 s for the measured source rate before
   falling back to the default, and only when a source-size transcode leg would
   otherwise use the default.
+- The admin field is "Video Bitrate" and the operator fills in the video rate
+  they want, so a WebRTC transcode leg targets exactly that value; no audio room
+  is deducted from it. (The HLS encoder still deducts its historical 192 kbps
+  audio room from the same field — that behavior is frozen by the golden argv —
+  which is an upstream semantic mismatch worth fixing separately.)
+- Consequence for sharing: the shared HLS encode is pinned to
+  `videoBitrate - 192` (upstream's historical rule, frozen by the v0.3.1 golden
+  argv — the same field is used there and the fixture captured a live 0.3.1
+  binary), so a transcode leg targeting `videoBitrate` can never match it and
+  always gets its own encode. Sharing still happens when the leg's target equals
+  the HLS encoder's effective rate, which an operator can arrange with a
+  per-protocol `videoBitrate` override of `videoBitrate - 192`. This costs a
+  second encode per transcode tier in the default configuration; the alternative
+  — changing the HLS rate too — would break the golden argv gate and silently
+  change every existing configuration's output rate, so it is left to upstream.
 
 ## 4. Shared encode reuse
 

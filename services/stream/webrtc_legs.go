@@ -26,12 +26,12 @@ import (
 // injects one. Delivery can be enabled between the read-ahead check and this one,
 // so the wait additionally requires that this stream was actually read ahead
 // (budgetSpent is non-nil); see waitForSourceInfo.
-func (s *Service) resolveWebRTCSource(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (webrtc.SourceInfo, bool) {
+func (s *Service) resolveWebRTCSource(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}, prefetch *prefetchReader) (webrtc.SourceInfo, bool) {
 	if !s.webRTCDeliveryEnabled() {
 		return webrtc.SourceInfo{}, false
 	}
 
-	broadcaster, cancelled := s.waitForSourceInfo(session, webrtcVariants, budgetSpent)
+	broadcaster, cancelled := s.waitForSourceInfo(session, webrtcVariants, budgetSpent, prefetch)
 	if cancelled {
 		return webrtc.SourceInfo{}, true
 	}

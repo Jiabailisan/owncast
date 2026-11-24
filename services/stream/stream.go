@@ -202,8 +202,9 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	// the buffer until the transcoder starts, so a copy decision pending at that
 	// moment cannot gain evidence and must not sit out the full source wait.
 	var budgetSpent <-chan struct{}
+	var prefetch *prefetchReader
 	if s.webRTCCopyPlanPending(session, webrtcVariants) {
-		prefetch := newPrefetchReader(mediaReader)
+		prefetch = newPrefetchReader(mediaReader)
 		prefetch.Prefetch(time.Now().Add(webRTCSourceWaitTimeout), webRTCReadAheadMaxBytes)
 		mediaReader = prefetch
 		budgetSpent = prefetch.BudgetSpent()
@@ -214,7 +215,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	// online, publish variants, open media legs or start FFmpeg and the thumbnail
 	// generator, and the existing publish boundary below already refuses a session
 	// that is gone or that lost the slot.
-	source, cancelled := s.resolveWebRTCSource(session, webrtcVariants, budgetSpent)
+	source, cancelled := s.resolveWebRTCSource(session, webrtcVariants, budgetSpent, prefetch)
 	if cancelled {
 		return errSessionCancelled
 	}
