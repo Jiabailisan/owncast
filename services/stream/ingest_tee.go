@@ -252,47 +252,6 @@ func (t *ingestTee) Run() {
 		// Signals Close that the owner has flushed and finished, so Close does not have to
 		// finish the branches itself.
 		defer close(t.stopped)
-		// Low-frequency timeline. Without it the only evidence is the overflow line, which says
-		// that a queue was full but not whether the input burst or nothing was draining it.
-		statsDone := make(chan struct{})
-		defer close(statsDone)
-		go func() {
-			ticker := time.NewTicker(10 * time.Second)
-			defer ticker.Stop()
-			lastBytes := uint64(0)
-			for {
-				select {
-				case <-ticker.C:
-					in := t.bytesIn.Load()
-					delta := in - lastBytes
-					lastBytes = in
-					t.mu.Lock()
-					branches := make([]*teeBranch, len(t.branches))
-					copy(branches, t.branches)
-					t.mu.Unlock()
-					for _, b := range branches {
-						queued, out := b.bytesQueued.Load(), b.bytesOut.Load()
-						var pending uint64
-						if queued > out {
-							pending = queued - out
-						}
-						oldest := int64(0)
-						if ts := b.oldestQueued.Load(); ts != 0 {
-							oldest = time.Since(time.Unix(0, ts)).Milliseconds()
-						}
-						log.Infof("ingest tee stats: branch=%s queue_depth=%d queue_bytes=%d "+
-							"written_total=%d oldest_queued_ms=%d source_total=%d source_delta_10s=%d",
-							b.name, len(b.queue), pending,
-							b.bytesOut.Load(), oldest, in, delta)
-					}
-				case <-statsDone:
-					return
-				case <-t.done:
-					return
-				}
-			}
-		}()
-
 		// Small reads are merged before fan-out. An SRT source delivers roughly 1.5 KB per read,
 		// and forwarding each one separately made the chunk-count bound the real limit long
 		// before the byte budget was reached.
