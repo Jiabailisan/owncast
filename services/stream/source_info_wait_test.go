@@ -76,9 +76,12 @@ func TestAwaitSourceInfoReturnsOnVerdictWithoutStatsTick(t *testing.T) {
 	}()
 
 	start := time.Now()
-	broadcaster := awaitSourceInfo(session, nil, 2500*time.Millisecond)
+	broadcaster, cancelled := awaitSourceInfo(session, nil, 2500*time.Millisecond)
 	elapsed := time.Since(start)
 
+	if cancelled {
+		t.Fatal("a published verdict must not be reported as a cancellation")
+	}
 	if elapsed >= time.Second {
 		t.Fatalf("awaitSourceInfo waited %s for a verdict published after 50ms", elapsed)
 	}
@@ -106,9 +109,12 @@ func TestAwaitSourceInfoStopsWhenPrefetchBudgetSpent(t *testing.T) {
 	}()
 
 	start := time.Now()
-	broadcaster := awaitSourceInfo(session, budgetSpent, 2500*time.Millisecond)
+	broadcaster, cancelled := awaitSourceInfo(session, budgetSpent, 2500*time.Millisecond)
 	elapsed := time.Since(start)
 
+	if cancelled {
+		t.Fatal("a spent prefetch budget must not be reported as a cancellation")
+	}
 	if elapsed >= time.Second {
 		t.Fatalf("awaitSourceInfo waited %s after the prefetch budget was spent", elapsed)
 	}
@@ -142,9 +148,12 @@ func TestAwaitSourceInfoReturnsOnSessionClose(t *testing.T) {
 	}()
 
 	start := time.Now()
-	broadcaster := awaitSourceInfo(session, nil, 2500*time.Millisecond)
+	broadcaster, cancelled := awaitSourceInfo(session, nil, 2500*time.Millisecond)
 	elapsed := time.Since(start)
 
+	if !cancelled {
+		t.Fatal("a session that ended during the wait must be reported as a cancellation")
+	}
 	if elapsed >= time.Second {
 		t.Fatalf("awaitSourceInfo waited %s after the session was closed", elapsed)
 	}
@@ -159,9 +168,12 @@ func TestAwaitSourceInfoHonorsTimeout(t *testing.T) {
 	session := newSourceInfoSession("srt-timeout")
 
 	start := time.Now()
-	broadcaster := awaitSourceInfo(session, nil, 100*time.Millisecond)
+	broadcaster, cancelled := awaitSourceInfo(session, nil, 100*time.Millisecond)
 	elapsed := time.Since(start)
 
+	if cancelled {
+		t.Fatal("a timeout must not be reported as a cancellation")
+	}
 	if elapsed < 100*time.Millisecond {
 		t.Fatalf("awaitSourceInfo returned after %s, before its 100ms timeout", elapsed)
 	}

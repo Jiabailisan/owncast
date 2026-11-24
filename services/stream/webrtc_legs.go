@@ -11,17 +11,22 @@ import (
 	"github.com/owncast/owncast/services/webrtc"
 )
 
-// webrtcSourceInfo describes the incoming stream to the WebRTC eligibility rules.
-// The inspector may not have published its stream details yet, so an absent
+// resolveWebRTCSource describes the incoming stream to the WebRTC eligibility
+// rules, waiting (bounded) for the source metadata a copy decision needs. The
+// inspector may not have published its stream details yet, so an absent
 // broadcaster only leaves the codec unknown, which the rules treat as
-// "transcode rather than copy".
-func (s *Service) webrtcSourceInfo(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}) webrtc.SourceInfo {
-	broadcaster := s.waitForSourceInfo(session, webrtcVariants, budgetSpent)
+// "transcode rather than copy". The second result reports that the publisher
+// went away during the wait, in which case there is no stream to plan for.
+func (s *Service) resolveWebRTCSource(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (webrtc.SourceInfo, bool) {
+	broadcaster, cancelled := s.waitForSourceInfo(session, webrtcVariants, budgetSpent)
+	if cancelled {
+		return webrtc.SourceInfo{}, true
+	}
 	if broadcaster == nil {
-		return webrtc.SourceInfo{Protocol: string(session.Protocol())}
+		return webrtc.SourceInfo{Protocol: string(session.Protocol())}, false
 	}
 
-	return webrtc.SourceInfoFromDetails(string(session.Protocol()), broadcaster.StreamDetails)
+	return webrtc.SourceInfoFromDetails(string(session.Protocol()), broadcaster.StreamDetails), false
 }
 
 // resolveWebRTCLegs decides how each WebRTC-enabled variant is delivered and

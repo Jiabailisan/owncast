@@ -30,6 +30,10 @@ var (
 	errPublishRefused = errors.New("the ingest session could not be published")
 	// errNoIngestSession reports a missing session from an ingest listener.
 	errNoIngestSession = errors.New("no ingest session")
+	// errSessionCancelled reports that the publisher went away while the WebRTC
+	// copy plan was waiting for the source metadata. Nothing was published for
+	// it: no online announcement, no variants, no media legs, no transcoder.
+	errSessionCancelled = errors.New("the ingest session ended before its stream was published")
 )
 
 // Start brings up the storage backend, transcoder, ingest listeners, chat,
@@ -178,6 +182,42 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		LatencyLevel:   s.configRepository.GetStreamLatencyLevel(),
 		OutputSettings: s.configRepository.GetStreamOutputVariants(),
 	}
+	// Refuse a session that is already gone or already replaced before reading
+	// ahead for it: the publish boundary below re-checks this under the lock.
+	if !s.canPublish(session) {
+		log.Debugln("stream: refusing to publish an ingest session that already ended, lost the publisher slot or arrived during a teardown")
+
+		return errPublishRefused
+	}
+
+	webrtcVariants := effectiveWebRTCVariants(broadcast.OutputSettings)
+
+	// For an SRT stream with a pending copy decision, read ahead so the MPEG-TS
+	// inspector can publish source metadata before the plan is fixed. The buffered
+	// bytes are replayed into FFmpeg, so nothing is lost.
+	mediaReader := session.Reader()
+	// budgetSpent reports that the read-ahead budget is exhausted. Nothing drains
+	// the buffer until the transcoder starts, so a copy decision pending at that
+	// moment cannot gain evidence and must not sit out the full source wait.
+	var budgetSpent <-chan struct{}
+	if s.webRTC != nil && session.Protocol() == ingest.ProtocolSRT &&
+		hasWebRTCCopyIntent(webrtcVariants) {
+		prefetch := newPrefetchReader(mediaReader)
+		prefetch.Prefetch(1 << 20)
+		mediaReader = prefetch
+		budgetSpent = prefetch.BudgetSpent()
+	}
+
+	// Resolve the source metadata the copy decision needs before the publish is
+	// committed. A publisher that goes away during the wait must not be announced
+	// online, publish variants, open media legs or start FFmpeg and the thumbnail
+	// generator, and the existing publish boundary below already refuses a session
+	// that is gone or that lost the slot.
+	source, cancelled := s.resolveWebRTCSource(session, webrtcVariants, budgetSpent)
+	if cancelled {
+		return errSessionCancelled
+	}
+
 	// Commit the publish at the hand-off boundary: if the session already ended or a
 	// newer publisher owns the slot, nothing is announced and no transcoder starts.
 	if !s.setCurrentSession(session) {
@@ -190,25 +230,9 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	}
 	s.StreamConnected(broadcast)
 
-	// For an SRT stream with a pending copy decision, read ahead so the
-	// MPEG-TS inspector can publish source metadata before the plan is fixed.
-	// The buffered bytes are replayed into FFmpeg, so nothing is lost.
-	mediaReader := session.Reader()
-	// budgetSpent reports that the read-ahead budget is exhausted. Nothing drains
-	// the buffer until the transcoder starts, so a copy decision pending at that
-	// moment cannot gain evidence and must not sit out the full source wait.
-	var budgetSpent <-chan struct{}
-	if session.Protocol() == ingest.ProtocolSRT &&
-		hasWebRTCCopyIntent(effectiveWebRTCVariants(broadcast.OutputSettings)) {
-		prefetch := newPrefetchReader(mediaReader)
-		prefetch.Prefetch(1 << 20)
-		mediaReader = prefetch
-		budgetSpent = prefetch.BudgetSpent()
-	}
-
 	// Prepare WebRTC delivery first: the transcoder plan includes the RTP
 	// legs for the variants WebRTC exposes.
-	webrtc := s.configureWebRTC(session, broadcast.OutputSettings, budgetSpent)
+	webrtc := s.configureWebRTC(session, broadcast.OutputSettings, source)
 	processModel := s.configRepository.GetOutputProcessModel()
 	// Remember what this stream started with: the admin reports a pending
 	// process-model change only when it differs from the running one.
@@ -259,22 +283,33 @@ func (s *Service) setCurrentSession(session ingest.Session) bool {
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
 
-	if session != nil {
-		if s.tearingDown.Load() {
-			// The previous broadcast is still being cleaned up; its shared state must
-			// not interleave with this publish.
-			return false
-		}
-		if ingestSessionClosed(session) {
-			return false
-		}
-		if s.sessions != nil && s.sessions.Current() != session {
-			return false
-		}
+	if !s.canPublish(session) {
+		return false
 	}
 	s.currentSession = session
 
 	return true
+}
+
+// canPublish reports whether the session may take the broadcast: it must still be
+// open, still own the single publisher slot, and no teardown may be running. The
+// caller that publishes re-checks it under the session lock; the startup path uses
+// it as a fast path so it does not spend the source wait on a session that is
+// already gone or already replaced.
+func (s *Service) canPublish(session ingest.Session) bool {
+	if session == nil {
+		return true
+	}
+	if s.tearingDown.Load() {
+		// The previous broadcast is still being cleaned up; its shared state must
+		// not interleave with this publish.
+		return false
+	}
+	if ingestSessionClosed(session) {
+		return false
+	}
+
+	return s.sessions == nil || s.sessions.Current() == session
 }
 
 // clearTranscoder forgets the transcoder reference only while it still belongs to the

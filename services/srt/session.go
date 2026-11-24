@@ -52,6 +52,9 @@ type session struct {
 	sourceReady     chan struct{}
 	sourceReadyOnce sync.Once
 	sourceDecided   atomic.Bool
+	// publishedBFrames records the B-frame verdict that was published, guarded by
+	// sourceMu. A published "true" is never replaced by an older snapshot.
+	publishedBFrames bool
 
 	// stateMu guards conn, closed and started. bind, Close and the start commit share
 	// it, so a session cannot register resources after Close finished and Close can
@@ -277,13 +280,20 @@ func (s *session) SourceInfoReady() <-chan struct{} { return s.sourceReady }
 // refreshSourceMetadata publishes the source properties extracted from the
 // MPEG-TS stream (codec, resolution, H.264 profile/level, FPS, B-frame
 // verdict) as the session broadcaster. It is called by the statistics sampler
-// once per tick and only publishes when something changed.
+// once per tick and by the ingest read path when the B-frame verdict lands.
 func (s *session) refreshSourceMetadata() {
 	if s.inspector == nil {
 		return
 	}
 
-	info := s.inspector.Snapshot()
+	s.publishSourceMetadata(s.inspector.Snapshot())
+}
+
+// publishSourceMetadata publishes one snapshot of the inspected source
+// properties. The statistics sampler and the ingest read path both call it with
+// snapshots they took at different moments, so it only publishes a change and it
+// never lets a snapshot taken before the B-frame verdict take that verdict away.
+func (s *session) publishSourceMetadata(info mpegts.SourceInfo) {
 	if info.VideoCodec == "" && info.AudioCodec == "" && info.Width == 0 {
 		return
 	}
@@ -336,9 +346,15 @@ func (s *session) refreshSourceMetadata() {
 	if key == s.lastSourceKey {
 		return
 	}
-	// A published verdict is sticky. Without this, a snapshot the sampler took
-	// before the inspector decided could land afterwards and take the verdict
-	// away from a copy decision that is already waking up.
+	// A published verdict is sticky in the direction that matters. The inspector
+	// never revises "uses B-frames" back to "does not", so a snapshot that would
+	// take that away was taken earlier and must not replace it: the two publishers
+	// can interleave, and a copy decision may already be waking up on the verdict.
+	if s.publishedBFrames && (details.HasBFrames == nil || !*details.HasBFrames) {
+		return
+	}
+	// A published "no B-frames" verdict is not replaced by a snapshot that has no
+	// verdict at all, for the same reason.
 	if s.sourceDecided.Load() && details.HasBFrames == nil {
 		return
 	}
@@ -353,6 +369,7 @@ func (s *session) refreshSourceMetadata() {
 	// The verdict is what a copy decision waits for: announce it exactly once,
 	// whichever path published it (read path or statistics tick).
 	if details.HasBFrames != nil {
+		s.publishedBFrames = *details.HasBFrames
 		s.sourceReadyOnce.Do(func() { close(s.sourceReady) })
 		// Whichever path published the verdict, the read path can stop polling
 		// the inspector for it.

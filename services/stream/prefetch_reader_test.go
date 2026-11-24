@@ -37,6 +37,22 @@ func (r *finiteReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// eofWithDataReader returns its whole payload together with io.EOF, the way a
+// socket read can report the final bytes and the end of the stream in one call.
+type eofWithDataReader struct {
+	data []byte
+	sent bool
+}
+
+func (r *eofWithDataReader) Read(p []byte) (int, error) {
+	if r.sent {
+		return 0, io.EOF
+	}
+	r.sent = true
+
+	return copy(p, r.data), io.EOF
+}
+
 // readAllWithinDeadline reads to the end in a goroutine so a reader that never
 // returns fails the test instead of hanging it.
 func readAllWithinDeadline(t *testing.T, reader io.Reader, deadline time.Duration) ([]byte, error) {
@@ -86,6 +102,23 @@ func TestPrefetchReaderPreservesOrderAndExitsOnEOF(t *testing.T) {
 		}
 		if !bytes.Equal(got, payload) {
 			t.Fatal("the prefetched bytes are not byte-for-byte identical to the source")
+		}
+	})
+
+	t.Run("a final chunk that also reports eof keeps its bytes", func(t *testing.T) {
+		payload := incrementingPayload(1024)
+		reader := newPrefetchReader(&eofWithDataReader{data: payload})
+
+		// The budget is far larger than the source, so the prefetch ends on the
+		// EOF that arrives together with the last bytes.
+		reader.Prefetch(1 << 20)
+
+		got, err := readAllWithinDeadline(t, reader, 2*time.Second)
+		if err != nil {
+			t.Fatalf("reading the prefetched stream failed: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("read %d bytes, want the %d byte source verbatim", len(got), len(payload))
 		}
 	})
 

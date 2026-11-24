@@ -133,9 +133,9 @@ type sourceInfoReadyWaiter interface {
 //
 // budgetSpent is the read-ahead signal from the prefetch reader; it may be nil
 // when the session is not read ahead.
-func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) *models.Broadcaster {
+func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (*models.Broadcaster, bool) {
 	if session.Protocol() != ingest.ProtocolSRT || !hasWebRTCCopyIntent(variants) {
-		return session.Broadcaster()
+		return session.Broadcaster(), false
 	}
 
 	return awaitSourceInfo(session, budgetSpent, webRTCSourceWaitTimeout)
@@ -150,10 +150,12 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 //
 // The returned broadcaster is whatever is known at that moment. An unknown
 // verdict keeps the existing behavior: the eligibility rules treat it as
-// "transcode rather than copy".
-func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeout time.Duration) *models.Broadcaster {
+// "transcode rather than copy". The second result reports that the publisher went
+// away while the verdict was pending: that is a cancellation, not an unknown
+// source, and the caller must not publish the stream for it.
+func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeout time.Duration) (*models.Broadcaster, bool) {
 	if broadcaster := session.Broadcaster(); broadcaster != nil && broadcaster.StreamDetails.HasBFrames != nil {
-		return broadcaster
+		return broadcaster, false
 	}
 
 	var ready <-chan struct{}
@@ -172,11 +174,13 @@ func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeou
 		// inspector cannot observe another slice. Stop waiting: the verdict
 		// stays unknown and the existing rules fall back to transcode.
 	case <-session.Done():
-		// The publisher went away while the verdict was still pending.
+		// The publisher went away while the verdict was still pending. This is a
+		// cancellation: there is no stream to plan for any more.
+		return session.Broadcaster(), true
 	case <-timer.C:
 	}
 
-	return session.Broadcaster()
+	return session.Broadcaster(), false
 }
 
 // configureWebRTC resolves the WebRTC plan for the stream that is starting and
@@ -273,15 +277,13 @@ type webRTCOutputs struct {
 	legs    []WebRTCMediaLeg
 }
 
-func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) webRTCOutputs {
+func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant, source webrtc.SourceInfo) webRTCOutputs {
 	if s.webRTC == nil {
 		return webRTCOutputs{}
 	}
 
 	webrtcVariants := effectiveWebRTCVariants(variants)
 	webrtcConfig := s.configRepository.GetWebRTCConfig()
-
-	source := s.webrtcSourceInfo(session, webrtcVariants, budgetSpent)
 
 	decisions, warnings, hasEnabled := s.resolveWebRTCLegs(session, webrtcVariants, webrtcConfig, source)
 	if !hasEnabled {
