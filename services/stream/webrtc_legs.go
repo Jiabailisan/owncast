@@ -17,7 +17,16 @@ import (
 // broadcaster only leaves the codec unknown, which the rules treat as
 // "transcode rather than copy". The second result reports that the publisher
 // went away during the wait, in which case there is no stream to plan for.
+//
+// Without a WebRTC service there is no leg to plan, and the read-ahead that
+// would let the inspector publish a verdict is not started either (see
+// HandleIngestSession). Waiting for a verdict nothing can produce would only
+// delay HLS start by the full source-wait timeout, so this returns at once.
 func (s *Service) resolveWebRTCSource(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (webrtc.SourceInfo, bool) {
+	if s.webRTC == nil {
+		return webrtc.SourceInfo{}, false
+	}
+
 	broadcaster, cancelled := s.waitForSourceInfo(session, webrtcVariants, budgetSpent)
 	if cancelled {
 		return webrtc.SourceInfo{}, true
