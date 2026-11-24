@@ -140,7 +140,9 @@ restart.
 
 A 2560x1440@60, Main/5.1, no-B-frame H.264 source was published over SRT and
 over RTMP, in both process models, with the original-quality tier set to
-`Follow HLS settings` and to explicit `Copy`. A real WHEP viewer then read the
+`Follow HLS settings` and to explicit `Copy`. The field's exact input profile
+(High@5.1, 2560x1440@60) was then re-run through the two hardest cells (SRT /
+shared / inherit and RTMP / isolated / inherit) with the same result. A real WHEP viewer then read the
 received H.264 RTP and reported the resolution from the SPS
 (`test/automated/webrtc/whep_resolution_e2e_test.go`), because the SDP answer
 only advertises a profile-level-id:
