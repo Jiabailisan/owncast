@@ -5220,6 +5220,9 @@ components:
         videoBitrateKbps:
           type: integer
           description: Transcode target bitrate
+        bitratePeakKbps:
+          type: integer
+          description: Ceiling of the transcode rate-control window (target .. peak)
         gopFrames:
           type: integer
         framerate:

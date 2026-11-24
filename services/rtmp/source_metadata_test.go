@@ -1,6 +1,7 @@
 package rtmp
 
 import (
+	"bytes"
 	"io"
 	"net"
 	"testing"
@@ -164,3 +165,64 @@ func TestRTMPMetadataKeepsVideoOnlyFlag(t *testing.T) {
 
 // timeMillis converts milliseconds to the duration av.Packet carries.
 func timeMillis(ms int) time.Duration { return time.Duration(ms) * time.Millisecond }
+
+// TestRTMPContainerPrefixRebuildsTheDecoderConfiguration proves a process that
+// joins the stream late is handed a valid FLV prefix: the file header plus the
+// video and audio sequence-header tags. FLV sends that configuration exactly
+// once, so without this the isolated WebRTC process has no extradata and cannot
+// decode anything.
+func TestRTMPContainerPrefixRebuildsTheDecoderConfiguration(t *testing.T) {
+	session := newTestSession(t)
+	videoConfig := avcConfigRecord()
+	audioConfig := []byte{0x11, 0x90}
+
+	if prefix := session.ContainerPrefix(); prefix != nil {
+		t.Fatal("a session without a decoder configuration must return no prefix")
+	}
+
+	session.inspectPacket(av.Packet{Type: av.H264DecoderConfig, Data: videoConfig})
+	session.inspectPacket(av.Packet{Type: av.AACDecoderConfig, Data: audioConfig})
+
+	prefix := session.ContainerPrefix()
+	if len(prefix) < 13 || string(prefix[0:3]) != "FLV" {
+		t.Fatalf("prefix does not start with an FLV header: %x", prefix[:13])
+	}
+
+	// Video sequence header tag.
+	offset := 13
+	if prefix[offset] != 9 {
+		t.Fatalf("first tag type is %d, want 9 (video)", prefix[offset])
+	}
+	videoSize := int(prefix[offset+1])<<16 | int(prefix[offset+2])<<8 | int(prefix[offset+3])
+	if videoSize != 5+len(videoConfig) {
+		t.Fatalf("video tag size is %d, want %d", videoSize, 5+len(videoConfig))
+	}
+	videoBody := prefix[offset+11 : offset+11+videoSize]
+	if videoBody[0] != 0x17 || videoBody[1] != 0x00 {
+		t.Fatalf("video tag is not an AVC sequence header: %x", videoBody[:2])
+	}
+	if !bytes.Equal(videoBody[5:], videoConfig) {
+		t.Fatal("the video tag does not carry the cached decoder configuration")
+	}
+	offset += 11 + videoSize
+
+	// The PreviousTagSize after the video tag must be 11 + its data size.
+	previous := int(prefix[offset])<<24 | int(prefix[offset+1])<<16 | int(prefix[offset+2])<<8 | int(prefix[offset+3])
+	if previous != 11+videoSize {
+		t.Fatalf("PreviousTagSize is %d, want %d", previous, 11+videoSize)
+	}
+	offset += 4
+
+	// Audio sequence header tag.
+	if prefix[offset] != 8 {
+		t.Fatalf("second tag type is %d, want 8 (audio)", prefix[offset])
+	}
+	audioSize := int(prefix[offset+1])<<16 | int(prefix[offset+2])<<8 | int(prefix[offset+3])
+	if audioSize != 2+len(audioConfig) {
+		t.Fatalf("audio tag size is %d, want %d", audioSize, 2+len(audioConfig))
+	}
+	audioBody := prefix[offset+11 : offset+11+audioSize]
+	if audioBody[0] != 0xAF || audioBody[1] != 0x00 {
+		t.Fatalf("audio tag is not an AAC sequence header: %x", audioBody[:2])
+	}
+}

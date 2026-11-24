@@ -97,16 +97,28 @@ function describeSource(source: WebRTCLegSource, t: Translate): string {
   return parts.join(', ');
 }
 
-// Transcode settings only: "<target> kbps, GOP <n>, <fps> fps, <profile>".
+// Transcode settings only: "<target>-<peak> kbps, GOP <n>, <fps> fps, <profile>".
+// The window is shown as a range because the encoder is allowed to use it; a
+// single value means the leg is pinned to its target.
 // Copy legs re-encode nothing, so they show the source bitstream instead.
 function describeEncoder(leg: WebRTCLegStatus, t: Translate): string | null {
   const parts: string[] = [];
   if (leg.videoBitrateKbps) {
-    parts.push(
-      t(Localization.Admin.VideoVariantForm.bitrateValueKbps, {
-        bitrate: formatMetricNumber(leg.videoBitrateKbps),
-      }),
-    );
+    const peak = leg.bitratePeakKbps ?? 0;
+    if (peak > leg.videoBitrateKbps) {
+      parts.push(
+        t(Localization.Admin.LiveStreaming.Status.webrtcEncoderWindow, {
+          target: formatMetricNumber(leg.videoBitrateKbps),
+          peak: formatMetricNumber(peak),
+        }),
+      );
+    } else {
+      parts.push(
+        t(Localization.Admin.VideoVariantForm.bitrateValueKbps, {
+          bitrate: formatMetricNumber(leg.videoBitrateKbps),
+        }),
+      );
+    }
   }
   if (leg.gopFrames) {
     parts.push(t(Localization.Admin.LiveStreaming.Status.webrtcEncoderGop, { gop: leg.gopFrames }));

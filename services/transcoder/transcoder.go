@@ -451,9 +451,16 @@ func (t *Transcoder) getFlags() *execInfo {
 			"-flags", "+cgop", // Force closed GOPs
 		}...)
 	}
-	// Protocol-neutral input descriptor: empty for FLV (RTMP), "-f mpegts"
-	// for SRT. Keeping RTMP's flags unchanged preserves the golden argv.
-	ffmpegFlags = append(ffmpegFlags, t.inputFormat.ExtraArgs...)
+	if t.rtpOnly {
+		// The isolated WebRTC process reads a tee branch that starts mid-stream,
+		// so it must be told the container: FLV is only self-describing at its
+		// header and probing a mid-stream start fails with "Invalid data found".
+		ffmpegFlags = append(ffmpegFlags, t.inputFormat.ExplicitArgs()...)
+	} else {
+		// Protocol-neutral input descriptor: empty for FLV (RTMP), "-f mpegts"
+		// for SRT. Keeping RTMP's flags unchanged preserves the golden argv.
+		ffmpegFlags = append(ffmpegFlags, t.inputFormat.ExtraArgs...)
+	}
 	ffmpegFlags = append(ffmpegFlags, "-i", t.input)
 
 	// RTP-only process: the RTP legs are the whole command.

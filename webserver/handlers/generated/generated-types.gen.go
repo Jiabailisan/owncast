@@ -878,8 +878,10 @@ type AdminLiveWarning struct {
 
 // AdminLiveWebRTCLeg One resolved WebRTC delivery decision for an output variant
 type AdminLiveWebRTCLeg struct {
-	Framerate *int `json:"framerate,omitempty"`
-	GopFrames *int `json:"gopFrames,omitempty"`
+	// BitratePeakKbps Ceiling of the transcode rate-control window (target .. peak)
+	BitratePeakKbps *int `json:"bitratePeakKbps,omitempty"`
+	Framerate       *int `json:"framerate,omitempty"`
+	GopFrames       *int `json:"gopFrames,omitempty"`
 
 	// H264Profile Encoder output profile for a transcode leg
 	H264Profile          *string  `json:"h264Profile,omitempty"`

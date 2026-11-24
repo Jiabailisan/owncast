@@ -46,6 +46,13 @@ type session struct {
 	// packet pump forwards, so RTMP runs the same copy-eligibility rules as SRT.
 	inspector *flv.Inspector
 
+	// containerMu guards the cached decoder configuration. FLV sends it once, in
+	// sequence-header tags at the start of the stream, so a process that joins
+	// later must be handed a rebuilt prefix or it has no extradata at all.
+	containerMu sync.Mutex
+	videoConfig []byte
+	audioConfig []byte
+
 	// sourceMu guards declared, lastSourceKey and publishedBFrames.
 	sourceMu sync.Mutex
 	// declared is the onMetaData claim, used only where the probe has no value.

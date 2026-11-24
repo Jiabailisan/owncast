@@ -22,6 +22,18 @@ type Stats struct {
 	Extra                map[string]float64
 }
 
+// ContainerPrefixProvider is implemented by sessions whose container describes
+// itself only at its start. A process that joins the stream late (the isolated
+// WebRTC process, and any of its restarts) needs those bytes replayed or it
+// cannot decode the stream at all: FLV carries the decoder configuration in a
+// sequence-header tag that is sent once, while MPEG-TS repeats the parameter
+// sets in band.
+type ContainerPrefixProvider interface {
+	// ContainerPrefix returns a container header followed by the cached
+	// decoder-configuration tags, or nil when the container needs none.
+	ContainerPrefix() []byte
+}
+
 // Session is one authenticated inbound media session. The stream service owns
 // the live lifecycle and consumes sessions; protocol services (RTMP, SRT)
 // implement them. Implementations must be safe for concurrent use: the stream

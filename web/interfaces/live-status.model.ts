@@ -108,8 +108,9 @@ export interface WebRTCLegStatus {
   // Applied mode: "copy" | "transcode" | "disabled".
   mode: string;
   source: WebRTCLegSource;
-  // Transcode target bitrate.
+  // Transcode target bitrate and the ceiling of its rate-control window.
   videoBitrateKbps?: number;
+  bitratePeakKbps?: number;
   gopFrames?: number;
   framerate?: number;
   // Encoder output profile.

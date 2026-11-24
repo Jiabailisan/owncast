@@ -76,10 +76,13 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		// it could start at a keyframe was tried and removed: measured against captured streams
 		// it did not reduce the parameter-set errors, and on a capture with no recoverable
 		// parameter sets it added the whole wait before passing the same bytes through.
-		tr.SetStdin(tee.AddBranch(webRTCBranchName, false, func() {
+		// The WebRTC process starts (and restarts) while the ingest stream is
+		// already flowing, so its branch begins mid-container: align it to a
+		// container boundary or FFmpeg cannot demux it at all.
+		tr.SetStdin(tee.AddContainerAlignedBranch(webRTCBranchName, false, func() {
 			// Overflow: stop this process; HLS keeps running.
 			tr.Stop()
-		}))
+		}, session.InputFormat().Name, containerPrefix(session)))
 
 		completed := make(chan error, 1)
 		tr.TranscoderCompleted = func(err error) {
@@ -152,6 +155,18 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			return
 		}
 	}
+}
+
+// containerPrefix returns the bytes a late-joining process must receive before
+// the live stream: the container header plus the decoder configuration the
+// session cached. Containers that repeat their parameter sets in band need none.
+func containerPrefix(session ingest.Session) []byte {
+	provider, ok := session.(ingest.ContainerPrefixProvider)
+	if !ok {
+		return nil
+	}
+
+	return provider.ContainerPrefix()
 }
 
 // variantIndices lists the variant indices a set of RTP outputs feeds.

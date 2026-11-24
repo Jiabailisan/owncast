@@ -47,6 +47,13 @@ type teeBranch struct {
 	name     string
 	critical bool
 
+	// aligner, when set, rewrites the first bytes of this branch so it starts at
+	// a container boundary. A branch added after the stream started begins in
+	// the middle of a container: MPEG-TS resynchronizes on its sync bytes, but
+	// FLV only describes itself at its header, so FFmpeg cannot recover and the
+	// process produces nothing.
+	aligner *flvAligner
+
 	reader *io.PipeReader
 	writer *io.PipeWriter
 	queue  chan []byte
@@ -103,6 +110,16 @@ func (b *teeBranch) pump() {
 	for {
 		select {
 		case chunk := <-b.queue:
+			if b.aligner != nil {
+				aligned, ok := b.aligner.feed(chunk)
+				if !ok {
+					b.pending.Add(-int64(len(chunk)))
+
+					continue
+				}
+				b.aligner = nil
+				chunk = aligned
+			}
 			if _, err := b.writer.Write(chunk); err != nil {
 				b.fail(err)
 				return
@@ -195,6 +212,23 @@ func queueBytes(b *teeBranch) uint64 {
 // reader (backpressure); optional branches are failed when their bounded queue
 // overflows so they can never stall the critical path.
 func (t *ingestTee) AddBranch(name string, critical bool, onOverflow func()) *io.PipeReader {
+	return t.addBranch(name, critical, onOverflow, nil)
+}
+
+// AddContainerAlignedBranch adds a branch whose process may start mid-stream and
+// rewrites its first bytes so it begins at a container boundary. It is used for
+// the isolated WebRTC process: that process is started (and restarted) while the
+// ingest stream is already flowing.
+func (t *ingestTee) AddContainerAlignedBranch(name string, critical bool, onOverflow func(), container string, prefix []byte) *io.PipeReader {
+	var aligner *flvAligner
+	if container == "flv" {
+		aligner = newFLVAligner(prefix)
+	}
+
+	return t.addBranch(name, critical, onOverflow, aligner)
+}
+
+func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), aligner *flvAligner) *io.PipeReader {
 	reader, writer := io.Pipe()
 	branch := &teeBranch{
 		name:       name,
@@ -203,6 +237,7 @@ func (t *ingestTee) AddBranch(name string, critical bool, onOverflow func()) *io
 		writer:     writer,
 		queue:      make(chan []byte, teeBranchQueueChunks),
 		onOverflow: onOverflow,
+		aligner:    aligner,
 		endCh:      make(chan struct{}),
 		failCh:     make(chan struct{}),
 	}
@@ -212,8 +247,107 @@ func (t *ingestTee) AddBranch(name string, critical bool, onOverflow func()) *io
 	t.mu.Unlock()
 
 	go branch.pump()
-	log.Tracef("ingest tee: branch %q added (critical=%v)", name, critical)
+	log.Tracef("ingest tee: branch %q added (critical=%v aligned=%v)", name, critical, aligner != nil)
 	return reader
+}
+
+// flvAligner rewrites the first bytes of a mid-stream branch into a valid FLV
+// stream: a synthetic file header followed by the first whole tag. It exists
+// because a branch that starts in the middle of an FLV tag cannot be demuxed at
+// all - unlike MPEG-TS, FLV has no periodic sync pattern.
+type flvAligner struct {
+	buffered []byte
+	// prefix is what the branch is handed before the first whole tag. It is the
+	// container header plus the decoder-configuration tags the session cached,
+	// because FLV sends that configuration exactly once.
+	prefix []byte
+}
+
+// flvMaxAlignBuffer bounds how much is buffered while looking for a boundary. A
+// source that never yields a plausible tag boundary falls back to the raw bytes
+// instead of buffering forever.
+const flvMaxAlignBuffer = 4 << 20
+
+// flvFileHeader is a minimal FLV header (audio+video flags, 9-byte data offset)
+// followed by the zero PreviousTagSize0 the format requires.
+var flvFileHeader = []byte{'F', 'L', 'V', 0x01, 0x05, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00}
+
+func newFLVAligner(prefix []byte) *flvAligner {
+	if len(prefix) == 0 {
+		// Without a cached configuration the branch still gets a valid file
+		// header, which at least lets the demuxer parse the tags.
+		prefix = flvFileHeader
+	}
+
+	return &flvAligner{prefix: prefix}
+}
+
+// feed buffers a chunk and reports whether the aligned prefix is ready. Once it
+// returns true the aligner is finished and the caller passes later chunks
+// through untouched.
+func (a *flvAligner) feed(chunk []byte) ([]byte, bool) {
+	a.buffered = append(a.buffered, chunk...)
+	if offset, ok := flvTagBoundary(a.buffered); ok {
+		log.Infof("ingest tee: aligned a mid-stream FLV branch at offset %d of %d buffered bytes", offset, len(a.buffered))
+		aligned := make([]byte, 0, len(a.prefix)+len(a.buffered)-offset)
+		aligned = append(aligned, a.prefix...)
+		aligned = append(aligned, a.buffered[offset:]...)
+
+		return aligned, true
+	}
+	if len(a.buffered) >= flvMaxAlignBuffer {
+		log.Warnf("ingest tee: no FLV tag boundary in %d bytes; forwarding the raw bytes", len(a.buffered))
+		raw := a.buffered
+		a.buffered = nil
+
+		return raw, true
+	}
+
+	return nil, false
+}
+
+// flvTagBoundary returns the offset of the first position where two consecutive
+// valid FLV tag headers can be read, or false when none is present yet.
+func flvTagBoundary(buffer []byte) (int, bool) {
+	for offset := 0; offset+11 <= len(buffer); offset++ {
+		if !isFLVTagHeader(buffer[offset:]) {
+			continue
+		}
+		end := offset + 11 + flvTagDataSize(buffer[offset:]) + 4
+		if end+11 > len(buffer) {
+			// The next header is not buffered yet, so this candidate cannot be
+			// confirmed. Keep looking: a later offset may already be confirmed.
+			continue
+		}
+		if isFLVTagHeader(buffer[end:]) {
+			return offset, true
+		}
+	}
+
+	return 0, false
+}
+
+// isFLVTagHeader reports whether the 11 bytes look like an FLV tag header.
+func isFLVTagHeader(buffer []byte) bool {
+	if len(buffer) < 11 {
+		return false
+	}
+	switch buffer[0] {
+	case 8, 9, 18:
+	default:
+		return false
+	}
+	size := flvTagDataSize(buffer)
+	if size <= 0 || size > 16<<20 {
+		return false
+	}
+
+	return buffer[8] == 0 && buffer[9] == 0 && buffer[10] == 0
+}
+
+// flvTagDataSize reads the 24-bit data size of an FLV tag header.
+func flvTagDataSize(buffer []byte) int {
+	return int(buffer[1])<<16 | int(buffer[2])<<8 | int(buffer[3])
 }
 
 // RemoveBranch finishes and unlinks every branch with the given name. A

@@ -35,10 +35,12 @@ func (s *session) inspectPacket(pkt av.Packet) {
 
 	switch pkt.Type {
 	case av.H264DecoderConfig:
+		s.cacheVideoConfig(pkt.Data)
 		s.inspector.FeedVideo(flv.VideoFormatAVC, flv.AVCPacketSequenceHeader, pkt.Data, timeMs)
 	case av.H264, av.H264SPSPPSNALU:
 		s.inspector.FeedVideo(flv.VideoFormatAVC, flv.AVCPacketNALU, pkt.Data, timeMs)
 	case av.AACDecoderConfig:
+		s.cacheAudioConfig(pkt.Data)
 		s.inspector.FeedAudio(flv.SoundFormatAAC, flv.AACPacketSequenceHead, pkt.Data, timeMs)
 	case av.AAC:
 		s.inspector.FeedAudio(flv.SoundFormatAAC, flv.AACPacketRaw, pkt.Data, timeMs)
@@ -47,6 +49,74 @@ func (s *session) inspectPacket(pkt av.Packet) {
 	// Publish from the packet path as soon as the verdict exists, instead of
 	// waiting for the next statistics tick.
 	s.publishSourceInfoIfDecided()
+}
+
+// cacheVideoConfig records the AVC decoder configuration for ContainerPrefix.
+func (s *session) cacheVideoConfig(config []byte) {
+	s.containerMu.Lock()
+	defer s.containerMu.Unlock()
+	s.videoConfig = append([]byte(nil), config...)
+}
+
+// cacheAudioConfig records the AAC decoder configuration for ContainerPrefix.
+func (s *session) cacheAudioConfig(config []byte) {
+	s.containerMu.Lock()
+	defer s.containerMu.Unlock()
+	s.audioConfig = append([]byte(nil), config...)
+}
+
+// ContainerPrefix returns an FLV file header followed by the cached video and
+// audio sequence-header tags. FLV sends the decoder configuration exactly once,
+// at the start of the stream, so a process that joins late (the isolated WebRTC
+// process and its restarts) has no extradata and cannot decode anything without
+// these bytes. It returns nil until the configuration has been seen.
+func (s *session) ContainerPrefix() []byte {
+	s.containerMu.Lock()
+	video, audio := s.videoConfig, s.audioConfig
+	s.containerMu.Unlock()
+
+	if len(video) == 0 && len(audio) == 0 {
+		return nil
+	}
+
+	// The FLV header is followed by PreviousTagSize0 = 0; every tag is then
+	// followed by its own size, which is what flvTag appends.
+	prefix := []byte{'F', 'L', 'V', 0x01, 0x05, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00}
+	if len(video) > 0 {
+		// AVC sequence header: frame type 1 (keyframe) | codec 7 (AVC), packet
+		// type 0, composition time 0.
+		body := append([]byte{0x17, 0x00, 0x00, 0x00, 0x00}, video...)
+		prefix = append(prefix, flvTag(9, body)...)
+	}
+	if len(audio) > 0 {
+		// AAC sequence header: format 10 (AAC), 44 kHz, 16-bit, stereo; packet
+		// type 0.
+		body := append([]byte{0xAF, 0x00}, audio...)
+		prefix = append(prefix, flvTag(8, body)...)
+	}
+
+	return prefix
+}
+
+// uint24 renders a value as its low three bytes, big-endian.
+func uint24(value int) []byte {
+	return []byte{byte(value >> 16 & 0xFF), byte(value >> 8 & 0xFF), byte(value & 0xFF)}
+}
+
+// flvTag serializes one FLV tag followed by its own PreviousTagSize.
+func flvTag(tagType byte, body []byte) []byte {
+	// An FLV tag body is a 24-bit length and its size a 32-bit one, so neither
+	// conversion can lose a bit for any body this builder produces.
+	size := 11 + len(body)
+	tag := make([]byte, 0, size+4)
+	tag = append(tag, tagType)
+	tag = append(tag, uint24(len(body))...)
+	tag = append(tag, 0, 0, 0, 0) // timestamp
+	tag = append(tag, 0, 0, 0)    // stream id
+	tag = append(tag, body...)
+	tag = append(tag, byte(size>>24&0xFF), byte(size>>16&0xFF), byte(size>>8&0xFF), byte(size&0xFF))
+
+	return tag
 }
 
 // SourceInfoReady is closed once the B-frame verdict has been published as the

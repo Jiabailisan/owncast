@@ -597,6 +597,7 @@
 				"webrtcEncoder": "Encoder",
 				"webrtcEncoderCopy": "source bitstream (no re-encode)",
 				"webrtcEncoderGop": "GOP {{gop}}",
+				"webrtcEncoderWindow": "{{target}}-{{peak}} kbps",
 				"webrtcExplanation": "Three H.264 profile and level values matter here. The source profile and level come from the ingest bitstream, so they describe what the publisher sent. The encoder profile is what Owncast encodes with when a WebRTC rendition is transcoded. The advertised profile-level-id is what the browser negotiates in the WHEP answer, and it can differ from both of the other values.",
 				"webrtcInheritedHlsCopy": "HLS passthrough",
 				"webrtcInheritedHlsTranscode": "HLS transcode",

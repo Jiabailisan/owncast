@@ -36,6 +36,18 @@ func MPEGTSInputFormat() InputFormat {
 	return InputFormat{Name: "mpegts", ExtraArgs: []string{"-f", "mpegts"}}
 }
 
+// ExplicitArgs returns the ffmpeg input flags that pin the container, for the
+// callers that cannot rely on probing. The isolated WebRTC process reads a
+// tee branch that starts mid-stream, and FLV is only self-describing at its
+// header, so auto-detection fails there with "Invalid data found".
+func (f InputFormat) ExplicitArgs() []string {
+	if f.Name == "" {
+		return nil
+	}
+
+	return []string{"-f", f.Name}
+}
+
 // String returns the container name for logging and status displays.
 func (f InputFormat) String() string {
 	if f.Name == "" {

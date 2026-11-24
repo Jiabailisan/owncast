@@ -115,7 +115,28 @@ encoder name) or as a fallback before a measurement exists. This removes the
 "unverified copy" path: an RTMP passthrough leg is now subject to the same rules
 as an SRT one.
 
-## 6. Behavior changes for existing configurations
+## 6. Late-joining processes and the FLV container
+
+The isolated process model starts the WebRTC process beside the HLS one, and
+restarts it on failure, so its ingest branch begins in the middle of the
+container. MPEG-TS resynchronizes on its 188-byte sync bytes; FLV does not, and
+worse, FLV carries the decoder configuration in a sequence-header tag that is
+sent exactly once at the start of the stream. A late branch therefore had no
+file header and no extradata, and the process failed with "Invalid data found"
+(and, before that, silently delivered nothing).
+
+The tee now gives such a branch a container prefix plus tag alignment:
+
+- the session exposes `ContainerPrefix()`, which for RTMP rebuilds the FLV file
+  header and the cached video and audio sequence-header tags;
+- `flvAligner` buffers the first chunk until it can confirm two consecutive
+  valid FLV tag headers, then writes the prefix followed by that tag.
+
+This makes RTMP work under the isolated process model at all: before the fix the
+WebRTC process could never decode an FLV source, on the first attempt or on a
+restart.
+
+## 7. Behavior changes for existing configurations
 
 - An inherited copy that cannot be used now reports a warning and its reasons
   instead of falling back silently.

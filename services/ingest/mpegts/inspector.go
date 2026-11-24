@@ -417,7 +417,7 @@ func analyzeNAL(info *SourceInfo, sliceCount *int, nal []byte) {
 	}
 	switch nal[0] & 0x1f {
 	case 7: // SPS
-		if sps, ok := ParseSPS(unescapeEmulationPrevention(nal[1:])); ok {
+		if sps, ok := ParseSPSNAL(nal); ok {
 			info.VideoCodec = "h264"
 			info.Profile = sps.ProfileName()
 			info.Level = sps.Level()
@@ -442,6 +442,18 @@ func analyzeNAL(info *SourceInfo, sliceCount *int, nal []byte) {
 			info.BFrameChecked = true
 		}
 	}
+}
+
+// ParseSPSNAL parses an H.264 SPS NAL unit: the NAL header byte plus its
+// payload, without a start code. It strips the header and the emulation
+// prevention bytes, so a caller that holds a NAL unit (the FLV inspector, an RTP
+// depacketizer) does not have to reimplement either step.
+func ParseSPSNAL(nal []byte) (*SPSInfo, bool) {
+	if len(nal) < 2 || nal[0]&0x1f != 7 {
+		return nil, false
+	}
+
+	return ParseSPS(unescapeEmulationPrevention(nal[1:]))
 }
 
 // H264Probe is the protocol-independent H.264 elementary-stream probe. It is

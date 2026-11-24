@@ -250,6 +250,7 @@ export const webrtcLegs = [
       bitrateSource: '',
     },
     videoBitrateKbps: 2500,
+    bitratePeakKbps: 3750,
     gopFrames: 30,
     framerate: 30,
     h264Profile: 'main',

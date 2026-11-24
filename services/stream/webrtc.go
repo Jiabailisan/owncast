@@ -346,6 +346,7 @@ func legStatusFromDecision(index int, variant models.StreamOutputVariant, decisi
 	}
 	if decision.Mode == models.OutputModeTranscode {
 		status.VideoBitrateKbps = decision.VideoBitrateKbps
+		status.BitratePeakKbps = decision.BitratePeakKbps
 		status.GOPFrames = decision.GOPFrames
 		status.Framerate = decision.Framerate
 		status.H264Profile = decision.H264Profile

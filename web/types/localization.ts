@@ -319,6 +319,7 @@ export const Localization = {
         webrtcBFramesUnknown: 'Admin.LiveStreaming.Status.webrtcBFramesUnknown',
         webrtcEncoder: 'Admin.LiveStreaming.Status.webrtcEncoder',
         webrtcEncoderGop: 'Admin.LiveStreaming.Status.webrtcEncoderGop',
+        webrtcEncoderWindow: 'Admin.LiveStreaming.Status.webrtcEncoderWindow',
         webrtcEncoderCopy: 'Admin.LiveStreaming.Status.webrtcEncoderCopy',
         webrtcMeasured: 'Admin.LiveStreaming.Status.webrtcMeasured',
         webrtcNotes: 'Admin.LiveStreaming.Status.webrtcNotes',

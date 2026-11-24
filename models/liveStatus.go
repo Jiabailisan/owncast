@@ -161,8 +161,11 @@ type WebRTCLegStatus struct {
 	// Source echoes the inbound properties the decision was made from.
 	Source WebRTCLegSource `json:"source"`
 
-	// Encoder settings, set for transcode legs only.
+	// Encoder settings, set for transcode legs only. VideoBitrateKbps is the
+	// target and BitratePeakKbps the ceiling of the rate-control window: the
+	// window is target .. peak.
 	VideoBitrateKbps int    `json:"videoBitrateKbps,omitempty"`
+	BitratePeakKbps  int    `json:"bitratePeakKbps,omitempty"`
 	GOPFrames        int    `json:"gopFrames,omitempty"`
 	Framerate        int    `json:"framerate,omitempty"`
 	H264Profile      string `json:"h264Profile,omitempty"`
