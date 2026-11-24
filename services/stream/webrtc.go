@@ -33,6 +33,12 @@ type WebRTCMediaLeg interface {
 // lifecycle needs. main.go injects an adapter over *webrtc.Service so the
 // stream package does not depend on the Pion implementation.
 type WebRTCProvider interface {
+	// Enabled reports whether the running service delivers WebRTC at all.
+	// main.go always injects the service, so a non-nil provider says nothing
+	// about delivery; OpenMediaLeg and the WHEP handler both refuse while this
+	// is false. Copy planning and the source read-ahead are gated on it too: a
+	// verdict nothing can consume would only delay the HLS start.
+	Enabled() bool
 	// SetVariants publishes the variants WebRTC delivery should expose. The
 	// slice position is the variant index used by WHEP and the FFmpeg plan.
 	SetVariants(variants []models.StreamOutputVariant) (uint64, error)
@@ -120,6 +126,35 @@ func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 	return false
 }
 
+// webRTCDeliveryEnabled reports whether a WebRTC leg can be delivered for the
+// stream that is starting. The injected provider is always constructed by
+// main.go, so a non-nil provider only means the composition root wired it up;
+// delivery is gated by the runtime service's own Enabled(), which is exactly the
+// check OpenMediaLeg and the WHEP handler apply. Reading the configuration
+// repository instead would add a second source that can disagree with the
+// service: the admin update path applies the new configuration to the service
+// before it is persisted, and a restart-service change (enabled has
+// applyMode=restart-service) keeps the running engine on the previous snapshot
+// until the service restarts. The service snapshot is the one that decides
+// whether a leg is opened, so it is the one this planning phase follows.
+func (s *Service) webRTCDeliveryEnabled() bool {
+	return s.webRTC != nil && s.webRTC.Enabled()
+}
+
+// webRTCCopyPlanPending reports whether the stream still has a WebRTC copy
+// decision that source metadata can resolve. It is the single gate for both the
+// source read-ahead in HandleIngestSession and the wait for the B-frame verdict
+// in resolveWebRTCSource, so the two can never drift apart again: with delivery
+// off, or without an SRT source that asks for copy, nothing can consume the
+// verdict and HLS must start immediately.
+func (s *Service) webRTCCopyPlanPending(session ingest.Session, variants []models.StreamOutputVariant) bool {
+	if !s.webRTCDeliveryEnabled() {
+		return false
+	}
+
+	return session.Protocol() == ingest.ProtocolSRT && hasWebRTCCopyIntent(variants)
+}
+
 // sourceInfoReadyWaiter is implemented by ingest sessions that can report the
 // moment the source metadata carries a B-frame verdict. RTMP sessions do not
 // implement it and never wait.
@@ -129,12 +164,14 @@ type sourceInfoReadyWaiter interface {
 
 // waitForSourceInfo blocks briefly for SRT source metadata when a copy decision
 // is pending. RTMP metadata cannot provide profile/B-frame information, so RTMP
-// never waits (copy intent falls back to transcode by design).
+// never waits (copy intent falls back to transcode by design). The gate is the
+// same webRTCCopyPlanPending the read-ahead uses, so a stream that is not read
+// ahead is never waited on either.
 //
 // budgetSpent is the read-ahead signal from the prefetch reader; it may be nil
 // when the session is not read ahead.
 func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (*models.Broadcaster, bool) {
-	if session.Protocol() != ingest.ProtocolSRT || !hasWebRTCCopyIntent(variants) {
+	if !s.webRTCCopyPlanPending(session, variants) {
 		return session.Broadcaster(), false
 	}
 

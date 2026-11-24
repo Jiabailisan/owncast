@@ -194,14 +194,15 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 
 	// For an SRT stream with a pending copy decision, read ahead so the MPEG-TS
 	// inspector can publish source metadata before the plan is fixed. The buffered
-	// bytes are replayed into FFmpeg, so nothing is lost.
+	// bytes are replayed into FFmpeg, so nothing is lost. The gate is shared with
+	// the wait below: without WebRTC delivery there is no copy leg to decide, and
+	// reading ahead for a verdict nothing consumes only delays the HLS start.
 	mediaReader := session.Reader()
 	// budgetSpent reports that the read-ahead budget is exhausted. Nothing drains
 	// the buffer until the transcoder starts, so a copy decision pending at that
 	// moment cannot gain evidence and must not sit out the full source wait.
 	var budgetSpent <-chan struct{}
-	if s.webRTC != nil && session.Protocol() == ingest.ProtocolSRT &&
-		hasWebRTCCopyIntent(webrtcVariants) {
+	if s.webRTCCopyPlanPending(session, webrtcVariants) {
 		prefetch := newPrefetchReader(mediaReader)
 		prefetch.Prefetch(1 << 20)
 		mediaReader = prefetch

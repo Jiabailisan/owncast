@@ -16,6 +16,10 @@ type recordingProvider struct {
 	indices [][]int
 }
 
+// Enabled keeps WebRTC delivery on: these tests are about withdrawal, not about
+// the delivery gate.
+func (r *recordingProvider) Enabled() bool { return true }
+
 func (r *recordingProvider) SetVariants([]models.StreamOutputVariant) (uint64, error) { return 0, nil }
 
 func (r *recordingProvider) OpenMediaLeg(int, uint64) (WebRTCMediaLeg, error) { return nil, nil }

@@ -17,7 +17,12 @@ type planningProvider struct {
 	mu          sync.Mutex
 	setVariants int
 	openLegs    int
+	// disabled is the runtime delivery state the provider reports. The default is
+	// on, which is the state every planning test except the disabled one needs.
+	disabled bool
 }
+
+func (p *planningProvider) Enabled() bool { return !p.disabled }
 
 func (p *planningProvider) SetVariants([]models.StreamOutputVariant) (uint64, error) {
 	p.mu.Lock()

@@ -18,12 +18,14 @@ import (
 // "transcode rather than copy". The second result reports that the publisher
 // went away during the wait, in which case there is no stream to plan for.
 //
-// Without a WebRTC service there is no leg to plan, and the read-ahead that
-// would let the inspector publish a verdict is not started either (see
+// Without WebRTC delivery there is no leg to plan, and the read-ahead that would
+// let the inspector publish a verdict is not started either (see
 // HandleIngestSession). Waiting for a verdict nothing can produce would only
-// delay HLS start by the full source-wait timeout, so this returns at once.
+// delay HLS start by the full source-wait timeout, so this returns at once. The
+// gate is the delivery state of the service, not its presence: main.go always
+// injects one.
 func (s *Service) resolveWebRTCSource(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (webrtc.SourceInfo, bool) {
-	if s.webRTC == nil {
+	if !s.webRTCDeliveryEnabled() {
 		return webrtc.SourceInfo{}, false
 	}
 

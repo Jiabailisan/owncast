@@ -14,6 +14,11 @@ type webRTCStreamAdapter struct {
 
 var _ stream.WebRTCProvider = webRTCStreamAdapter{}
 
+// Enabled implements stream.WebRTCProvider.
+func (a webRTCStreamAdapter) Enabled() bool {
+	return a.service.Enabled()
+}
+
 // SetVariants implements stream.WebRTCProvider.
 func (a webRTCStreamAdapter) SetVariants(variants []models.StreamOutputVariant) (uint64, error) {
 	return a.service.SetVariants(variants)
