@@ -583,6 +583,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     // covers teardown (unmount, low latency turned off, variant change) and the session identity
     // check covers a switch that happened while a sample was in flight.
     let cancelled = false;
+    // At most one getStats() may be outstanding. A report that takes longer than the interval must
+    // not queue up samples describing a moment that has already passed; the flag is released when
+    // the sample succeeds, fails, or is discarded as stale.
+    let sampling = false;
 
     if (latencyEnabled) {
       timer = setInterval(() => {
@@ -594,9 +598,12 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           previousSample = null;
           lateSamples = 0;
         }
+        if (sampling) return;
+        sampling = true;
         void activeSession.pc
           .getStats()
           .then(report => {
+            sampling = false;
             if (cancelled || sessionRef.current !== activeSession) return;
             const { sample, bytes } = collectWebRTCStatsPanel(report, previousSample);
             previousSample = bytes;
@@ -613,13 +620,15 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             }
           })
           .catch(() => {
-            // A failed sample is not a reason to touch playback.
+            // A failed sample is not a reason to touch playback, but it must release the slot.
+            sampling = false;
           });
       }, 1000);
     }
 
     return () => {
       cancelled = true;
+      sampling = false;
       previousSample = null;
       lateSamples = 0;
       if (timer) clearInterval(timer);

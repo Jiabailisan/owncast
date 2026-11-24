@@ -13,6 +13,17 @@ jest.mock('react-hotkeys-hook', () => ({
   useHotkeys: jest.fn(),
 }));
 
+// The viewer reporter samples the same peer connection every ten seconds. Stubbing it keeps the
+// getStats() call count in these tests attributable to the catch-up loop alone.
+jest.mock('../utils/viewer-report', () => ({
+  ...jest.requireActual('../utils/viewer-report'),
+  ViewerReporter: class {
+    start() {}
+
+    stop() {}
+  },
+}));
+
 const fakeStream = { id: 'stream' } as unknown as MediaStream;
 
 const makeSession = (getStats: jest.Mock): WHEPSessionHandle => ({
@@ -77,7 +88,7 @@ describe('WebRTC low-latency catch-up loop', () => {
   });
 
   afterEach(() => {
-    collectSpy.mockRestore();
+    jest.restoreAllMocks();
     jest.useRealTimers();
     localStorage.clear();
   });
@@ -208,6 +219,49 @@ describe('WebRTC low-latency catch-up loop', () => {
 
     expect(collectSpy).not.toHaveBeenCalled();
     expect(videoEl().playbackRate).toBe(1);
+  });
+
+  test('keeps one sample in flight and uses the finished one as the next baseline', async () => {
+    // The auto-quality sampler reads the same peer connection; neutralising it leaves the catch-up
+    // loop as the only caller, so the call count is the number of samples this loop requested.
+    jest
+      .spyOn(webrtcStats, 'collectVideoInboundTotals')
+      .mockResolvedValue({ packetsReceived: 0, packetsLost: 0 } as never);
+
+    const previousSeen: unknown[] = [];
+    const bytesReturned: unknown[] = [];
+    collectSpy.mockImplementation(((_report: unknown, previous?: unknown) => {
+      previousSeen.push(previous);
+      const bytes = bytesSample(previousSeen.length);
+      bytesReturned.push(bytes);
+      return { sample: { liveLatencySeconds: 0.2 }, bytes };
+    }) as never);
+
+    const first = deferred();
+    const getStats = jest.fn().mockReturnValueOnce(first.promise).mockResolvedValue(new Map());
+
+    await mount(getStats);
+
+    // Three intervals pass while the first report is still outstanding.
+    await tick();
+    await tick();
+    await tick();
+
+    expect(getStats).toHaveBeenCalledTimes(1);
+    expect(collectSpy).not.toHaveBeenCalled();
+
+    // The late report is used as the first sample ...
+    await act(async () => {
+      first.resolve(new Map());
+      await Promise.resolve();
+    });
+    expect(collectSpy).toHaveBeenCalledTimes(1);
+    expect(previousSeen[0]).toBeNull();
+
+    // ... and as the baseline for the sample that follows it.
+    await tick();
+    expect(getStats).toHaveBeenCalledTimes(2);
+    expect(previousSeen[1]).toBe(bytesReturned[0]);
   });
 
   test('starts a fresh sample window after a stream switch', async () => {
