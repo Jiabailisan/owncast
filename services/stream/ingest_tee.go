@@ -49,10 +49,9 @@ type teeBranch struct {
 
 	// aligner, when set, rewrites the first bytes of this branch so it starts at
 	// a container boundary. A branch added after the stream started begins in
-	// the middle of a container: MPEG-TS resynchronizes on its sync bytes, but
-	// FLV only describes itself at its header, so FFmpeg cannot recover and the
-	// process produces nothing.
-	aligner *flvAligner
+	// the middle of a container: MPEG-TS only needs the partial head packet
+	// dropped, FLV only describes itself at its header.
+	aligner any
 
 	reader *io.PipeReader
 	writer *io.PipeWriter
@@ -68,7 +67,8 @@ type teeBranch struct {
 	bytesOut     atomic.Uint64
 	oldestQueued atomic.Int64 // unix nanos when the queue first became non-empty
 
-	onOverflow func()
+	onOverflowMu sync.Mutex
+	onOverflow   func()
 
 	endOnce  sync.Once
 	endCh    chan struct{}
@@ -88,13 +88,27 @@ func (b *teeBranch) remove(err error) {
 	})
 }
 
-// fail closes the branch with an error and stops its process (if configured).
+// SetOverflow installs the branch's overflow callback after registration. The
+// first WebRTC branch is registered before its transcoder exists, so its
+// overflow callback is bound afterwards.
+func (b *teeBranch) SetOverflow(fn func()) {
+	b.onOverflowMu.Lock()
+	b.onOverflow = fn
+	b.onOverflowMu.Unlock()
+}
+
+// fail closes the branch with an error and stops its process (if the overflow
+// callback was bound). The callback may be bound after registration, so it is
+// read under its mutex.
 func (b *teeBranch) fail(err error) {
 	b.failOnce.Do(func() {
 		close(b.failCh)
 		_ = b.writer.CloseWithError(err)
-		if b.onOverflow != nil {
-			b.onOverflow()
+		b.onOverflowMu.Lock()
+		fn := b.onOverflow
+		b.onOverflowMu.Unlock()
+		if fn != nil {
+			fn()
 		}
 	})
 }
@@ -104,22 +118,44 @@ func (b *teeBranch) finish() {
 	b.endOnce.Do(func() { close(b.endCh) })
 }
 
+// feedAligner passes a chunk through the branch's container aligner, if one is
+// still active. It returns the aligned bytes and whether the chunk may be
+// written; an aligner that is still searching for the boundary holds the chunk
+// back (nothing is written yet).
+func (b *teeBranch) feedAligner(chunk []byte) ([]byte, bool) {
+	if b.aligner == nil {
+		return chunk, true
+	}
+	var aligned []byte
+	var ok bool
+	switch a := b.aligner.(type) {
+	case *flvAligner:
+		aligned, ok = a.feed(chunk)
+	case *tsAligner:
+		aligned, ok = a.feed(chunk)
+	default:
+		aligned, ok = chunk, true
+	}
+	if ok {
+		b.aligner = nil
+	}
+
+	return aligned, ok
+}
+
 // pump writes queued chunks to the branch's pipe. On a graceful finish it
 // drains the queue before closing the writer so no tail bytes are lost.
 func (b *teeBranch) pump() {
 	for {
 		select {
 		case chunk := <-b.queue:
-			if b.aligner != nil {
-				aligned, ok := b.aligner.feed(chunk)
-				if !ok {
-					b.pending.Add(-int64(len(chunk)))
+			aligned, ok := b.feedAligner(chunk)
+			if !ok {
+				b.pending.Add(-int64(len(chunk)))
 
-					continue
-				}
-				b.aligner = nil
-				chunk = aligned
+				continue
 			}
+			chunk = aligned
 			if _, err := b.writer.Write(chunk); err != nil {
 				b.fail(err)
 				return
@@ -160,6 +196,12 @@ type ingestTee struct {
 	closeOnce sync.Once
 	runOnce   sync.Once
 
+	// start gates the pump: a caller that registers its branches before Start()
+	// gets the whole stream from its first byte, which is what a branch feeding
+	// an FFmpeg probe needs (the parameter sets are only in the stream's head).
+	startOnce    sync.Once
+	startAllowed chan struct{}
+
 	// Diagnostics: how much the pump has taken from the source, and when it last delivered.
 	// They answer whether a branch fell behind because the input arrived in a burst or because
 	// nothing was draining it.
@@ -167,9 +209,26 @@ type ingestTee struct {
 	lastRead atomic.Int64 // unix nanos of the last successful read
 }
 
-// newIngestTee wraps the ingest reader.
+// newIngestTee wraps the ingest reader. The pump is armed but does not start
+// until Start is called.
 func newIngestTee(source io.Reader) *ingestTee {
-	return &ingestTee{source: source, done: make(chan struct{}), stopped: make(chan struct{})}
+	return &ingestTee{
+		source:       source,
+		done:         make(chan struct{}),
+		stopped:      make(chan struct{}),
+		startAllowed: make(chan struct{}),
+	}
+}
+
+// Start begins reading the source and fanning it out. Every branch registered
+// before this call sees the stream from its first byte. The pump runs in its
+// own goroutine from here on; Run is kept for callers that manage the goroutine
+// themselves and is a no-op after Start.
+func (t *ingestTee) Start() {
+	t.startOnce.Do(func() {
+		close(t.startAllowed)
+		go t.Run()
+	})
 }
 
 // overBudget reports whether an optional branch would exceed its bounds, and stops it when it
@@ -215,20 +274,36 @@ func (t *ingestTee) AddBranch(name string, critical bool, onOverflow func()) *io
 	return t.addBranch(name, critical, onOverflow, nil)
 }
 
-// AddContainerAlignedBranch adds a branch whose process may start mid-stream and
-// rewrites its first bytes so it begins at a container boundary. It is used for
-// the isolated WebRTC process: that process is started (and restarted) while the
-// ingest stream is already flowing.
-func (t *ingestTee) AddContainerAlignedBranch(name string, critical bool, onOverflow func(), container string, prefix []byte) *io.PipeReader {
-	var aligner *flvAligner
+// Branch returns the registered branch with the given name, or nil. A caller
+// that registered a branch before binding its overflow callback uses this.
+func (t *ingestTee) Branch(name string) *teeBranch {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, branch := range t.branches {
+		if branch.name == name {
+			return branch
+		}
+	}
+
+	return nil
+}
+
+// AddLateBranch adds a branch whose process starts (or restarts) while the
+// ingest stream is already flowing, so its first bytes begin mid-container. The
+// aligner repairs that: FLV gets a rebuilt header plus the cached decoder
+// configuration, MPEG-TS just drops the partial packet at the head.
+func (t *ingestTee) AddLateBranch(name string, critical bool, onOverflow func(), container string, prefix []byte) *io.PipeReader {
+	var aligner any
 	if container == "flv" {
 		aligner = newFLVAligner(prefix)
+	} else {
+		aligner = newTSAligner()
 	}
 
 	return t.addBranch(name, critical, onOverflow, aligner)
 }
 
-func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), aligner *flvAligner) *io.PipeReader {
+func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), aligner any) *io.PipeReader {
 	reader, writer := io.Pipe()
 	branch := &teeBranch{
 		name:       name,
@@ -249,6 +324,61 @@ func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), ali
 	go branch.pump()
 	log.Tracef("ingest tee: branch %q added (critical=%v aligned=%v)", name, critical, aligner != nil)
 	return reader
+}
+
+// tsAligner repairs a branch that joins an MPEG-TS stream mid-packet. Unlike
+// FLV, TS repeats PAT/PMT and sends parameter sets in band, so a late branch
+// recovers by itself as soon as it is back on packet boundaries and has seen the
+// next keyframe; the repair is to drop the partial packet at the head, which is
+// what turns into the garbage bytes FFmpeg reports before "unspecified size".
+type tsAligner struct {
+	buffered []byte
+}
+
+// tsMaxAlignBuffer bounds the head search. A stream that never yields sync
+// bytes is forwarded raw rather than buffered forever.
+const tsMaxAlignBuffer = 1 << 20
+
+func newTSAligner() *tsAligner { return &tsAligner{} }
+
+// feed buffers the head until it finds two consecutive 188-periodic sync bytes,
+// then emits everything from the first of them. Later chunks pass through.
+func (a *tsAligner) feed(chunk []byte) ([]byte, bool) {
+	a.buffered = append(a.buffered, chunk...)
+	offset := tsSyncOffset(a.buffered)
+	if offset < 0 {
+		if len(a.buffered) >= tsMaxAlignBuffer {
+			log.Warnf("ingest tee: no MPEG-TS sync in %d bytes; forwarding the raw bytes", len(a.buffered))
+			raw := a.buffered
+			a.buffered = nil
+
+			return raw, true
+		}
+
+		return nil, false
+	}
+	aligned := a.buffered[offset:]
+	a.buffered = nil
+
+	return aligned, true
+}
+
+// tsSyncOffset returns the first offset that starts a run of four consecutive
+// 188-periodic sync bytes, or -1. Four packets make a false positive from
+// payload filler bytes implausible while needing less than a kilobyte of head.
+func tsSyncOffset(buffer []byte) int {
+	for offset := 0; offset+188*4 <= len(buffer); offset++ {
+		if buffer[offset] != 0x47 {
+			continue
+		}
+		if buffer[offset+188] == 0x47 &&
+			buffer[offset+188*2] == 0x47 &&
+			buffer[offset+188*3] == 0x47 {
+			return offset
+		}
+	}
+
+	return -1
 }
 
 // flvAligner rewrites the first bytes of a mid-stream branch into a valid FLV
@@ -383,6 +513,16 @@ func (t *ingestTee) RemoveBranch(name string) {
 //nolint:cyclop // the branches are the read/flush/EOF cases of one buffer, not independent logic
 func (t *ingestTee) Run() {
 	t.runOnce.Do(func() {
+		// The pump waits for Start: registering the branches first is what lets a
+		// late FFmpeg process receive the stream head (PAT/PMT and the parameter
+		// sets) instead of joining mid-packet.
+		select {
+		case <-t.startAllowed:
+		case <-t.done:
+			close(t.stopped)
+
+			return
+		}
 		// Signals Close that the owner has flushed and finished, so Close does not have to
 		// finish the branches itself.
 		defer close(t.stopped)

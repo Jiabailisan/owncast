@@ -306,6 +306,7 @@ func TestSharedOutputConstrainsOnlySharedVariants(t *testing.T) {
 		t.Fatalf("the unshared variant was pinned by the shared mode: %s", joined)
 	}
 }
+
 // TestSharedOutputSharesWhenTheLegMatchesTheHLSEncoderRate proves a transcode
 // leg whose target equals the HLS encoder's effective video rate (the variant's
 // videoBitrate minus the 192 kbps audio room the golden argv freezes) shares

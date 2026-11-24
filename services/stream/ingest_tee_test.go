@@ -40,6 +40,7 @@ func TestIngestTeeFansOutIdenticalBytes(t *testing.T) {
 	go func() { defer wg.Done(); hlsData = readAllWithTimeout(t, hls) }()
 	go func() { defer wg.Done(); webrtcData = readAllWithTimeout(t, webrtc) }()
 
+	tee.Start()
 	go tee.Run()
 	wg.Wait()
 
@@ -69,6 +70,7 @@ func TestIngestTeeOptionalBranchDoesNotStallCritical(t *testing.T) {
 		data, _ := io.ReadAll(hls)
 		done <- data
 	}()
+	tee.Start()
 	go tee.Run()
 
 	select {
@@ -96,6 +98,7 @@ func TestIngestTeeCloseReleasesBranches(t *testing.T) {
 	}()
 	tee := newIngestTee(pr)
 	branch := tee.AddBranch("hls", true, nil)
+	tee.Start()
 	go tee.Run()
 	time.Sleep(50 * time.Millisecond)
 	tee.Close()
@@ -141,6 +144,7 @@ func TestIngestTeeRemoveBranchStopsQueueing(t *testing.T) {
 		t.Fatal("removal must not be reported as an overflow")
 	}
 
+	tee.Start()
 	go tee.Run()
 	data := readAllWithTimeout(t, live)
 	if string(data) != "0123456789" {
@@ -161,6 +165,7 @@ func TestIngestTeeCoalescesSmallReadsIntoTheByteBudget(t *testing.T) {
 
 	tee := newIngestTee(&chunkedReader{data: payload, chunk: readSize})
 	slow := tee.AddBranch("webrtc", false, nil)
+	tee.Start()
 	go tee.Run()
 
 	// Drain slowly but steadily: slower than the source, faster than the byte budget allows to
@@ -233,6 +238,7 @@ func TestIngestTeeFlushesHeldBytesWhenTheReadBlocks(t *testing.T) {
 	src := &blockingReader{first: []byte("one-small-read"), release: make(chan struct{})}
 	tee := newIngestTee(src)
 	branch := tee.AddBranch("webrtc", false, nil)
+	tee.Start()
 	go tee.Run()
 	defer close(src.release)
 
@@ -260,12 +266,10 @@ func TestIngestTeeFlushesHeldBytesWhenTheReadBlocks(t *testing.T) {
 // A short read followed immediately by EOF must deliver every byte before the branch sees EOF.
 func TestIngestTeeDeliversTheLastBytesBeforeEOF(t *testing.T) {
 	payload := []byte("final-small-chunk")
-	tee := newIngestTee(&blockingReader{first: payload, release: make(chan struct{})})
-	branch := tee.AddBranch("webrtc", false, nil)
-
 	src := &blockingReader{first: payload, release: make(chan struct{})}
 	tee2 := newIngestTee(src)
 	branch2 := tee2.AddBranch("webrtc", false, nil)
+	tee2.Start()
 	go tee2.Run()
 	close(src.release)
 
@@ -281,8 +285,6 @@ func TestIngestTeeDeliversTheLastBytesBeforeEOF(t *testing.T) {
 	if string(all) != string(payload) {
 		t.Fatalf("branch received %q, want %q before EOF", all, payload)
 	}
-	_ = tee
-	_ = branch
 }
 
 // dataAndEOFReader returns its whole payload together with io.EOF in a single call, which a
@@ -307,6 +309,7 @@ func TestIngestTeeDeliversBytesReturnedWithEOF(t *testing.T) {
 	payload := []byte("bytes-and-eof-in-one-call")
 	tee := newIngestTee(&dataAndEOFReader{data: payload})
 	branch := tee.AddBranch("hls", true, nil)
+	tee.Start()
 	go tee.Run()
 
 	var got []byte
@@ -338,6 +341,7 @@ func TestIngestTeeKeepsOrderWhenTimerAndReadRace(t *testing.T) {
 
 	tee := newIngestTee(&slowChunkReader{data: payload, chunk: size, pause: 2 * time.Millisecond})
 	branch := tee.AddBranch("hls", true, nil)
+	tee.Start()
 	go tee.Run()
 
 	got := readAllWithin(t, branch, len(payload))
@@ -358,6 +362,7 @@ func TestIngestTeeDeliversTailOnceWhenTerminationAndFlushRace(t *testing.T) {
 	payload := []byte("tail-delivered-once")
 	tee := newIngestTee(&dataAndEOFReader{data: payload})
 	branch := tee.AddBranch("hls", true, nil)
+	tee.Start()
 	go tee.Run()
 
 	got := readAllWithin(t, branch, len(payload))
@@ -405,6 +410,7 @@ func TestIngestTeeByteBudgetIsTheBoundThatFires(t *testing.T) {
 			payload := bytes.Repeat([]byte("x"), (teeBranchQueueBytes*2)+chunk)
 			tee := newIngestTee(&slowChunkReader{data: payload, chunk: chunk})
 			tee.AddBranch("webrtc", false, nil) // nobody drains it
+			tee.Start()
 			go tee.Run()
 
 			deadline := time.After(10 * time.Second)
@@ -479,6 +485,7 @@ func TestIngestTeeCloseDeliversTheTail(t *testing.T) {
 	payload := []byte("tail-before-close")
 	tee := newIngestTee(&dataAndEOFReader{data: payload})
 	branch := tee.AddBranch("hls", true, nil)
+	tee.Start()
 	go tee.Run()
 
 	// Let the reader deliver, then close before the coalescing timer fires.
@@ -496,6 +503,7 @@ func TestIngestTeeCloseCompletesWhenTheBranchIsStuck(t *testing.T) {
 	payload := bytes.Repeat([]byte("x"), teeReadChunkSize*8)
 	tee := newIngestTee(&slowChunkReader{data: payload, chunk: 4096})
 	tee.AddBranch("hls", true, nil) // nobody reads it, so its pipe blocks
+	tee.Start()
 	go tee.Run()
 
 	time.Sleep(50 * time.Millisecond)
@@ -550,6 +558,7 @@ func TestIngestTeeCloseDrainsQueuedResults(t *testing.T) {
 
 	tee := newIngestTee(&slowChunkReader{data: payload, chunk: size, pause: time.Millisecond})
 	branch := tee.AddBranch("hls", true, nil)
+	tee.Start()
 	go tee.Run()
 
 	// Collect while the tee runs, then close with data likely still queued.

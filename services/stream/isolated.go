@@ -49,9 +49,18 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	// a supervisor left over from the previous stream can no longer write to it.
 	s.claimWebRTCProcessSession(session)
 
-	go tee.Run()
+	// Register the first WebRTC branch before the pump starts. The stream head
+	// (PAT/PMT and the H.264 parameter sets) passes within the first tens of
+	// milliseconds; a branch added after the pump began never sees it, and its
+	// FFmpeg probe fails with "non-existing PPS 0" / "unspecified size".
+	webrtcBranch := tee.AddLateBranch(webRTCBranchName, false, nil, session.InputFormat().Name, containerPrefix(session))
+
+	// Both branches exist, so the pump can start: everything from the first byte
+	// now reaches both processes.
+	tee.Start()
+
 	go hls.Start(true)
-	go s.superviseWebRTCProcess(tee, session, webrtc, s.webRTCVariantGen)
+	go s.superviseWebRTCProcess(tee, session, webrtc, s.webRTCVariantGen, webrtcBranch)
 }
 
 // superviseWebRTCProcess runs the WebRTC-only FFmpeg process with a bounded
@@ -61,13 +70,22 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 // process. It is replaced on every supervised restart.
 const webRTCBranchName = "webrtc"
 
-func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session, webrtc webRTCOutputs, variantGen uint64) {
+func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session, webrtc webRTCOutputs, variantGen uint64, firstBranch *io.PipeReader) {
 	backoff := webRTCProcessBackoff
 
 	for attempt := 0; ; attempt++ {
-		// Drop the previous (dead) branch before adding its replacement so the
-		// fan-out never keeps queueing into a process that is gone.
-		tee.RemoveBranch(webRTCBranchName)
+		// Attempt 0 reuses the branch that was registered before the pump started
+		// (it saw the stream head); later attempts join mid-stream, so they get a
+		// fresh, container-aligned branch after dropping the dead one.
+		var branch *io.PipeReader
+		if attempt == 0 && firstBranch != nil {
+			branch = firstBranch
+		} else {
+			// Drop the previous (dead) branch before adding its replacement so the
+			// fan-out never keeps queueing into a process that is gone.
+			tee.RemoveBranch(webRTCBranchName)
+			branch = tee.AddLateBranch(webRTCBranchName, false, nil, session.InputFormat().Name, containerPrefix(session))
+		}
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
 		tr.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 		tr.SetPurpose([]string{"webrtc"})
@@ -75,17 +93,13 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		tr.SetInputFormat(session.InputFormat())
 		tr.SetRTPOutputs(webrtc.outputs)
 		tr.SetSourceVideoOnly(sessionVideoOnly(session))
-		// The branch reads the stream as the tee delivers it. A gate that held the stream until
-		// it could start at a keyframe was tried and removed: measured against captured streams
-		// it did not reduce the parameter-set errors, and on a capture with no recoverable
-		// parameter sets it added the whole wait before passing the same bytes through.
-		// The WebRTC process starts (and restarts) while the ingest stream is
-		// already flowing, so its branch begins mid-container: align it to a
-		// container boundary or FFmpeg cannot demux it at all.
-		tr.SetStdin(tee.AddContainerAlignedBranch(webRTCBranchName, false, func() {
-			// Overflow: stop this process; HLS keeps running.
-			tr.Stop()
-		}, session.InputFormat().Name, containerPrefix(session)))
+		tr.SetStdin(branch)
+		// Overflow on this branch stops this process; HLS keeps running. The
+		// first branch was registered before tr existed, so the callback is bound
+		// here for every attempt.
+		if branchHandle := tee.Branch(webRTCBranchName); branchHandle != nil {
+			branchHandle.SetOverflow(func() { tr.Stop() })
+		}
 
 		completed := make(chan error, 1)
 		tr.TranscoderCompleted = func(err error) {

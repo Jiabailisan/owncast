@@ -151,6 +151,27 @@ This makes RTMP work under the isolated process model at all: before the fix the
 WebRTC process could never decode an FLV source, on the first attempt or on a
 restart.
 
+## 6a. Late-joining branches in the isolated process model (MPEG-TS)
+
+The isolated model fans the ingest stream out to two FFmpeg processes through a
+tee. The WebRTC branch was registered *after* the pump started, so the stream
+head — PAT/PMT and the H.264 parameter sets, which MPEG-TS sends with the first
+keyframe — reached only the HLS branch. A stdin capture proved it: the WebRTC
+side began with 40 bytes of a torn packet, saw its first PAT 50 KB in, and
+never received an SPS/PPS/IDR; its FFmpeg probe failed with
+`non-existing PPS 0 referenced` and `unspecified size`, exactly what the
+field reported.
+
+Two changes fix the join:
+
+- the tee's pump is gated on `Start()`, and the first WebRTC branch is
+  registered before it, so both branches see the stream from byte 0;
+- a late branch (every supervised restart) passes its head through a container
+  aligner: MPEG-TS drops the partial packet, FLV keeps the rebuilt-header rule.
+
+Post-fix captures show both branches byte-identical (15.9 MB each) with PAT at
+188 B and SPS/PPS/IDR at 597/626/1274 B, and the probe errors are gone.
+
 ## 7. Verification
 
 A 2560x1440@60, Main/5.1, no-B-frame H.264 source was published over SRT and
