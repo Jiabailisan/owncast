@@ -120,27 +120,63 @@ func hasWebRTCCopyIntent(variants []models.StreamOutputVariant) bool {
 	return false
 }
 
+// sourceInfoReadyWaiter is implemented by ingest sessions that can report the
+// moment the source metadata carries a B-frame verdict. RTMP sessions do not
+// implement it and never wait.
+type sourceInfoReadyWaiter interface {
+	SourceInfoReady() <-chan struct{}
+}
+
 // waitForSourceInfo blocks briefly for SRT source metadata when a copy decision
 // is pending. RTMP metadata cannot provide profile/B-frame information, so RTMP
 // never waits (copy intent falls back to transcode by design).
-func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant) *models.Broadcaster {
+//
+// budgetSpent is the read-ahead signal from the prefetch reader; it may be nil
+// when the session is not read ahead.
+func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) *models.Broadcaster {
 	if session.Protocol() != ingest.ProtocolSRT || !hasWebRTCCopyIntent(variants) {
 		return session.Broadcaster()
 	}
-	// A copy decision needs the B-frame verdict, not just the first metadata
-	// tick. Wait (bounded) until the inspector has observed enough slices to
-	// decide, otherwise fall back to transcode.
-	deadline := time.Now().Add(webRTCSourceWaitTimeout)
-	for {
-		broadcaster := session.Broadcaster()
-		if broadcaster != nil && broadcaster.StreamDetails.HasBFrames != nil {
-			return broadcaster
-		}
-		if time.Now().After(deadline) {
-			return broadcaster
-		}
-		time.Sleep(50 * time.Millisecond)
+
+	return awaitSourceInfo(session, budgetSpent, webRTCSourceWaitTimeout)
+}
+
+// awaitSourceInfo waits for the B-frame verdict a copy decision needs. It returns
+// as soon as the verdict is published (the session signals it from the ingest
+// read path, so no statistics tick is involved), and it stops waiting early when
+// no further evidence can arrive: the read-ahead budget is spent and nothing
+// drains it, or the publisher has gone away. Only a source that keeps feeding
+// the inspector without deciding runs into the timeout.
+//
+// The returned broadcaster is whatever is known at that moment. An unknown
+// verdict keeps the existing behavior: the eligibility rules treat it as
+// "transcode rather than copy".
+func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeout time.Duration) *models.Broadcaster {
+	if broadcaster := session.Broadcaster(); broadcaster != nil && broadcaster.StreamDetails.HasBFrames != nil {
+		return broadcaster
 	}
+
+	var ready <-chan struct{}
+	if waiter, ok := session.(sourceInfoReadyWaiter); ok {
+		ready = waiter.SourceInfoReady()
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-ready:
+		// The verdict is published; the broadcaster carries it now.
+	case <-budgetSpent:
+		// The read-ahead budget is spent and no consumer drains it yet, so the
+		// inspector cannot observe another slice. Stop waiting: the verdict
+		// stays unknown and the existing rules fall back to transcode.
+	case <-session.Done():
+		// The publisher went away while the verdict was still pending.
+	case <-timer.C:
+	}
+
+	return session.Broadcaster()
 }
 
 // configureWebRTC resolves the WebRTC plan for the stream that is starting and
@@ -237,7 +273,7 @@ type webRTCOutputs struct {
 	legs    []WebRTCMediaLeg
 }
 
-func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant) webRTCOutputs {
+func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) webRTCOutputs {
 	if s.webRTC == nil {
 		return webRTCOutputs{}
 	}
@@ -245,7 +281,7 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 	webrtcVariants := effectiveWebRTCVariants(variants)
 	webrtcConfig := s.configRepository.GetWebRTCConfig()
 
-	source := s.webrtcSourceInfo(session, webrtcVariants)
+	source := s.webrtcSourceInfo(session, webrtcVariants, budgetSpent)
 
 	decisions, warnings, hasEnabled := s.resolveWebRTCLegs(session, webrtcVariants, webrtcConfig, source)
 	if !hasEnabled {

@@ -15,8 +15,8 @@ import (
 // The inspector may not have published its stream details yet, so an absent
 // broadcaster only leaves the codec unknown, which the rules treat as
 // "transcode rather than copy".
-func (s *Service) webrtcSourceInfo(session ingest.Session, webrtcVariants []models.StreamOutputVariant) webrtc.SourceInfo {
-	broadcaster := s.waitForSourceInfo(session, webrtcVariants)
+func (s *Service) webrtcSourceInfo(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}) webrtc.SourceInfo {
+	broadcaster := s.waitForSourceInfo(session, webrtcVariants, budgetSpent)
 	if broadcaster == nil {
 		return webrtc.SourceInfo{Protocol: string(session.Protocol())}
 	}

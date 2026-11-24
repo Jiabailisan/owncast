@@ -18,11 +18,17 @@ type prefetchReader struct {
 	buf    []byte
 
 	prefetching bool
+
+	// budgetSpent is closed once the prefetch goroutine stopped because the read
+	// ahead budget was reached. From then on no further byte reaches the
+	// inspector until a consumer drains the buffer.
+	budgetSpent     chan struct{}
+	budgetSpentOnce sync.Once
 }
 
 // newPrefetchReader wraps an ingest reader.
 func newPrefetchReader(src io.Reader) *prefetchReader {
-	reader := &prefetchReader{src: src}
+	reader := &prefetchReader{src: src, budgetSpent: make(chan struct{})}
 	reader.cond = sync.NewCond(&reader.mu)
 
 	return reader
@@ -55,6 +61,8 @@ func (p *prefetchReader) Prefetch(maxBytes int) {
 				p.mu.Unlock()
 				p.cond.Broadcast()
 				if buffered >= maxBytes {
+					p.budgetSpentOnce.Do(func() { close(p.budgetSpent) })
+
 					return
 				}
 			}
@@ -64,6 +72,13 @@ func (p *prefetchReader) Prefetch(maxBytes int) {
 		}
 	}()
 }
+
+// BudgetSpent is closed when the prefetch goroutine stopped because the read
+// ahead budget was reached. Nothing drains the buffer until the consumer starts,
+// so a copy decision still pending at that moment cannot gain new evidence. A
+// source that ends or fails stops the prefetch without closing this channel: that
+// case is covered by the session's Done channel.
+func (p *prefetchReader) BudgetSpent() <-chan struct{} { return p.budgetSpent }
 
 // Read implements io.Reader: buffered bytes first, then the live stream.
 func (p *prefetchReader) Read(b []byte) (int, error) {

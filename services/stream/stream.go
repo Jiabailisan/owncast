@@ -194,16 +194,21 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	// MPEG-TS inspector can publish source metadata before the plan is fixed.
 	// The buffered bytes are replayed into FFmpeg, so nothing is lost.
 	mediaReader := session.Reader()
+	// budgetSpent reports that the read-ahead budget is exhausted. Nothing drains
+	// the buffer until the transcoder starts, so a copy decision pending at that
+	// moment cannot gain evidence and must not sit out the full source wait.
+	var budgetSpent <-chan struct{}
 	if session.Protocol() == ingest.ProtocolSRT &&
 		hasWebRTCCopyIntent(effectiveWebRTCVariants(broadcast.OutputSettings)) {
 		prefetch := newPrefetchReader(mediaReader)
 		prefetch.Prefetch(1 << 20)
 		mediaReader = prefetch
+		budgetSpent = prefetch.BudgetSpent()
 	}
 
 	// Prepare WebRTC delivery first: the transcoder plan includes the RTP
 	// legs for the variants WebRTC exposes.
-	webrtc := s.configureWebRTC(session, broadcast.OutputSettings)
+	webrtc := s.configureWebRTC(session, broadcast.OutputSettings, budgetSpent)
 	processModel := s.configRepository.GetOutputProcessModel()
 	// Remember what this stream started with: the admin reports a pending
 	// process-model change only when it differs from the running one.

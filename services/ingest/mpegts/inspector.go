@@ -338,6 +338,16 @@ func (i *Inspector) handleNAL(nal []byte) {
 	}
 }
 
+// BFrameDecided reports whether the B-frame verdict has been reached. It is a
+// single locked boolean read, so the ingest read path can poll it after every
+// write without copying the whole snapshot.
+func (i *Inspector) BFrameDecided() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	return i.info.BFrameChecked
+}
+
 // Snapshot returns a copy of the current source properties.
 func (i *Inspector) Snapshot() SourceInfo {
 	i.mu.RLock()

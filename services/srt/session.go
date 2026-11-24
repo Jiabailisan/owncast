@@ -45,6 +45,14 @@ type session struct {
 	sourceMu      sync.Mutex
 	lastSourceKey string
 
+	// sourceReady is closed once the B-frame verdict has been published as the
+	// session broadcaster. The stream service selects on it so a copy decision
+	// can proceed as soon as the inspector has decided, instead of waiting for
+	// the next one-second statistics tick.
+	sourceReady     chan struct{}
+	sourceReadyOnce sync.Once
+	sourceDecided   atomic.Bool
+
 	// stateMu guards conn, closed and started. bind, Close and the start commit share
 	// it, so a session cannot register resources after Close finished and Close can
 	// always see what the start path registered.
@@ -66,6 +74,7 @@ func newSession(remote net.Addr, keyID string, version uint32, encrypted bool, o
 		encrypted:   encrypted,
 		startedAt:   time.Now(),
 		inspector:   mpegts.NewInspector(),
+		sourceReady: make(chan struct{}),
 	}
 	s.lastRead.Store(time.Now().UnixNano())
 	return s
@@ -156,6 +165,7 @@ func (s *session) Read(buffer []byte) (int, error) {
 		// Tee the payload into the MPEG-TS/H.264 inspector. Write never blocks
 		// and always accepts the bytes, so it cannot affect ingest.
 		_, _ = s.inspector.Write(buffer[:n])
+		s.publishSourceInfoIfDecided()
 	}
 	if err != nil {
 		go s.Close(remoteCloseReason(err))
@@ -244,6 +254,26 @@ func (s *session) stopSampler() {
 	}
 }
 
+// publishSourceInfoIfDecided publishes the B-frame verdict from the ingest read
+// path as soon as the inspector reaches it, instead of leaving it to the next
+// one-second statistics tick. A copy decision that needs the verdict therefore
+// does not wait for the sampler. The atomic guard keeps the per-read cost to one
+// load once the verdict is out.
+func (s *session) publishSourceInfoIfDecided() {
+	if s.sourceDecided.Load() {
+		return
+	}
+	if !s.inspector.BFrameDecided() {
+		return
+	}
+	s.refreshSourceMetadata()
+}
+
+// SourceInfoReady is closed once the B-frame verdict has been published as the
+// session broadcaster. It stays open for the whole session when the inspector
+// never decides (a source that ends mid-GOP, for example).
+func (s *session) SourceInfoReady() <-chan struct{} { return s.sourceReady }
+
 // refreshSourceMetadata publishes the source properties extracted from the
 // MPEG-TS stream (codec, resolution, H.264 profile/level, FPS, B-frame
 // verdict) as the session broadcaster. It is called by the statistics sampler
@@ -272,14 +302,6 @@ func (s *session) refreshSourceMetadata() {
 		info.Width, info.Height, info.FPSValid, info.HasBFrames, info.BFrameChecked,
 		videoBitrate, audioBitrate, info.AudioProfile, info.AudioSampleRate, info.AudioChannels)
 
-	s.sourceMu.Lock()
-	if key == s.lastSourceKey {
-		s.sourceMu.Unlock()
-		return
-	}
-	s.lastSourceKey = key
-	s.sourceMu.Unlock()
-
 	details := models.InboundStreamDetails{
 		Width:        info.Width,
 		Height:       info.Height,
@@ -305,11 +327,37 @@ func (s *session) refreshSourceMetadata() {
 		details.HasBFrames = &hasBFrames
 	}
 
+	// The statistics sampler and the ingest read path both publish, so the change
+	// check and the publish share one lock: a snapshot taken before the verdict
+	// must not replace the one that carries it.
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
+
+	if key == s.lastSourceKey {
+		return
+	}
+	// A published verdict is sticky. Without this, a snapshot the sampler took
+	// before the inspector decided could land afterwards and take the verdict
+	// away from a copy decision that is already waking up.
+	if s.sourceDecided.Load() && details.HasBFrames == nil {
+		return
+	}
+	s.lastSourceKey = key
+
 	s.SetBroadcaster(&models.Broadcaster{
 		RemoteAddr:    remoteString(s.RemoteAddr()),
 		Time:          time.Now(),
 		StreamDetails: details,
 	})
+
+	// The verdict is what a copy decision waits for: announce it exactly once,
+	// whichever path published it (read path or statistics tick).
+	if details.HasBFrames != nil {
+		s.sourceReadyOnce.Do(func() { close(s.sourceReady) })
+		// Whichever path published the verdict, the read path can stop polling
+		// the inspector for it.
+		s.sourceDecided.Store(true)
+	}
 }
 
 // videoCodecDisplayName converts the inspector's codec identifiers to the
