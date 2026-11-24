@@ -94,3 +94,37 @@ func TestClassifyArgvLegacyLayoutUnchanged(t *testing.T) {
 		t.Fatalf("the HLS playlist leaked into the WebRTC section: %v", sections.WebRTC)
 	}
 }
+
+// TestClassifyArgvAudioOnlyTeeKeepsVideoOutputsUnderWebRTC covers the layout the
+// shared process uses when no video encode is shared: the legacy HLS block, then
+// the independent video RTP outputs, then a tee that only fans out the Opus
+// stream. The video outputs must not be classified as HLS.
+func TestClassifyArgvAudioOnlyTeeKeepsVideoOutputsUnderWebRTC(t *testing.T) {
+	argv := []string{
+		"ffmpeg", "-i", "pipe:0",
+		"-map", "v:0", "-c:v:0", "libx264", "-var_stream_map", "v:0,a:0",
+		"-f", "hls", "http://127.0.0.1:8927/%v/stream.m3u8",
+		"-map", "0:v:0", "-c:v", "libx264", "-g", "60", "-f", "rtp", "rtp://127.0.0.1:41000",
+		"-map", "0:a:0?", "-c:a", "libopus",
+		"-f", "tee", "[f=rtp:payload_type=111]rtp://127.0.0.1:42000|[f=rtp:payload_type=111]rtp://127.0.0.1:42001",
+	}
+	sections := ClassifyArgv(argv, nil)
+
+	hls := strings.Join(sections.HLS, " ")
+	if !strings.Contains(hls, "stream.m3u8") {
+		t.Fatalf("the HLS playlist is missing from the HLS section: %s", hls)
+	}
+	if strings.Contains(hls, "rtp://") {
+		t.Fatalf("a video RTP output leaked into the HLS section: %s", hls)
+	}
+
+	webrtc := strings.Join(sections.WebRTC, " ")
+	if !strings.Contains(webrtc, "rtp://127.0.0.1:41000") {
+		t.Fatalf("the independent video output is missing from the WebRTC section: %s", webrtc)
+	}
+	for _, want := range []string{"rtp://127.0.0.1:42000", "rtp://127.0.0.1:42001"} {
+		if !strings.Contains(webrtc, want) {
+			t.Fatalf("the tee audio target %s is missing: %s", want, webrtc)
+		}
+	}
+}

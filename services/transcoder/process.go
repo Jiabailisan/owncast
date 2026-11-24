@@ -277,9 +277,18 @@ func ClassifyArgv(argv []string, environment []string) ArgvSections {
 
 	rest := argv[inputEnd:]
 	if split, ok := splitTeeOutput(rest); ok {
-		sections.HLS = append(sections.HLS, split.prefix...)
+		// The tee is not always the whole output block: the shared layout puts
+		// every target in it, while the legacy layout only shares the Opus
+		// stream and keeps the video RTP outputs before it. Classify the prefix
+		// structurally so a video output never lands under HLS.
+		hlsPart, rtpPart := split.prefix, []string(nil)
+		if hlsEnd := findHLSPlaylistEnd(split.prefix); hlsEnd >= 0 {
+			hlsPart, rtpPart = split.prefix[:hlsEnd], split.prefix[hlsEnd:]
+		}
+		sections.HLS = append(sections.HLS, hlsPart...)
 		sections.HLS = append(sections.HLS, split.marker...)
 		sections.HLS = append(sections.HLS, split.hlsTargets...)
+		sections.WebRTC = append(sections.WebRTC, rtpPart...)
 		sections.WebRTC = append(sections.WebRTC, split.rtpTargets...)
 		sections.WebRTC = append(sections.WebRTC, split.suffix...)
 
