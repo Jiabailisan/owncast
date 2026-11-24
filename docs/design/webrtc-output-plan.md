@@ -136,7 +136,47 @@ This makes RTMP work under the isolated process model at all: before the fix the
 WebRTC process could never decode an FLV source, on the first attempt or on a
 restart.
 
-## 7. Behavior changes for existing configurations
+## 7. Verification
+
+A 2560x1440@60, Main/5.1, no-B-frame H.264 source was published over SRT and
+over RTMP, in both process models, with the original-quality tier set to
+`Follow HLS settings` and to explicit `Copy`. A real WHEP viewer then read the
+received H.264 RTP and reported the resolution from the SPS
+(`test/automated/webrtc/whep_resolution_e2e_test.go`), because the SDP answer
+only advertises a profile-level-id:
+
+| cell | tier 0 | tier 1 |
+|---|---|---|
+| SRT / shared / inherit | copy, 2560x1440 | transcode, 1920x1080 |
+| SRT / shared / copy | copy, 2560x1440 | transcode, 1920x1080 |
+| SRT / isolated / inherit | copy, 2560x1440 | transcode, 1920x1080 |
+| SRT / isolated / copy | copy, 2560x1440 | transcode, 1920x1080 |
+| RTMP / shared / inherit | copy, 2560x1440 | transcode, 1920x1080 |
+| RTMP / shared / copy | copy, 2560x1440 | transcode, 1920x1080 |
+| RTMP / isolated / inherit | copy, 2560x1440 | transcode, 1920x1080 |
+| RTMP / isolated / copy | copy, 2560x1440 | transcode, 1920x1080 |
+
+Diagnostics and policies:
+
+- a source with B-frames reports `webrtc_copy_ineligible_b_frames` and is
+  transcoded at the source size (1280x720 for the 720p fixture);
+- a source whose B-frame verdict never arrives reports
+  `webrtc_copy_ineligible_b_frames_unknown` and falls back the same way;
+- `copyFallback=disable` withdraws only the target tier: WHEP answers 400
+  `webrtc_variant_not_found` for it while the other tier keeps delivering;
+- the field's shape (HLS 5 s GOP = 300 frames at 60 fps, WebRTC 1 s GOP = 60)
+  does not reuse the HLS encode: the leg gets its own encode with `-g 60` in the
+  same process;
+- an aligned keyframe interval (3 s segments, 3 s interval) does share: one
+  encode, two tee slaves;
+- explicit VBR (`videoBitrate=3000`, `peakBitrateKbps=5000`) produces
+  `-b:v 3000k -minrate 3000k -maxrate 5000k -bufsize 5000k`;
+- a measured source rate is used as the automatic target (2553 kbps for a
+  measured 2474 kbps source);
+- a source too slow for the bitrate window reports
+  `webrtc_transcode_bitrate_default` and uses the documented 2500 kbps default.
+
+## 8. Behavior changes for existing configurations
 
 - An inherited copy that cannot be used now reports a warning and its reasons
   instead of falling back silently.
