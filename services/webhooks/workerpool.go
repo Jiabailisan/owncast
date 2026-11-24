@@ -167,6 +167,15 @@ func (s *Service) sendWebhook(job Job) error {
 	// paying a fresh TCP+TLS handshake for every delivery.
 	_, _ = io.CopyN(io.Discard, resp.Body, 4<<10)
 
+	// Only a 2xx answer means the receiver accepted the event. A 4xx/5xx means the
+	// delivery failed, so report it and leave last_used untouched: a rejected
+	// destination must not look healthy in the admin UI. The status code is the
+	// only detail carried in the error; the response body is never read into it,
+	// and the signature never appears in it.
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("webhook delivery failed with HTTP status %d", resp.StatusCode)
+	}
+
 	if err := s.webhookRepository.SetWebhookAsUsed(job.webhook); err != nil {
 		log.Warnln(err)
 	}
