@@ -3,9 +3,11 @@ package webhooks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"runtime"
 	"sync"
 	"time"
@@ -106,12 +108,15 @@ func (s *Service) Start() {
 }
 
 func (s *Service) addToQueue(webhook models.Webhook, payload WebhookEvent, wg *sync.WaitGroup) {
-	log.Tracef("Queued Event %s for Webhook %s", payload.Type, webhook.URL)
+	// Destinations are named by their stored ID, never by URL: a webhook URL
+	// routinely embeds a path token and query credentials, and log files are
+	// far easier to hand out than the admin UI.
+	log.Tracef("Queued Event %s for Webhook %d", payload.Type, webhook.ID)
 	select {
 	case s.queue <- Job{wg, payload, webhook}:
 	default:
 		// Queue is full: drop the delivery rather than blocking the producer.
-		log.Warnln("webhook queue full; dropping event", payload.Type, "for", webhook.URL)
+		log.Warnln("webhook queue full; dropping event", payload.Type, "for webhook", webhook.ID)
 		if wg != nil {
 			wg.Done()
 		}
@@ -122,16 +127,73 @@ func (s *Service) worker(workerID int) {
 	log.Debugf("Started Webhook worker %d", workerID)
 
 	for job := range s.queue {
-		log.Debugf("Event %s sent to Webhook %s using worker %d", job.payload.Type, job.webhook.URL, workerID)
+		log.Debugf("Event %s sent to Webhook %d using worker %d", job.payload.Type, job.webhook.ID, workerID)
 
 		if err := s.sendWebhook(job); err != nil {
-			log.Errorf("Event: %s failed to send to webhook: %s Error: %s", job.payload.Type, job.webhook.URL, err)
+			// The failure line must stay diagnosable without the URL: the stored
+			// webhook ID identifies the destination, the event type says what was
+			// being delivered, and the status code (or underlying transport
+			// error) says why it failed.
+			var delivery *deliveryError
+			if errors.As(err, &delivery) && delivery.statusCode() != 0 {
+				log.Errorf("Event: %s failed to send to webhook %d: HTTP status %d", job.payload.Type, job.webhook.ID, delivery.statusCode())
+			} else {
+				log.Errorf("Event: %s failed to send to webhook %d: %s", job.payload.Type, job.webhook.ID, err)
+			}
 		}
-		log.Tracef("Done with Event %s to Webhook %s using worker %d", job.payload.Type, job.webhook.URL, workerID)
+		log.Tracef("Done with Event %s to Webhook %d using worker %d", job.payload.Type, job.webhook.ID, workerID)
 		if job.wg != nil {
 			job.wg.Done()
 		}
 	}
+}
+
+// deliveryError reports a failed webhook delivery using only data that is safe
+// to log or return to a caller. The destination URL is deliberately absent: an
+// operator's webhook URL routinely embeds a path token and query credentials,
+// so it is treated as a secret. The stored webhook ID locates the destination
+// instead, and the HTTP status (when the receiver answered) or the underlying
+// transport cause explains the failure.
+type deliveryError struct {
+	// status is the HTTP status code the receiver answered with, or 0 when no
+	// response was produced (connection failure, timeout, malformed URL).
+	status int
+	// err is the underlying cause with any *url.Error unwrapped, because
+	// url.Error.Error() embeds the full request URL.
+	err error
+}
+
+func (e *deliveryError) Error() string {
+	if e.status != 0 {
+		return fmt.Sprintf("webhook delivery failed with HTTP status %d", e.status)
+	}
+	if e.err == nil {
+		return "webhook delivery failed"
+	}
+	return fmt.Sprintf("webhook delivery failed: %s", e.err)
+}
+
+// Unwrap exposes the cause so errors.Is/errors.As still work for callers.
+func (e *deliveryError) Unwrap() error {
+	return e.err
+}
+
+// statusCode reports the receiver's HTTP status, or 0 when the request never
+// produced a response.
+func (e *deliveryError) statusCode() int {
+	return e.status
+}
+
+// unwrapURLError strips the *url.Error wrapper net/http adds around transport
+// and parse failures, keeping only the underlying cause. Both url.Error.Error()
+// and %q formatting of it include the full request URL, which carries the path
+// token and query credentials.
+func unwrapURLError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return urlErr.Err
+	}
+	return err
 }
 
 func (s *Service) sendWebhook(job Job) error {
@@ -143,8 +205,11 @@ func (s *Service) sendWebhook(job Job) error {
 	req, err := http.NewRequest("POST", job.webhook.URL, bytes.NewReader(jsonText))
 	if err != nil {
 		// Without this check a malformed stored URL leaves req nil and the
-		// Header.Set below panics inside a worker goroutine.
-		return fmt.Errorf("invalid webhook url %q: %w", job.webhook.URL, err)
+		// Header.Set below panics inside a worker goroutine. The URL itself is
+		// never echoed back: http.NewRequest parses through url.Parse, whose
+		// errors are *url.Error values carrying the raw URL, so only the cause
+		// survives.
+		return &deliveryError{err: fmt.Errorf("invalid webhook URL: %w", unwrapURLError(err))}
 	}
 	signature, err := s.generateSignature(jsonText, job)
 	if err != nil {
@@ -159,7 +224,9 @@ func (s *Service) sendWebhook(job Job) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		// client.Do failures arrive as *url.Error, whose message embeds the full
+		// URL (path token and query included). Only the cause is kept.
+		return &deliveryError{err: unwrapURLError(err)}
 	}
 
 	defer resp.Body.Close()
@@ -173,7 +240,7 @@ func (s *Service) sendWebhook(job Job) error {
 	// only detail carried in the error; the response body is never read into it,
 	// and the signature never appears in it.
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("webhook delivery failed with HTTP status %d", resp.StatusCode)
+		return &deliveryError{status: resp.StatusCode}
 	}
 
 	if err := s.webhookRepository.SetWebhookAsUsed(job.webhook); err != nil {

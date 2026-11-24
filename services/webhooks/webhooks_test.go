@@ -119,13 +119,18 @@ func TestMalformedWebhookURLReturnsError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = repo.DeleteWebhook(hook) })
 
+	malformed := "http://example.com/fake-path-token-abc?cred=fake-query-cred-xyz\x01"
+
 	err = testSvc.sendWebhook(Job{
 		payload: WebhookEvent{Type: models.MessageSent, EventData: struct{}{}},
-		webhook: models.Webhook{ID: hook, URL: "http://example.com/\x01"},
+		webhook: models.Webhook{ID: hook, URL: malformed},
 	})
 	if err == nil {
 		t.Fatal("expected malformed webhook URL to return an error")
 	}
+	// url.Parse reports through a *url.Error that embeds the raw URL, so the
+	// cause must be unwrapped before it reaches the caller or a log line.
+	assertNoURLSecrets(t, "the returned error", err.Error(), malformed, "fake-path-token-abc", "fake-query-cred-xyz")
 }
 
 // Every event dispatched to webhooks is also published to the shared

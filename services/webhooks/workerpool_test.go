@@ -126,10 +126,11 @@ func TestSendWebhookStatusClassification(t *testing.T) {
 	}
 }
 
-// The worker is what surfaces a failed delivery to operators, so the log line
-// itself is part of the contract: level=error plus the status code.
-func TestWorkerLogsRejectedDelivery(t *testing.T) {
-	const status = http.StatusForbidden
+// captureErrorLogs redirects the standard logger into a buffer for the rest of
+// the test. Only error lines are captured so unrelated worker chatter cannot
+// pollute the assertions.
+func captureErrorLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
 
 	logger := log.StandardLogger()
 	previousOut := logger.Out
@@ -141,11 +142,37 @@ func TestWorkerLogsRejectedDelivery(t *testing.T) {
 	logger.SetFormatter(&log.TextFormatter{DisableColors: true, DisableTimestamp: true})
 	logger.SetLevel(log.ErrorLevel)
 
-	defer func() {
+	t.Cleanup(func() {
 		logger.SetOutput(previousOut)
 		logger.SetFormatter(previousFormatter)
 		logger.SetLevel(previousLevel)
-	}()
+	})
+
+	return &captured
+}
+
+// assertNoURLSecrets fails when a log line or an error message leaks the
+// destination URL, the path token inside it, or its query credentials.
+func assertNoURLSecrets(t *testing.T, where, text, destination, pathToken, queryCred string) {
+	t.Helper()
+
+	for _, secret := range []string{destination, pathToken, queryCred} {
+		if strings.Contains(text, secret) {
+			t.Errorf("%s must not leak %q, got %q", where, secret, text)
+		}
+	}
+}
+
+// The worker is what surfaces a failed delivery to operators, so the log line
+// itself is part of the contract: level=error, the webhook ID, the event type
+// and the status code - but never the destination URL, which carries a path
+// token and query credentials.
+func TestWorkerLogsRejectedDelivery(t *testing.T) {
+	const (
+		status    = http.StatusForbidden
+		pathToken = "fake-path-token-abc"
+		queryCred = "fake-query-cred-xyz"
+	)
 
 	svr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status)
@@ -154,7 +181,9 @@ func TestWorkerLogsRejectedDelivery(t *testing.T) {
 
 	repo := webhookrepository.New(testDatastore)
 
-	id, err := repo.InsertWebhook(svr.URL, []models.EventType{models.MessageSent}, "abc123")
+	destination := fmt.Sprintf("%s/%s?cred=%s", svr.URL, pathToken, queryCred)
+
+	id, err := repo.InsertWebhook(destination, []models.EventType{models.MessageSent}, "abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +192,8 @@ func TestWorkerLogsRejectedDelivery(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+
+	captured := captureErrorLogs(t)
 
 	// Go through the queue so the assertion covers the worker's own error path.
 	// The log write happens before wg.Done(), so wg.Wait() orders it before the read.
@@ -178,15 +209,79 @@ func TestWorkerLogsRejectedDelivery(t *testing.T) {
 	if !strings.Contains(output, fmt.Sprintf("%d", status)) {
 		t.Errorf("expected the HTTP status %d in the log line, got %q", status, output)
 	}
-	if !strings.Contains(output, svr.URL) {
-		t.Errorf("expected the destination URL in the log line, got %q", output)
+	if !strings.Contains(output, fmt.Sprintf("webhook %d", id)) {
+		t.Errorf("expected the webhook ID %d in the log line, got %q", id, output)
 	}
 	if !strings.Contains(output, string(models.MessageSent)) {
 		t.Errorf("expected the event type in the log line, got %q", output)
 	}
+	assertNoURLSecrets(t, "the failure log line", output, destination, pathToken, queryCred)
 
 	if after := findWebhook(t, repo, id); after.LastUsed != nil {
 		t.Errorf("a rejected delivery must not update last_used, got %v", after.LastUsed)
+	}
+}
+
+// A delivery that never reaches the receiver fails inside net/http with a
+// *url.Error whose message embeds the full URL. Both the returned error and the
+// log line must carry the unwrapped cause only.
+func TestWorkerLogsTransportFailureWithoutURL(t *testing.T) {
+	const (
+		pathToken = "fake-path-token-abc"
+		queryCred = "fake-query-cred-xyz"
+	)
+
+	// Bind a port and close it again so nothing is listening when the worker
+	// dials: client.Do then fails before any request is written.
+	svr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	destination := fmt.Sprintf("%s/%s?cred=%s", svr.URL, pathToken, queryCred)
+	svr.Close()
+
+	repo := webhookrepository.New(testDatastore)
+
+	id, err := repo.InsertWebhook(destination, []models.EventType{models.MessageSent}, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := repo.DeleteWebhook(id); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	stored := findWebhook(t, repo, id)
+
+	// The error handed back to the caller is redacted too, not just the log line.
+	directErr := testSvc.sendWebhook(Job{
+		payload: WebhookEvent{Type: models.MessageSent, EventData: struct{}{}},
+		webhook: stored,
+	})
+	if directErr == nil {
+		t.Fatal("a connection failure should be reported as a failed delivery")
+	}
+	if directErr.Error() == "" {
+		t.Error("a failed delivery should still explain itself")
+	}
+	assertNoURLSecrets(t, "the returned error", directErr.Error(), destination, pathToken, queryCred)
+
+	captured := captureErrorLogs(t)
+
+	var wg sync.WaitGroup
+	testSvc.sendEventToWebhooks(WebhookEvent{Type: models.MessageSent, EventData: struct{}{}}, &wg)
+	wg.Wait()
+
+	output := captured.String()
+
+	if !strings.Contains(output, "level=error") {
+		t.Errorf("expected a level=error log line, got %q", output)
+	}
+	if !strings.Contains(output, fmt.Sprintf("webhook %d", id)) {
+		t.Errorf("expected the webhook ID %d in the log line, got %q", id, output)
+	}
+	assertNoURLSecrets(t, "the failure log line", output, destination, pathToken, queryCred)
+
+	if after := findWebhook(t, repo, id); after.LastUsed != nil {
+		t.Errorf("a failed delivery must not update last_used, got %v", after.LastUsed)
 	}
 }
 
