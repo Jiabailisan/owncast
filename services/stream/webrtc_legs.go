@@ -23,7 +23,9 @@ import (
 // HandleIngestSession). Waiting for a verdict nothing can produce would only
 // delay HLS start by the full source-wait timeout, so this returns at once. The
 // gate is the delivery state of the service, not its presence: main.go always
-// injects one.
+// injects one. Delivery can be enabled between the read-ahead check and this one,
+// so the wait additionally requires that this stream was actually read ahead
+// (budgetSpent is non-nil); see waitForSourceInfo.
 func (s *Service) resolveWebRTCSource(session ingest.Session, webrtcVariants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (webrtc.SourceInfo, bool) {
 	if !s.webRTCDeliveryEnabled() {
 		return webrtc.SourceInfo{}, false

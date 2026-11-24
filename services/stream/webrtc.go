@@ -141,12 +141,13 @@ func (s *Service) webRTCDeliveryEnabled() bool {
 	return s.webRTC != nil && s.webRTC.Enabled()
 }
 
-// webRTCCopyPlanPending reports whether the stream still has a WebRTC copy
-// decision that source metadata can resolve. It is the single gate for both the
-// source read-ahead in HandleIngestSession and the wait for the B-frame verdict
-// in resolveWebRTCSource, so the two can never drift apart again: with delivery
-// off, or without an SRT source that asks for copy, nothing can consume the
-// verdict and HLS must start immediately.
+// webRTCCopyPlanPending reports whether the stream has a WebRTC copy decision
+// that source metadata can resolve. It gates the source read-ahead in
+// HandleIngestSession and is one half of the wait gate in resolveWebRTCSource:
+// with delivery off, or without an SRT source that asks for copy, nothing can
+// consume the verdict and HLS must start immediately. The other half is the
+// read-ahead itself, because delivery can be switched on between the two reads
+// (see waitForSourceInfo).
 func (s *Service) webRTCCopyPlanPending(session ingest.Session, variants []models.StreamOutputVariant) bool {
 	if !s.webRTCDeliveryEnabled() {
 		return false
@@ -164,13 +165,29 @@ type sourceInfoReadyWaiter interface {
 
 // waitForSourceInfo blocks briefly for SRT source metadata when a copy decision
 // is pending. RTMP metadata cannot provide profile/B-frame information, so RTMP
-// never waits (copy intent falls back to transcode by design). The gate is the
-// same webRTCCopyPlanPending the read-ahead uses, so a stream that is not read
-// ahead is never waited on either.
+// never waits (copy intent falls back to transcode by design).
 //
-// budgetSpent is the read-ahead signal from the prefetch reader; it may be nil
-// when the session is not read ahead.
+// budgetSpent is the read-ahead signal from the prefetch reader, and it is the
+// fact that decides whether there is anything to wait for: it is non-nil exactly
+// when HandleIngestSession started the read-ahead for this stream, and the wait
+// is for the verdict that read-ahead makes the inspector publish. A nil channel
+// therefore means no verdict can arrive for this stream, and waiting would only
+// burn the full source-wait timeout before HLS starts.
+//
+// This cannot be derived from webRTCCopyPlanPending alone. HandleIngestSession
+// reads that gate to decide whether to read ahead, and the admin applies a
+// delivery change immediately, so the switch can be on at this second read while
+// the first read saw it off: the stream has no read-ahead, no consumer feeding
+// the inspector, and no verdict to wait for. The plan gate below stays as the
+// second half of the same decision (an SRT stream that asks for copy); it is not
+// a substitute for the read-ahead fact.
 func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.StreamOutputVariant, budgetSpent <-chan struct{}) (*models.Broadcaster, bool) {
+	if budgetSpent == nil {
+		// No read-ahead was started for this stream, so the verdict this wait is
+		// for can never be published.
+		return session.Broadcaster(), false
+	}
+
 	if !s.webRTCCopyPlanPending(session, variants) {
 		return session.Broadcaster(), false
 	}
