@@ -133,8 +133,7 @@ function renderNote(note: string): ReactNode {
     <Text type="secondary" className={styles.webrtcNote}>
       <Text code className={styles.webrtcNoteCode}>
         {note.slice(0, separator)}
-      </Text>
-      {' '}
+      </Text>{' '}
       {note.slice(separator + 1)}
     </Text>
   );

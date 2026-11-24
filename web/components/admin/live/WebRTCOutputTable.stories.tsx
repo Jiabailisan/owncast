@@ -44,7 +44,15 @@ export const Withdrawn: Story = {
   args: {
     webrtc: {
       ...webrtc,
-      legs: [{ ...webrtcLegs[1], requestedMode: '', mode: 'disabled', outputBitrateKbps: null }],
+      legs: [
+        {
+          ...webrtcLegs[1],
+          requestedMode: '',
+          inheritedFrom: undefined,
+          mode: 'disabled',
+          outputBitrateKbps: null,
+        },
+      ],
     },
   },
 };
