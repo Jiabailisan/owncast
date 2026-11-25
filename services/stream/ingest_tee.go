@@ -304,6 +304,17 @@ func (t *ingestTee) AddLateBranch(name string, critical bool, onOverflow func(),
 }
 
 func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), aligner any) *io.PipeReader {
+	// A branch added after the pump finished (the source ended, or Close ran)
+	// would sit on a pipe nobody writes to or closes, blocking its reader
+	// forever. Hand it an already-closed pipe instead: EOF immediately.
+	select {
+	case <-t.stopped:
+		reader, writer := io.Pipe()
+		_ = writer.Close()
+
+		return reader
+	default:
+	}
 	reader, writer := io.Pipe()
 	branch := &teeBranch{
 		name:       name,
@@ -515,10 +526,13 @@ func (t *ingestTee) Run() {
 	t.runOnce.Do(func() {
 		// The pump waits for Start: registering the branches first is what lets a
 		// late FFmpeg process receive the stream head (PAT/PMT and the parameter
-		// sets) instead of joining mid-packet.
+		// sets) instead of joining mid-packet. A Close that lands before Start
+		// must still finish the branches that were already registered, or their
+		// readers stay blocked on a pipe nobody closes.
 		select {
 		case <-t.startAllowed:
 		case <-t.done:
+			t.finishAll()
 			close(t.stopped)
 
 			return

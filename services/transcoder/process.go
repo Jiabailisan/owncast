@@ -166,87 +166,115 @@ type ArgvSections struct {
 	Environment []string
 }
 
-// findHLSPlaylistEnd returns the index just past the HLS playlist target URL in
-// the output block, or -1 when the argv has no HLS output. The playlist URL is
-// the last HLS argument and ends in "/stream.m3u8"; the segment-filename URL
-// appears earlier in the same block and must not split it.
-func findHLSPlaylistEnd(argv []string) int {
-	fallback := -1
-	for index, arg := range argv {
-		if !strings.HasPrefix(arg, "http://") && !strings.HasPrefix(arg, "https://") {
-			continue
-		}
-		if strings.HasSuffix(arg, "stream.m3u8") {
-			return index + 1
-		}
-		fallback = index + 1
-	}
-	return fallback
+// outputBlock is one ffmpeg output: the "-f <muxer>" flags, its options and
+// the target URL(s), in their original order. An output block starts at
+// "-f <muxer>" and runs to the next "-f" (or the end of the argv). Blocks are
+// discovered after the input, so an input-side "-f mpegts" never counts.
+type outputBlock struct {
+	start int // index in the post-input argv where "-f" sits
+	end   int // index just past the block
+	muxer string
+	argv  []string // the block's arguments in their original order
 }
 
-// teeOutputSplit is the display decomposition of a "-f tee" output, which is the
-// shared HLS+WebRTC layout. The tee muxer puts every HLS and RTP target into a
-// single pipe-joined argument, so the argv is one unreadable line without this
-// split; the HLS playlist URLs are embedded in it, which is also why the legacy
-// "find the playlist URL" classification could not see them.
-type teeOutputSplit struct {
-	// prefix is everything between the input and "-f tee": the variant encoders
-	// and the muxer-wide options.
-	prefix []string
-	// marker is "-f", "tee".
-	marker []string
-	// hlsTargets and rtpTargets are the tee slaves, one entry each.
-	hlsTargets []string
-	rtpTargets []string
-	// suffix is everything after the tee argument: independent WebRTC encodes
-	// and the dedicated copy legs.
-	suffix []string
+// isTargetArgument reports whether an argument is an output target. Owncast's
+// targets are always URLs (the HLS listener, an RTP loopback) or a tee slave
+// list, which starts with the slave's option bracket ([use_fifo=1:...] or
+// [select=...]); ffmpeg option values never start with "[" or a URL scheme.
+// This is what makes the block boundary exact even though ffmpeg puts the next
+// output's options after this block's target.
+func isTargetArgument(arg string) bool {
+	return strings.HasPrefix(arg, "http://") ||
+		strings.HasPrefix(arg, "https://") ||
+		strings.HasPrefix(arg, "rtp://") ||
+		strings.HasPrefix(arg, "udp://") ||
+		strings.HasPrefix(arg, "[")
 }
 
-// splitTeeOutput decomposes a tee output. It reports false when the argv has no
-// "-f tee" output.
-func splitTeeOutput(argv []string) (teeOutputSplit, bool) {
-	for index := 0; index+2 < len(argv); index++ {
-		if argv[index] != "-f" || argv[index+1] != "tee" {
+// splitOutputBlocks walks the post-input argv and returns every output block in
+// order. ffmpeg's layout is "[options] target" per output, so a block is
+// everything from the previous block's target up to (and including) this
+// block's target; the muxer is the "-f" inside it. That also puts the options
+// that precede "-f" — the encode settings of the output that follows — into the
+// block they belong to.
+func splitOutputBlocks(argv []string) []outputBlock {
+	var blocks []outputBlock
+	blockStart := 0
+	muxer := ""
+	for index := 0; index < len(argv); index++ {
+		if !isTargetArgument(argv[index]) {
 			continue
 		}
-		split := teeOutputSplit{
-			prefix: argv[:index],
-			marker: []string{argv[index], argv[index+1]},
-			suffix: argv[index+3:],
+		if m := findMuxer(argv[blockStart : index+1]); m != "" {
+			muxer = m
 		}
-		for _, slave := range strings.Split(argv[index+2], "|") {
-			if strings.Contains(slave, "f=hls") {
-				split.hlsTargets = append(split.hlsTargets, slave)
-
-				continue
-			}
-			split.rtpTargets = append(split.rtpTargets, slave)
-		}
-
-		return split, true
+		blocks = append(blocks, outputBlock{
+			start: blockStart,
+			end:   index + 1,
+			muxer: muxer,
+			argv:  argv[blockStart : index+1],
+		})
+		blockStart = index + 1
+		muxer = ""
+	}
+	if blockStart < len(argv) {
+		// A tail without a target: keep it lossless with the last block's muxer.
+		blocks = append(blocks, outputBlock{start: blockStart, end: len(argv), muxer: muxer, argv: argv[blockStart:]})
 	}
 
-	return teeOutputSplit{}, false
+	return blocks
+}
+
+// findMuxer returns the "-f" value inside a block, or "" when there is none.
+func findMuxer(block []string) string {
+	for index, arg := range block {
+		if arg == "-f" && index+1 < len(block) {
+			return block[index+1]
+		}
+	}
+
+	return ""
+}
+
+// muxer names used by the classifier. They are ffmpeg muxers, not configuration
+// values, but the classifier compares them in three places.
+const (
+	muxerHLS = "hls"
+	muxerRTP = "rtp"
+	muxerTee = "tee"
+)
+
+// isWebRTCMuxer reports whether an output muxer feeds a WebRTC RTP leg.
+func isWebRTCMuxer(muxer string) bool {
+	return muxer == muxerRTP || muxer == muxerTee
+}
+
+// teeCarriesHLS reports whether a tee block has at least one f=hls slave.
+func teeCarriesHLS(block outputBlock) bool {
+	if len(block.argv) == 0 {
+		return false
+	}
+
+	return strings.Contains(block.argv[len(block.argv)-1], "f="+muxerHLS)
 }
 
 // ClassifyArgv groups an executed argv into the panel's collapsible sections.
-// Classification is structural, not flag-based: everything up to and including
-// the input ("-i pipe:0") is common; for HLS processes the HLS output block
-// runs through the in-process HLS playlist URL; everything after it is a WebRTC
-// RTP output block (and for the isolated WebRTC-only process everything after
-// the input is WebRTC).
 //
-// The shared HLS+WebRTC layout uses one tee muxer output instead of separate
-// HLS and RTP outputs. There the tee's single pipe-joined argument is expanded
-// into one entry per target, and the targets are split by muxer: HLS slaves go
-// to the HLS section and RTP slaves to the WebRTC section, with the variant
-// encoders before them and any independent WebRTC encode or copy leg after.
-// argv itself is never modified; only this display view is.
+// Classification walks the output blocks: each "-f <muxer>" after the input
+// starts one, and everything from it to the next "-f" (or the end) belongs to
+// it, in its original order. An HLS block (-f hls, options and playlist URL)
+// goes to the HLS section; the RTP and tee blocks go to the WebRTC section,
+// because that is the stream a WebRTC viewer receives — including the Opus
+// encode options and the pipe-joined tee targets.
 //
-// Every element of argv appears exactly once across Common+HLS+WebRTC, except
-// the tee slave list, which appears once per target. Environment is not part of
-// argv.
+// The shared HLS+WebRTC layout uses one tee muxer for every target. There the
+// tee's single pipe-joined argument is expanded into one entry per slave, split
+// by muxer (f=hls → HLS, f=rtp → WebRTC). The encode options that feed a mixed
+// tee serve both protocols, so they stay in Common; a pure-RTP tee keeps its
+// encode options in WebRTC, where its viewers' playback actually comes from.
+//
+// argv itself is never modified; only this display view is, and the full argv
+// stays available to the panel for copy-and-inspect.
 func ClassifyArgv(argv []string, environment []string) ArgvSections {
 	sections := ArgvSections{
 		Common:      make([]string, 0, 16),
@@ -258,6 +286,7 @@ func ClassifyArgv(argv []string, environment []string) ArgvSections {
 		return sections
 	}
 
+	// Everything up to and including the input ("-i pipe:0") is common.
 	inputEnd := -1
 	for index, arg := range argv {
 		if arg == "-i" {
@@ -274,35 +303,49 @@ func ClassifyArgv(argv []string, environment []string) ArgvSections {
 		return sections
 	}
 	sections.Common = append(sections.Common, argv[:inputEnd]...)
-
 	rest := argv[inputEnd:]
-	if split, ok := splitTeeOutput(rest); ok {
-		// The tee is not always the whole output block: the shared layout puts
-		// every target in it, while the legacy layout only shares the Opus
-		// stream and keeps the video RTP outputs before it. Classify the prefix
-		// structurally so a video output never lands under HLS.
-		hlsPart, rtpPart := split.prefix, []string(nil)
-		if hlsEnd := findHLSPlaylistEnd(split.prefix); hlsEnd >= 0 {
-			hlsPart, rtpPart = split.prefix[:hlsEnd], split.prefix[hlsEnd:]
+
+	blocks := splitOutputBlocks(rest)
+	if len(blocks) == 0 {
+		// No output block found: keep the tail lossless under Common.
+		sections.Common = append(sections.Common, rest...)
+		return sections
+	}
+
+	for _, block := range blocks {
+		if block.muxer == "tee" && teeCarriesHLS(block) {
+			// A mixed tee: the encode options before it serve both protocols, so
+			// they describe the stream best from Common; the slave list is
+			// expanded, each slave shown under its protocol. The block already
+			// contains "-f tee", so no marker is added here.
+			last := block.argv[len(block.argv)-1]
+			sections.Common = append(sections.Common, block.argv[:len(block.argv)-1]...)
+			for _, slave := range strings.Split(last, "|") {
+				if strings.Contains(slave, "f="+muxerHLS) {
+					sections.HLS = append(sections.HLS, slave)
+
+					continue
+				}
+				sections.WebRTC = append(sections.WebRTC, slave)
+			}
+
+			continue
 		}
-		sections.HLS = append(sections.HLS, hlsPart...)
-		sections.HLS = append(sections.HLS, split.marker...)
-		sections.HLS = append(sections.HLS, split.hlsTargets...)
-		sections.WebRTC = append(sections.WebRTC, rtpPart...)
-		sections.WebRTC = append(sections.WebRTC, split.rtpTargets...)
-		sections.WebRTC = append(sections.WebRTC, split.suffix...)
 
-		return sections
-	}
-	hlsEnd := findHLSPlaylistEnd(rest)
-	if hlsEnd >= 0 {
-		sections.HLS = append(sections.HLS, rest[:hlsEnd]...)
-		sections.WebRTC = append(sections.WebRTC, rest[hlsEnd:]...)
-		return sections
+		if isWebRTCMuxer(block.muxer) {
+			sections.WebRTC = append(sections.WebRTC, block.argv...)
+			if block.muxer == "tee" {
+				// Expand the slave list for readability.
+				last := block.argv[len(block.argv)-1]
+				sections.WebRTC = sections.WebRTC[:len(sections.WebRTC)-1]
+				sections.WebRTC = append(sections.WebRTC, strings.Split(last, "|")...)
+			}
+
+			continue
+		}
+
+		sections.HLS = append(sections.HLS, block.argv...)
 	}
 
-	// No HLS target: the isolated WebRTC-only process. Everything after the
-	// input is an RTP output block.
-	sections.WebRTC = append(sections.WebRTC, rest...)
 	return sections
 }

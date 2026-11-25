@@ -48,8 +48,19 @@ func TestClassifyArgvSharedTeeSplitsTargets(t *testing.T) {
 	if strings.Contains(hls, "rtp://") {
 		t.Fatalf("the HLS section must not contain RTP targets: %s", hls)
 	}
-	if !strings.Contains(hls, "-f tee") {
-		t.Fatalf("the HLS section must show the tee muxer marker: %s", hls)
+
+	// A mixed tee serves both protocols: its encode options and the "-f tee"
+	// marker describe the shared stream, so they belong to Common, and each
+	// section shows only its own targets.
+	common := strings.Join(sections.Common, " ")
+	if !strings.Contains(common, "-f tee") {
+		t.Fatalf("the tee muxer marker must be in Common for a mixed tee: %s", common)
+	}
+	if !strings.Contains(common, "-c:a:2 libopus") {
+		t.Fatalf("the shared Opus encode must be in Common for a mixed tee: %s", common)
+	}
+	if strings.Contains(hls, "-f tee") {
+		t.Fatalf("the tee marker must not be duplicated into the HLS section: %s", hls)
 	}
 
 	webrtc := strings.Join(sections.WebRTC, " ")
@@ -68,8 +79,8 @@ func TestClassifyArgvSharedTeeSplitsTargets(t *testing.T) {
 		t.Fatal("the original argv must be preserved")
 	}
 
-	// Common still ends at the input.
-	if got := strings.Join(sections.Common, " "); !strings.HasSuffix(got, "-i pipe:0") {
+	// The shared encode options of a mixed tee live in Common after the input.
+	if got := strings.Join(sections.Common, " "); !strings.Contains(got, "-i pipe:0") || !strings.Contains(got, "-c:a:2 libopus") {
 		t.Fatalf("the common section must end at the input: %s", got)
 	}
 }

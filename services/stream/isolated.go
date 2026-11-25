@@ -54,6 +54,12 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	// milliseconds; a branch added after the pump began never sees it, and its
 	// FFmpeg probe fails with "non-existing PPS 0" / "unspecified size".
 	webrtcBranch := tee.AddLateBranch(webRTCBranchName, false, nil, session.InputFormat().Name, containerPrefix(session))
+	if webrtcBranch == nil {
+		// Registration does not fail in practice, but if it ever did, the HLS
+		// path must still start: the pump only needs the critical branch. The
+		// supervisor handles a nil first branch by registering late.
+		log.Warnln("ingest tee: the first WebRTC branch could not be registered; it will join mid-stream")
+	}
 
 	// Both branches exist, so the pump can start: everything from the first byte
 	// now reaches both processes.
@@ -81,6 +87,9 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		if attempt == 0 && firstBranch != nil {
 			branch = firstBranch
 		} else {
+			if attempt == 0 {
+				log.Warnln("isolated webrtc: the first branch was not pre-registered; joining mid-stream")
+			}
 			// Drop the previous (dead) branch before adding its replacement so the
 			// fan-out never keeps queueing into a process that is gone.
 			tee.RemoveBranch(webRTCBranchName)
