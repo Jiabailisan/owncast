@@ -324,6 +324,46 @@ describe('StreamStatusCards process metrics', () => {
     expect(screen.getByText(/GPU 12%/)).toBeInTheDocument();
     expect(screen.getByText(/320\.0 MB/)).toBeInTheDocument();
   });
+
+  test('aggregates speeds for multiple isolated processes and shows N/A for missing process metrics', () => {
+    render(
+      <StreamStatusCards
+        status={makeStatus({
+          ffmpeg: {
+            processModel: 'isolated',
+            processes: [
+              {
+                id: 'hls',
+                purpose: ['hls'],
+                pid: 100,
+                uptimeSeconds: 10,
+                restartCount: 0,
+                speed: 1.0,
+                droppedFrames: null,
+                duplicateFrames: null,
+                cpuPercent: null,
+                rssBytes: null,
+              },
+              {
+                id: 'webrtc',
+                purpose: ['webrtc'],
+                pid: 101,
+                uptimeSeconds: 10,
+                restartCount: 1,
+                speed: 0.96,
+                droppedFrames: null,
+                duplicateFrames: null,
+                cpuPercent: null,
+                rssBytes: null,
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('HLS 1.00x / WEBRTC 0.96x')).toBeInTheDocument();
+    expect(screen.getByText(/CPU N\/A, RSS N\/A/)).toBeInTheDocument();
+  });
 });
 
 describe('FfmpegPanel', () => {

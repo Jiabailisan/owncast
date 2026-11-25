@@ -298,16 +298,22 @@ export function hlsLiveLatencySeconds(input: {
 
 // hlsPlaylistSegments extracts the media playlist segments from video.js VHS so
 // the stats panel can read the program-date-time of the current playhead.
+// Prefers the public vhs.playlists.media() API before internal controllers.
 export function hlsPlaylistSegments(vhs: unknown): HlsPlaylistSegment[] | null {
   const tech = vhs as
     | {
+        playlists?: { media?: () => { segments?: HlsPlaylistSegment[] } | null };
         playlistController_?: { media?: () => { segments?: HlsPlaylistSegment[] } | null };
         masterPlaylistController_?: { media?: () => { segments?: HlsPlaylistSegment[] } | null };
       }
     | null
     | undefined;
   if (!tech) return null;
-  for (const controller of [tech.playlistController_, tech.masterPlaylistController_]) {
+  for (const controller of [
+    tech.playlists,
+    tech.playlistController_,
+    tech.masterPlaylistController_,
+  ]) {
     try {
       const media = typeof controller?.media === 'function' ? controller.media() : null;
       if (media && Array.isArray(media.segments) && media.segments.length > 0) {
@@ -319,6 +325,14 @@ export function hlsPlaylistSegments(vhs: unknown): HlsPlaylistSegment[] | null {
   }
 
   return null;
+}
+
+// formatHlsCodecs formats an HLS CODECS attribute when advertised by the master
+// or media playlist, falling back to the standard Owncast HLS label.
+export function formatHlsCodecs(codecsAttr?: string | null): string {
+  const trimmed = typeof codecsAttr === 'string' ? codecsAttr.trim() : '';
+  if (!trimmed) return 'H.264 / AAC (HLS)';
+  return trimmed + ' (HLS)';
 }
 
 // videoAspectRatio returns a CSS aspect-ratio value matching the decoded video

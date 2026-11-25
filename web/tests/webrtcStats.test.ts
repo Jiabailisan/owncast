@@ -342,3 +342,72 @@ test('beacons the WHEP session id, the buffer delay and the token header', async
   // The token is never part of the body.
   expect(JSON.stringify(body)).not.toContain('viewer-token');
 });
+
+describe('WebRTC stats panel selected ICE pair, NTP epoch, and monotonic FPS window', () => {
+  test('reads RTT strictly from the selected ICE candidate pair', () => {
+    const entries = [
+      videoStats(),
+      {
+        id: 'selected-pair',
+        type: 'candidate-pair',
+        nominated: true,
+        state: 'succeeded',
+        localCandidateId: 'local-udp',
+        remoteCandidateId: 'remote-udp',
+        currentRoundTripTime: 0.015,
+      },
+      {
+        id: 'backup-pair',
+        type: 'candidate-pair',
+        nominated: false,
+        state: 'succeeded',
+        localCandidateId: 'local-tcp',
+        remoteCandidateId: 'remote-tcp',
+        currentRoundTripTime: 0.25,
+      },
+      { id: 'local-udp', type: 'local-candidate', protocol: 'udp' },
+      { id: 'remote-udp', type: 'remote-candidate', protocol: 'udp' },
+      { id: 'local-tcp', type: 'local-candidate', protocol: 'tcp' },
+      { id: 'remote-tcp', type: 'remote-candidate', protocol: 'tcp' },
+    ];
+    const { sample } = collectWebRTCStatsPanel(report(entries));
+    expect(sample.rttMs).toBeCloseTo(15, 2);
+    expect(sample.transport).toBe('udp');
+  });
+
+  test('converts NTP-epoch estimatedPlayoutTimestamp to Unix ms and reports jitterBufferSeconds', () => {
+    const nowUnixMs = 1_750_000_000_000;
+    const ntpOffsetMs = 2_208_988_800_000;
+    jest.spyOn(Date, 'now').mockReturnValue(nowUnixMs);
+    const { sample } = collectWebRTCStatsPanel(
+      report([
+        videoStats({
+          estimatedPlayoutTimestamp: nowUnixMs + ntpOffsetMs - 350,
+          jitterBufferDelay: 0.12,
+          jitterBufferEmittedCount: 2,
+        }),
+        ...iceEntries('udp'),
+      ]),
+    );
+    jest.restoreAllMocks();
+    expect(sample.liveLatencySeconds).toBeCloseTo(0.35, 2);
+    expect(sample.jitterBufferSeconds).toBeCloseTo(0.06, 3);
+  });
+
+  test('uses monotonic RTCStats video.timestamp and accepts >=0.8s windows for FPS', () => {
+    const first = collectWebRTCStatsPanel(
+      report([
+        videoStats({ framesPerSecond: undefined, framesDecoded: 100, timestamp: 10_000 }),
+        ...iceEntries('udp'),
+      ]),
+    );
+    const second = collectWebRTCStatsPanel(
+      report([
+        videoStats({ framesPerSecond: undefined, framesDecoded: 151, timestamp: 10_850 }),
+        ...iceEntries('udp'),
+      ]),
+      first.bytes,
+    );
+    expect(second.sample.framesPerSecond).toBeCloseTo(60, 1);
+  });
+});

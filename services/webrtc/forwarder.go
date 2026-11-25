@@ -32,7 +32,78 @@ const (
 	// loopbackReadBufferBytes is the SO_RCVBUF request for the FFmpeg loopback
 	// RTP sockets. Linux clamps it to net.core.rmem_max.
 	loopbackReadBufferBytes = 8 << 20
+
+	// rateWindowDuration and rateBucketDuration define the 5-second sliding
+	// window used to measure recent RTP video FPS and payload bitrate.
+	rateWindowDuration = 5 * time.Second
+	rateBucketDuration = 100 * time.Millisecond
+	rateWindowBuckets  = int(rateWindowDuration / rateBucketDuration)
 )
+
+type rateBucket struct {
+	slot         int64
+	payloadBytes uint64
+	frames       uint64
+}
+
+type slidingRateWindow struct {
+	mu      sync.Mutex
+	firstAt time.Time
+	buckets [rateWindowBuckets]rateBucket
+}
+
+func (w *slidingRateWindow) record(now time.Time, payloadBytes uint64, frameEnd bool) {
+	w.mu.Lock()
+	if w.firstAt.IsZero() {
+		w.firstAt = now
+	}
+	slot := now.UnixNano() / int64(rateBucketDuration)
+	idx := int(slot % int64(rateWindowBuckets))
+	if idx < 0 {
+		idx += rateWindowBuckets
+	}
+	if w.buckets[idx].slot != slot {
+		w.buckets[idx] = rateBucket{slot: slot}
+	}
+	w.buckets[idx].payloadBytes += payloadBytes
+	if frameEnd {
+		w.buckets[idx].frames++
+	}
+	w.mu.Unlock()
+}
+
+func (w *slidingRateWindow) reset() {
+	w.mu.Lock()
+	w.firstAt = time.Time{}
+	w.buckets = [rateWindowBuckets]rateBucket{}
+	w.mu.Unlock()
+}
+
+func (w *slidingRateWindow) rates(now time.Time) (fps float64, bitrateKbps float64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.firstAt.IsZero() {
+		return 0, 0
+	}
+	elapsed := now.Sub(w.firstAt).Seconds()
+	if elapsed < 1 {
+		return 0, 0
+	}
+	if maxSec := rateWindowDuration.Seconds(); elapsed > maxSec {
+		elapsed = maxSec
+	}
+	currentSlot := now.UnixNano() / int64(rateBucketDuration)
+	cutoffSlot := now.Add(-rateWindowDuration).UnixNano() / int64(rateBucketDuration)
+
+	var payloadBytes, frames uint64
+	for _, b := range w.buckets {
+		if b.slot > cutoffSlot && b.slot <= currentSlot {
+			payloadBytes += b.payloadBytes
+			frames += b.frames
+		}
+	}
+	return float64(frames) / elapsed, float64(payloadBytes) * 8 / elapsed / 1000
+}
 
 // MediaLegStats is the health snapshot of one loopback media leg.
 type MediaLegStats struct {
@@ -92,6 +163,7 @@ type forwarder struct {
 	reorder    *reorderBuffer
 
 	counters forwarderCounters
+	rates    slidingRateWindow
 
 	spsMu sync.RWMutex
 	sps   []byte
@@ -187,6 +259,7 @@ func (f *forwarder) handleRaw(raw []byte) {
 		if packet.Marker {
 			f.counters.frames.Add(1)
 		}
+		f.rates.record(now, uint64(len(packet.Payload)), packet.Marker)
 	}
 
 	if f.reorder == nil {
@@ -237,6 +310,7 @@ func (f *forwarder) emit(packet *rtp.Packet) {
 
 func (f *forwarder) markRestart() {
 	f.normalizer.markRestart()
+	f.rates.reset()
 }
 
 func (f *forwarder) inspectH264(payload []byte) {
@@ -485,12 +559,7 @@ func (l *MediaLeg) Stats() MediaLegStats {
 
 	// Reordered packets are counted across both forwarders.
 	reordered := l.videoForwarder.counters.reordered.Load() + l.audioForwarder.counters.reordered.Load()
-	measuredFPS := 0.0
-	measuredBitrateKbps := 0.0
-	if elapsed := now.Sub(l.videoForwarder.startedAt).Seconds(); elapsed > 1 {
-		measuredFPS = float64(l.videoForwarder.counters.frames.Load()) / elapsed
-		measuredBitrateKbps = float64(videoBytes) * 8 / elapsed / 1000
-	}
+	measuredFPS, measuredBitrateKbps := l.videoForwarder.rates.rates(now)
 
 	return MediaLegStats{
 		Variant:               l.variant,

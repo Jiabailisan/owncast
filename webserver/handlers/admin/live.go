@@ -102,7 +102,10 @@ func (a *Admin) GetLiveViewers(w http.ResponseWriter, _ *http.Request, page, pag
 // here makes the endpoint safe even if a future provider forgets to redact.
 func (a *Admin) GetLiveFFmpeg(w http.ResponseWriter, _ *http.Request) {
 	processModel := ""
-	if a.configRepository != nil {
+	if a.stream != nil {
+		processModel = a.stream.GetRunningProcessModel()
+	}
+	if processModel == "" && a.configRepository != nil {
 		processModel = a.configRepository.GetOutputProcessModel()
 	}
 

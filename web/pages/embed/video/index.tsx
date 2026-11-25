@@ -81,6 +81,7 @@ export default function VideoEmbed() {
       <PlayerContainer
         source="/hls/stream.m3u8"
         online={online}
+        streamIdentity={lastConnectTime ? String(lastConnectTime) : ''}
         initiallyMuted={initiallyMuted}
         title={streamTitle || name}
         autoplay={autoplayOverride}

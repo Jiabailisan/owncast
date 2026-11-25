@@ -48,13 +48,13 @@ export function makeEmptyStats(isWebRTC = false): StatsSnapshot {
   return {
     collecting: true,
     isWebRTC,
-    streamId: 'N/A',
-    viewport: 'N/A',
-    frames: 'N/A',
-    resolution: 'N/A',
-    optimalResolution: 'N/A',
-    volume: 'N/A',
-    normalizedVolume: 'N/A',
+    streamId: '—',
+    viewport: '—',
+    frames: '—',
+    resolution: '—',
+    optimalResolution: '—',
+    volume: '—',
+    normalizedVolume: '—',
     codecs: isWebRTC ? 'H.264 / Opus (WebRTC)' : 'H.264 / AAC (HLS)',
     sdp: '—',
     qualityName: 'Auto',
@@ -68,6 +68,6 @@ export function makeEmptyStats(isWebRTC = false): StatsSnapshot {
     bufferSeconds: null,
     liveLatencySeconds: null,
     liveMode: isWebRTC ? 'WebRTC' : 'HLS',
-    date: 'N/A',
+    date: '—',
   };
 }

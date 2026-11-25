@@ -266,6 +266,7 @@ export const Localization = {
         viewersWebrtc: 'Admin.LiveStreaming.Status.viewersWebrtc',
         viewersHls: 'Admin.LiveStreaming.Status.viewersHls',
         ffmpegSpeed: 'Admin.LiveStreaming.Status.ffmpegSpeed',
+        ffmpegProcesses: 'Admin.LiveStreaming.Status.ffmpegProcesses',
         droppedFrames: 'Admin.LiveStreaming.Status.droppedFrames',
         duplicateFrames: 'Admin.LiveStreaming.Status.duplicateFrames',
         webrtcCapacity: 'Admin.LiveStreaming.Status.webrtcCapacity',

@@ -102,6 +102,7 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
 		tr.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 		tr.SetPurpose([]string{"webrtc"})
+		tr.SetRestartCount(attempt)
 		tr.SetRTPOnly(true)
 		tr.SetInputFormat(session.InputFormat())
 		tr.SetRTPOutputs(webrtc.outputs)
@@ -215,9 +216,35 @@ func variantIndices(outputs []transcoder.RTPOutput) []int {
 // the generation check inside DisableVariants keeps a finished stream from touching the
 // next one.
 func (s *Service) withdrawWebRTCVariants(tee *ingestTee, session ingest.Session, variantGen uint64, rtpOutputs []transcoder.RTPOutput) {
-	s.webRTC.DisableVariants(variantGen, variantIndices(rtpOutputs))
+	withdrawn := variantIndices(rtpOutputs)
+	s.webRTC.DisableVariants(variantGen, withdrawn)
+	s.markWebRTCLegsDisabledForGeneration(variantGen, withdrawn)
 	s.releaseWebRTCProcessSession(session)
 	tee.RemoveBranch(webRTCBranchName)
+}
+
+// markWebRTCLegsDisabledForGeneration reflects withdrawn isolated WebRTC legs
+// in the admin live-status leg snapshot while this stream generation is active.
+func (s *Service) markWebRTCLegsDisabledForGeneration(generation uint64, indices []int) {
+	if len(indices) == 0 {
+		return
+	}
+	dropped := make(map[int]struct{}, len(indices))
+	for _, index := range indices {
+		dropped[index] = struct{}{}
+	}
+
+	s.webRTCMu.Lock()
+	defer s.webRTCMu.Unlock()
+	if generation != s.webRTCVariantGen {
+		return
+	}
+	for index := range s.webRTCLegsStatus {
+		if _, ok := dropped[s.webRTCLegsStatus[index].VariantIndex]; ok {
+			s.webRTCLegsStatus[index].Mode = models.WebRTCLegModeDisabled
+			s.webRTCLegsStatus[index].OutputBitrateKbps = nil
+		}
+	}
 }
 
 // setWebRTCWarningsForGeneration records warnings only while the given publication is

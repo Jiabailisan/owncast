@@ -94,12 +94,17 @@ func New(deps Deps) *Service {
 
 // Status returns the current live-stream snapshot.
 func (s *Service) Status() models.LiveStatus {
+	processModel := s.config.GetOutputProcessModel()
+	if runningModel := s.stream.GetRunningProcessModel(); runningModel != "" {
+		processModel = runningModel
+	}
+
 	status := models.LiveStatus{
 		State:    models.LiveStateOffline,
 		Viewers:  models.LiveViewerCounts{},
 		Warnings: []models.StatusWarning{},
 		FFmpeg: models.FFmpegStatus{
-			ProcessModel: s.config.GetOutputProcessModel(),
+			ProcessModel: processModel,
 			Processes:    []models.FFmpegProcessStatus{},
 		},
 		WebRTC: models.WebRTCStatus{
@@ -184,12 +189,63 @@ func (s *Service) Status() models.LiveStatus {
 
 	status.GeoIP = geoIPStatusFromProvider(s.geoIP)
 	status.Outbound = outboundStatus(s.stream.GetCurrentBroadcast(), s.stream.GetBroadcaster(), s.config.GetVideoCodec(), s.config.GetWebRTCConfig().Enabled)
+	applyWebRTCLegsToOutbound(&status.Outbound, status.WebRTC.Legs, s.config.GetVideoCodec())
 	status.Warnings = append(status.Warnings, geoIPWarnings(status.GeoIP)...)
 	// WebRTC leg-planning warnings: copy fallbacks, process restarts and
 	// capacity/domain notes surfaced by the stream lifecycle.
 	status.Warnings = append(status.Warnings, s.stream.WebRTCWarnings()...)
 
 	return status
+}
+
+// applyWebRTCLegsToOutbound reconciles the planned outbound table with the
+// actual runtime WebRTC leg decisions (copy fallback to transcode, disabled or
+// withdrawn legs, and measured leg bitrates).
+func applyWebRTCLegsToOutbound(outbound *models.LiveOutboundStatus, legs []models.WebRTCLegStatus, videoCodec string) {
+	if outbound == nil || len(outbound.Streams) == 0 || len(legs) == 0 {
+		return
+	}
+
+	legByVariant := make(map[int]models.WebRTCLegStatus, len(legs))
+	for _, leg := range legs {
+		legByVariant[leg.VariantIndex] = leg
+	}
+
+	for index := range outbound.Streams {
+		stream := &outbound.Streams[index]
+		leg, ok := legByVariant[stream.VariantIndex]
+		if !ok {
+			continue
+		}
+
+		if leg.Mode == models.WebRTCLegModeDisabled {
+			filtered := make([]string, 0, len(stream.Protocols))
+			for _, proto := range stream.Protocols {
+				if proto != "webrtc" {
+					filtered = append(filtered, proto)
+				}
+			}
+			stream.Protocols = filtered
+			continue
+		}
+
+		webrtcOnly := len(stream.Protocols) == 1 && stream.Protocols[0] == "webrtc"
+		if webrtcOnly {
+			if leg.Mode == models.WebRTCLegModeTranscode {
+				stream.VideoEncoder = outboundVideoEncoder(videoCodec)
+			} else if leg.Mode == models.WebRTCLegModeCopy {
+				stream.VideoEncoder = "copy"
+			}
+			stream.AudioEncoder = "libopus"
+		}
+
+		if leg.OutputBitrateKbps != nil && *leg.OutputBitrateKbps > 0 && (webrtcOnly || stream.VideoBitrateKbps == nil) {
+			measured := *leg.OutputBitrateKbps
+			stream.VideoBitrateKbps = &measured
+		} else if webrtcOnly && leg.Mode == models.WebRTCLegModeTranscode && leg.VideoBitrateKbps > 0 {
+			stream.VideoBitrateKbps = positiveBitrate(leg.VideoBitrateKbps)
+		}
+	}
 }
 
 // advertisedH264 renders the profile-level-id the WHEP answer announces, so the

@@ -108,12 +108,35 @@ export function formatWebRTCResolution(
   return width + 'x' + height + suffix;
 }
 
-// Transport of the selected ICE candidate pair. Prefer a nominated+succeeded
-// pair, then any nominated pair, then any succeeded pair with a known
-// local/remote candidate protocol.
-export function selectedIceTransport(report: RTCStatsReport): IceTransport | null {
-  const candidateProtocols = new Map<string, string>();
+// Milliseconds between NTP epoch (1900-01-01) and Unix epoch (1970-01-01).
+// RTCInboundRtpStreamStats.estimatedPlayoutTimestamp is specified in NTP ms.
+const NTP_EPOCH_OFFSET_MS = 2_208_988_800_000;
+
+// Selected ICE candidate pair: prefer a nominated+succeeded pair, then any
+// nominated pair, then any succeeded pair with received traffic, then any
+// succeeded pair. Shared by transport detection and RTT extraction so both
+// always describe the exact same active pair.
+function selectedIceCandidatePair(report: RTCStatsReport): Record<string, unknown> | null {
   const pairs: Record<string, unknown>[] = [];
+  report.forEach((stat: Record<string, unknown>) => {
+    if (stat.type === 'candidate-pair') pairs.push(stat);
+  });
+  const nominated = pairs.filter(pair => pair.nominated === true);
+  const succeeded = pairs.filter(pair => pair.state === 'succeeded');
+  return (
+    nominated.find(pair => pair.state === 'succeeded') ||
+    nominated[0] ||
+    succeeded.find(pair => Number(pair.bytesReceived) > 0) ||
+    succeeded[0] ||
+    null
+  );
+}
+
+// Transport of the selected ICE candidate pair.
+export function selectedIceTransport(report: RTCStatsReport): IceTransport | null {
+  const selected = selectedIceCandidatePair(report);
+  if (!selected) return null;
+  const candidateProtocols = new Map<string, string>();
   report.forEach((stat: Record<string, unknown>) => {
     // Chrome reports ICE candidate stats as "local-candidate"/"remote-candidate"
     // while other implementations use the spec name "candidate".
@@ -124,17 +147,7 @@ export function selectedIceTransport(report: RTCStatsReport): IceTransport | nul
     ) {
       candidateProtocols.set(String(stat.id), String(stat.protocol || '').toLowerCase());
     }
-    if (stat.type === 'candidate-pair') pairs.push(stat);
   });
-  const nominated = pairs.filter(pair => pair.nominated === true);
-  const succeeded = pairs.filter(pair => pair.state === 'succeeded');
-  const selected =
-    nominated.find(pair => pair.state === 'succeeded') ||
-    nominated[0] ||
-    succeeded.find(pair => Number(pair.bytesReceived) > 0) ||
-    succeeded[0] ||
-    null;
-  if (!selected) return null;
   const protocol =
     candidateProtocols.get(String(selected.localCandidateId || '')) ||
     candidateProtocols.get(String(selected.remoteCandidateId || ''));
@@ -206,14 +219,15 @@ export function summarizeWebRTCStats(
 
     if (type === 'remote-inbound-rtp' && typeof stat.roundTripTime === 'number') {
       summary.roundTripTimeMs = Math.round(stat.roundTripTime * 1000);
-    } else if (
-      type === 'candidate-pair' &&
-      stat.nominated === true &&
-      typeof stat.currentRoundTripTime === 'number'
-    ) {
-      summary.roundTripTimeMs = Math.round((stat.currentRoundTripTime as number) * 1000);
     }
   });
+
+  if (summary.roundTripTimeMs === undefined) {
+    const selectedPair = selectedIceCandidatePair(report);
+    if (selectedPair && typeof selectedPair.currentRoundTripTime === 'number') {
+      summary.roundTripTimeMs = Math.round((selectedPair.currentRoundTripTime as number) * 1000);
+    }
+  }
 
   const frameRate = measuredFrameRate ?? reportedFrameRate;
   if (frameRate !== null) summary.fps = frameRate;
@@ -241,8 +255,11 @@ export interface WebRTCStatsPanelSample {
   videoCodec: string | null;
   audioCodec: string | null;
   transport: IceTransport | null;
-  // Estimated playout latency: jitter-buffer delay + half the candidate RTT +
-  // per-frame processing delay. Buffer health remains HLS-specific.
+  // Receiver jitter buffer duration in seconds (interval-based when a prior
+  // sample exists, else session average), shown in the panel's Buffer Health row.
+  jitterBufferSeconds: number | null;
+  // Estimated playout latency: synchronized playout delta when available, else
+  // interval jitter-buffer delay + processing delay + half the selected ICE RTT.
   liveLatencySeconds: number | null;
   timestamp: number;
   videoBytes: number;
@@ -251,6 +268,7 @@ export interface WebRTCStatsPanelSample {
 
 interface WebRTCBytesSample {
   timestamp: number;
+  statsTimestamp: number | null;
   videoBytes: number;
   audioBytes: number;
   framesDecoded: number | null;
@@ -265,7 +283,6 @@ export function collectWebRTCStatsPanel(
 ): { sample: WebRTCStatsPanelSample; bytes: WebRTCBytesSample } {
   const codecs: Record<string, string> = {};
   const inbound: { video?: Record<string, unknown>; audio?: Record<string, unknown> } = {};
-  let candidateRtt: number | null = null;
 
   report.forEach((stat: Record<string, unknown>) => {
     if (stat.type === 'codec') {
@@ -276,18 +293,21 @@ export function collectWebRTCStatsPanel(
       if (stat.kind === 'video') inbound.video = stat;
       if (stat.kind === 'audio') inbound.audio = stat;
     }
-    if (
-      stat.type === 'candidate-pair' &&
-      (stat.nominated === true || stat.state === 'succeeded') &&
-      typeof stat.currentRoundTripTime === 'number'
-    ) {
-      candidateRtt = stat.currentRoundTripTime * 1000;
-    }
   });
+
+  const selectedPair = selectedIceCandidatePair(report);
+  const candidateRtt: number | null =
+    selectedPair && typeof selectedPair.currentRoundTripTime === 'number'
+      ? (selectedPair.currentRoundTripTime as number) * 1000
+      : null;
 
   const video = inbound.video || {};
   const audio = inbound.audio || {};
   const timestamp = Date.now();
+  const statsTimestamp =
+    typeof video.timestamp === 'number' && Number.isFinite(video.timestamp)
+      ? video.timestamp
+      : null;
   const videoBytes = Number(video.bytesReceived) || 0;
   const audioBytes = Number(audio.bytesReceived) || 0;
   const transport = selectedIceTransport(report);
@@ -301,27 +321,39 @@ export function collectWebRTCStatsPanel(
     return (bytes * 8) / seconds / 1000;
   };
 
+  // Prefer the monotonic RTCStats timestamp when it advanced; fall back to wall
+  // clock when absent or unchanged (e.g. unit tests mocking Date.now()).
+  let elapsedSeconds = 0;
+  if (previous) {
+    if (
+      statsTimestamp !== null &&
+      previous.statsTimestamp !== null &&
+      statsTimestamp > previous.statsTimestamp
+    ) {
+      elapsedSeconds = (statsTimestamp - previous.statsTimestamp) / 1000;
+    } else if (timestamp > previous.timestamp) {
+      elapsedSeconds = (timestamp - previous.timestamp) / 1000;
+    }
+  }
+
   let videoBitrateKbps: number | null = null;
   let audioBitrateKbps: number | null = null;
   let connectionSpeedKbps: number | null = null;
-  if (previous && timestamp > previous.timestamp) {
-    const seconds = (timestamp - previous.timestamp) / 1000;
-    videoBitrateKbps = kbps(videoBytes - previous.videoBytes, seconds);
-    audioBitrateKbps = kbps(audioBytes - previous.audioBytes, seconds);
+  if (previous && elapsedSeconds > 0) {
+    videoBitrateKbps = kbps(videoBytes - previous.videoBytes, elapsedSeconds);
+    audioBitrateKbps = kbps(audioBytes - previous.audioBytes, elapsedSeconds);
     if (videoBitrateKbps !== null || audioBitrateKbps !== null) {
       connectionSpeedKbps = (videoBitrateKbps || 0) + (audioBitrateKbps || 0);
     }
   }
 
-  // Measure decoded frames over a window of at least one second first; the
-  // receiver-reported framesPerSecond is a fallback because it can lag or
-  // report values that disagree with the actually decoded frames.
+  // Measure decoded frames over a >=0.8s window first (tolerating normal 1 Hz
+  // setInterval timer jitter without flapping back to receiver-reported fps).
   let framesPerSecond: number | null = null;
   if (previous && framesDecoded !== null && previous.framesDecoded !== null) {
     const frameDelta = framesDecoded - previous.framesDecoded;
-    const seconds = (timestamp - previous.timestamp) / 1000;
-    if (frameDelta > 0 && seconds >= 1) {
-      framesPerSecond = plausibleFrameRate(frameDelta / seconds);
+    if (frameDelta > 0 && elapsedSeconds >= 0.8) {
+      framesPerSecond = plausibleFrameRate(frameDelta / elapsedSeconds);
     }
   }
   if (framesPerSecond === null) {
@@ -335,26 +367,33 @@ export function collectWebRTCStatsPanel(
   const decodedFrames = Number(video.framesDecoded) || 0;
   const processingDelay = Number(video.totalProcessingDelay) || 0;
   const processingSeconds = decodedFrames > 0 ? processingDelay / decodedFrames : 0;
+
+  let intervalJitterBuffer = jitterBufferSeconds;
+  let intervalProcessing = processingSeconds;
+  if (previous && jitterBufferEmitted > previous.jitterBufferEmitted) {
+    intervalJitterBuffer =
+      (jitterBufferDelay - previous.jitterBufferDelay) /
+      (jitterBufferEmitted - previous.jitterBufferEmitted);
+  }
+  if (previous && decodedFrames > previous.framesDecoded) {
+    intervalProcessing =
+      (processingDelay - previous.processingDelay) / (decodedFrames - previous.framesDecoded);
+  }
+
   const estimatedPlayout = Number(video.estimatedPlayoutTimestamp);
   let liveLatencySeconds: number | null = null;
   if (Number.isFinite(estimatedPlayout) && estimatedPlayout > 0) {
-    const delta = (timestamp - estimatedPlayout) / 1000;
+    // Convert NTP-epoch milliseconds (RFC / WebRTC Stats spec) to Unix ms.
+    const playoutUnixMs =
+      estimatedPlayout > NTP_EPOCH_OFFSET_MS
+        ? estimatedPlayout - NTP_EPOCH_OFFSET_MS
+        : estimatedPlayout;
+    const delta = (timestamp - playoutUnixMs) / 1000;
     if (delta >= 0 && delta <= 30) liveLatencySeconds = delta;
   }
-  if (liveLatencySeconds === null && jitterBufferSeconds !== null) {
+  if (liveLatencySeconds === null && intervalJitterBuffer !== null) {
     // Report the most recent interval rather than the session average so the
     // Stats row reacts as quickly as the other 1 Hz measurements.
-    let intervalJitterBuffer = jitterBufferSeconds;
-    let intervalProcessing = processingSeconds;
-    if (previous && jitterBufferEmitted > previous.jitterBufferEmitted) {
-      intervalJitterBuffer =
-        (jitterBufferDelay - previous.jitterBufferDelay) /
-        (jitterBufferEmitted - previous.jitterBufferEmitted);
-    }
-    if (previous && decodedFrames > previous.framesDecoded) {
-      intervalProcessing =
-        (processingDelay - previous.processingDelay) / (decodedFrames - previous.framesDecoded);
-    }
     liveLatencySeconds =
       Math.max(0, intervalJitterBuffer) +
       Math.max(0, intervalProcessing) +
@@ -386,6 +425,7 @@ export function collectWebRTCStatsPanel(
       videoCodec: simplifyCodec(codecs[videoCodecId]),
       audioCodec: simplifyCodec(codecs[audioCodecId]),
       transport,
+      jitterBufferSeconds: intervalJitterBuffer !== null ? Math.max(0, intervalJitterBuffer) : null,
       liveLatencySeconds,
       timestamp,
       videoBytes,
@@ -393,6 +433,7 @@ export function collectWebRTCStatsPanel(
     },
     bytes: {
       timestamp,
+      statsTimestamp,
       videoBytes,
       audioBytes,
       framesDecoded,

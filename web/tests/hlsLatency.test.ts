@@ -59,6 +59,8 @@ describe('HLS live latency from program-date-time', () => {
   test('reads segments out of the VHS playlist controller', () => {
     const vhs = { playlistController_: { media: () => ({ segments }) } };
     expect(hlsPlaylistSegments(vhs)).toHaveLength(3);
+    const publicVhs = { playlists: { media: () => ({ segments }) } };
+    expect(hlsPlaylistSegments(publicVhs)).toHaveLength(3);
     expect(hlsPlaylistSegments({})).toBeNull();
     expect(hlsPlaylistSegments(null)).toBeNull();
   });

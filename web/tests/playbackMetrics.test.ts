@@ -76,4 +76,21 @@ describe('PlaybackMetrics', () => {
     const reports = (global.fetch as jest.Mock).mock.calls.map(([, init]) => JSON.parse(init.body));
     expect(reports.map(report => report.sta)).toEqual(['p', 'a', 'a', 'a', 'a', 'a', 'a', 'a']);
   });
+
+  test('stop restores videojs.Vhs.xhr and removes only its own player listeners', () => {
+    const player = makePlayer();
+    const originalXhr = jest.fn();
+    const videojs = { Vhs: { xhr: originalXhr }, xhr: jest.fn() };
+    const metrics = new PlaybackMetrics(player, videojs);
+
+    expect(videojs.Vhs.xhr).not.toBe(originalXhr);
+    metrics.stop();
+
+    expect(videojs.Vhs.xhr).toBe(originalXhr);
+    // Must detach specific listeners rather than calling bare player.off().
+    expect(player.off).toHaveBeenCalled();
+    player.off.mock.calls.forEach((args: unknown[]) => {
+      expect(args.length).toBe(2);
+    });
+  });
 });

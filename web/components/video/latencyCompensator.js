@@ -422,6 +422,17 @@ function persistRebufferEvents(events) {
 // writing playlist.disabled (the flag VHS's isEnabled() consults) applies
 // the restriction at the next natural segment selection instead. Falls back
 // to rep.enabled() when the playlist object isn't exposed.
+function isRepresentationEnabled(rep) {
+  const playlist = rep && rep.playlist;
+  if (playlist && typeof playlist === 'object') {
+    return playlist.disabled !== true;
+  }
+  if (rep && typeof rep.enabled === 'function') {
+    return rep.enabled() !== false;
+  }
+  return true;
+}
+
 function setRepresentationEnabled(rep, enabled) {
   const playlist = rep && rep.playlist;
   if (playlist && typeof playlist === 'object') {
@@ -473,6 +484,9 @@ class LatencyCompensator {
     // "lowest" (default) pins to the lowest rendition while compensating;
     // "current" only blocks upswitches.
     this.qualityPinMode = options.qualityPinMode === 'current' ? 'current' : 'lowest';
+    // Snapshot of representation enabled states taken before pinning, so
+    // stopping restores what was enabled and never overrides a manual lock.
+    this.pinnedQualitySnapshot = null;
 
     // Last decision and the signals that produced it, for stats consumers.
     this.lastAction = null;
@@ -1144,23 +1158,57 @@ class LatencyCompensator {
         return;
       }
 
-      if (pinned && this.qualityPinMode === 'current') {
-        const playlist = tech.vhs.playlists.media();
-        const currentBandwidth = playlist && playlist.attributes && playlist.attributes.BANDWIDTH;
-        if (!(currentBandwidth > 0)) {
-          return; // can't tell what "current" is; leave renditions alone
+      if (!pinned) {
+        if (!this.pinnedQualitySnapshot) {
+          return;
         }
-        representations.forEach(rep => {
-          setRepresentationEnabled(rep, (rep.bandwidth || 0) <= currentBandwidth);
+        const snapshot = this.pinnedQualitySnapshot;
+        this.pinnedQualitySnapshot = null;
+        snapshot.forEach(({ rep, enabled }) => {
+          setRepresentationEnabled(rep, enabled);
         });
         return;
       }
 
-      const lowest = representations.reduce((a, b) =>
+      // If the viewer manually locked a single rendition, respect that choice:
+      // do not downgrade it while catching up and do not re-enable other
+      // renditions on stop.
+      const enabledStates = representations.map(rep => isRepresentationEnabled(rep));
+      const enabledCount = enabledStates.filter(Boolean).length;
+      if (enabledCount <= 1) {
+        this.pinnedQualitySnapshot = null;
+        return;
+      }
+
+      if (!this.pinnedQualitySnapshot) {
+        this.pinnedQualitySnapshot = representations.map((rep, index) => ({
+          rep,
+          enabled: enabledStates[index],
+        }));
+      }
+
+      if (this.qualityPinMode === 'current') {
+        const playlist = tech.vhs.playlists.media();
+        const currentBandwidth = playlist && playlist.attributes && playlist.attributes.BANDWIDTH;
+        if (!(currentBandwidth > 0)) {
+          this.pinnedQualitySnapshot = null;
+          return; // can't tell what "current" is; leave renditions alone
+        }
+        representations.forEach((rep, index) => {
+          setRepresentationEnabled(
+            rep,
+            enabledStates[index] && (rep.bandwidth || 0) <= currentBandwidth,
+          );
+        });
+        return;
+      }
+
+      const enabledReps = representations.filter((_, index) => enabledStates[index]);
+      const lowest = enabledReps.reduce((a, b) =>
         (a.bandwidth || 0) <= (b.bandwidth || 0) ? a : b,
       );
       representations.forEach(rep => {
-        setRepresentationEnabled(rep, pinned ? rep === lowest : true);
+        setRepresentationEnabled(rep, rep === lowest);
       });
     } catch {
       // Renditions API unavailable; quality pinning is best-effort.

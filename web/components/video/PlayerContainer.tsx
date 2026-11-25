@@ -149,27 +149,34 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
   // Persisted transport choice (Auto/WebRTC/HLS) from the overlay's transport
   // menu. Selecting WebRTC/Auto clears a previous tab-scoped fallback so the
   // viewer can retry the low-latency path deliberately.
-  const handleTransportChange = useCallback((next: TransportPreference) => {
-    setTransportPreference(next);
-    writeTransportPreference(next);
-    if (next !== 'hls') {
-      writeSessionFallback(false, streamIdentity);
-      setSessionFallback(false);
-      setFallbackReason(null);
-    }
-  }, []);
+  const handleTransportChange = useCallback(
+    (next: TransportPreference) => {
+      setTransportPreference(next);
+      writeTransportPreference(next);
+      if (next !== 'hls') {
+        writeSessionFallback(false, streamIdentity);
+        setSessionFallback(false);
+        setFallbackReason(null);
+      }
+    },
+    [streamIdentity],
+  );
 
   const handleWebRTCFallback = useCallback(
     (error: WHEPError) => {
       writeSessionFallback(true, streamIdentity);
       setSessionFallback(true);
       setFallbackReason(error);
-      onProtocolChange?.('hls');
+      // Only announce a switch to HLS when the transport preference actually
+      // falls back to HLS (explicit "webrtc" keeps the WebRTC player mounted).
+      if (transportPreference !== 'webrtc') {
+        onProtocolChange?.('hls');
+      }
     },
     // The identity belongs in the dependencies: without it the callback keeps the identity of
     // the stream that mounted it, and a failure after a switch stores the previous stream's
     // fallback, which then applies to the wrong stream.
-    [onProtocolChange, streamIdentity],
+    [onProtocolChange, streamIdentity, transportPreference],
   );
 
   useEffect(() => {

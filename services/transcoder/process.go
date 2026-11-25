@@ -51,6 +51,14 @@ func (t *Transcoder) SetPurpose(purpose []string) {
 	t.state.purpose = append([]string(nil), purpose...)
 }
 
+// SetRestartCount records how many times the supervisor has restarted this
+// transcoder role within the current live stream.
+func (t *Transcoder) SetRestartCount(count int) {
+	t.state.mu.Lock()
+	defer t.state.mu.Unlock()
+	t.state.restarts = count
+}
+
 // Snapshot returns the current process state for the admin FFmpeg panel.
 func (t *Transcoder) Snapshot() ProcessSnapshot {
 	t.state.mu.RLock()

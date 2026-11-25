@@ -204,6 +204,27 @@ describe('PlayerControls overlay', () => {
     render(<PlayerControls {...makeProps({ statsOpen: true })} />);
     expect(screen.getByText('Collecting...')).toBeInTheDocument();
   });
+
+  test('Escape closes the Stats for nerds panel when no menu is open', () => {
+    const callbacks = makeCallbacks();
+    render(<PlayerControls {...makeProps({ statsOpen: true, callbacks })} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(callbacks.onToggleStats).toHaveBeenCalledTimes(1);
+  });
+
+  test('single-point sparkline renders a point marker without a full-width polygon', () => {
+    const { container } = render(
+      <PlayerControls
+        {...makeProps({
+          statsOpen: true,
+          stats: { ...makeEmptyStats(true), collecting: false, videoBitrateKbps: 2000 },
+          sparklines: { video: [2000], audio: [] },
+        })}
+      />,
+    );
+    expect(container.querySelectorAll('polygon')).toHaveLength(0);
+    expect(container.querySelectorAll('circle')).toHaveLength(1);
+  });
 });
 
 describe('HLS transport metering helpers', () => {

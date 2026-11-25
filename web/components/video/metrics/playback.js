@@ -115,11 +115,12 @@ class PlaybackMetrics {
     this.player.on('canplaythrough', this.handleNoLongerBuffering);
 
     // Decorate every media request with CMCD request-mode data and time
-    // segment downloads for ttlb reporting. Keep a reference of the
-    // standard vjs xhr function and wrap it.
-    const oldVjsXhrCallback = videojs.xhr;
-    // eslint-disable-next-line no-param-reassign
-    videojs.Vhs.xhr = (...args) => {
+    // segment downloads for ttlb reporting. Remember the previous Vhs.xhr
+    // reference so stop() restores it instead of leaking a global closure.
+    this.videojs = videojs;
+    this.previousVhsXhr = videojs?.Vhs?.xhr;
+    const baseVjsXhr = this.previousVhsXhr || videojs?.xhr;
+    this.xhrWrapper = (...args) => {
       try {
         const request = args[0];
         const isSegment = /\.ts(\?|$)/.test(request.uri);
@@ -151,8 +152,12 @@ class PlaybackMetrics {
         // Never let metrics decoration break media loading.
       }
 
-      return oldVjsXhrCallback(...args);
+      return baseVjsXhr(...args);
     };
+    if (videojs?.Vhs) {
+      // eslint-disable-next-line no-param-reassign
+      videojs.Vhs.xhr = this.xhrWrapper;
+    }
 
     this.eventReportTimer = setInterval(() => {
       if (!this.player || !this.hasStartedPlaying) {
@@ -170,12 +175,22 @@ class PlaybackMetrics {
 
   stop() {
     clearInterval(this.eventReportTimer);
+    if (this.videojs?.Vhs && this.videojs.Vhs.xhr === this.xhrWrapper) {
+      this.videojs.Vhs.xhr = this.previousVhsXhr;
+    }
     // Component teardown does not reliably emit Video.js's ended event.
     // Preserve the terminal state while its viewer is still active.
     if (this.hasStartedPlaying && !this.player.ended()) {
       this.sendEventReport('ps', { sta: 'e' });
     }
-    this.player.off();
+    this.player.off('play', this.handlePlay);
+    this.player.off('playing', this.handlePlaying);
+    this.player.off('pause', this.handlePause);
+    this.player.off('ended', this.handleEnded);
+    this.player.off('error', this.handleError);
+    this.player.off('stalled', this.handleBuffering);
+    this.player.off('waiting', this.handleBuffering);
+    this.player.off('canplaythrough', this.handleNoLongerBuffering);
   }
 
   // Keep our client clock in sync with the server clock to determine

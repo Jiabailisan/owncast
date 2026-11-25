@@ -31,7 +31,7 @@ const Chart: FC<{ label: string; color: string; values: number[]; current: numbe
         role="img"
         aria-label={label + ' bitrate chart'}
       >
-        {values.length > 0 && (
+        {values.length >= 2 && (
           <>
             <polygon points={fillPoints} fill={color} fillOpacity="0.16" stroke="none" />
             <polyline
@@ -43,6 +43,14 @@ const Chart: FC<{ label: string; color: string; values: number[]; current: numbe
               strokeLinecap="round"
             />
           </>
+        )}
+        {values.length === 1 && (
+          <circle
+            cx={CHART_WIDTH / 2}
+            cy={CHART_HEIGHT - (Math.max(0, values[0]) / Math.max(values[0], 1)) * CHART_HEIGHT}
+            r="2"
+            fill={color}
+          />
         )}
       </svg>
       <span className={styles.statsChartValue}>{formatStatsBitrate(current)}</span>

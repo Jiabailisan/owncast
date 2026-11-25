@@ -495,6 +495,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     setErrorMessage('');
     setIsPlaying(false);
     setStats(prev => ({ ...prev, collecting: true }));
+    setSparklines({ video: [], audio: [] });
 
     sessionFactoryImpl({
       whepUrl,
@@ -783,6 +784,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     }
     let cancelled = false;
     let previousBytes: ReturnType<typeof collectWebRTCStatsPanel>['bytes'] | null = null;
+    setSparklines({ video: [], audio: [] });
     const sample = async () => {
       const session = sessionRef.current;
       if (!session) return;
@@ -797,29 +799,46 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         // known (reference formatting); Live Mode shows the selected ICE
         // transport (WebRTC-U for UDP / WebRTC-T for TCP).
         const fps = plausibleFrameRate(panelSample.framesPerSecond);
-        const resolution = formatWebRTCResolution(
+        const rawResolution = formatWebRTCResolution(
           panelSample.frameWidth,
           panelSample.frameHeight,
           fps,
+        );
+        const resolution = rawResolution === 'N/A' ? '—' : rawResolution;
+        const dpr =
+          typeof window !== 'undefined' &&
+          Number.isFinite(window.devicePixelRatio) &&
+          window.devicePixelRatio > 0
+            ? window.devicePixelRatio
+            : 1;
+        const hasVideoBox = Boolean(video && video.clientWidth > 0 && video.clientHeight > 0);
+        const viewportWidth = hasVideoBox
+          ? video.clientWidth
+          : typeof window === 'undefined'
+            ? 0
+            : window.innerWidth;
+        const viewportHeight = hasVideoBox
+          ? video.clientHeight
+          : typeof window === 'undefined'
+            ? 0
+            : window.innerHeight;
+        const optimalResolution = hasVideoBox
+          ? Math.round(video.clientWidth * dpr) + 'x' + Math.round(video.clientHeight * dpr)
+          : resolution;
+        const viewportFrames = formatViewportFrames(
+          viewportWidth,
+          viewportHeight,
+          panelSample.framesDropped,
+          panelSample.framesDecoded,
         );
         setStats({
           collecting: false,
           isWebRTC: true,
           streamId: 'WHEP / MediaStream',
-          viewport: formatViewportFrames(
-            typeof window === 'undefined' ? 0 : window.innerWidth,
-            typeof window === 'undefined' ? 0 : window.innerHeight,
-            panelSample.framesDropped,
-            panelSample.framesDecoded,
-          ),
-          frames: formatViewportFrames(
-            typeof window === 'undefined' ? 0 : window.innerWidth,
-            typeof window === 'undefined' ? 0 : window.innerHeight,
-            panelSample.framesDropped,
-            panelSample.framesDecoded,
-          ),
+          viewport: viewportFrames,
+          frames: viewportFrames,
           resolution,
-          optimalResolution: resolution,
+          optimalResolution,
           volume: volumeInfo.volume,
           normalizedVolume: volumeInfo.normalizedVolume,
           codecs:
@@ -849,14 +868,20 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           jitterMs: panelSample.jitterMs,
           packetsLost: panelSample.packetsLost,
           packetsReceived: panelSample.packetsReceived,
-          bufferSeconds: null,
+          bufferSeconds: panelSample.jitterBufferSeconds,
           liveLatencySeconds: panelSample.liveLatencySeconds,
           liveMode: webRTCLiveMode(panelSample.transport),
           date: new Date().toLocaleString(),
         });
         setSparklines(current => ({
-          video: pushSparkline(current.video, panelSample.videoBitrateKbps),
-          audio: pushSparkline(current.audio, panelSample.audioBitrateKbps),
+          video:
+            panelSample.videoBitrateKbps !== null
+              ? pushSparkline(current.video, panelSample.videoBitrateKbps)
+              : current.video,
+          audio:
+            panelSample.audioBitrateKbps !== null
+              ? pushSparkline(current.audio, panelSample.audioBitrateKbps)
+              : current.audio,
         }));
       } catch {
         // getStats can fail while the peer connection is closing.
@@ -868,7 +893,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [statsOpen, phase]);
+  }, [statsOpen, phase, selectedVariant, variants]);
 
   // Keep the player box in sync with the decoded picture.
   useEffect(() => {

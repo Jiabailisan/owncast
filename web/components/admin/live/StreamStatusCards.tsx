@@ -80,19 +80,45 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
   const { source, ingest, viewers, ffmpeg, webrtc, warnings, geoip } = status;
   const isTcpIngest = status.inputProtocol === 'rtmp';
   const ingestNaTooltip = isTcpIngest ? NA_TOOLTIP_TCP : NA_TOOLTIP_SOURCE;
-  const totalDroppedFrames = ffmpeg.processes.reduce(
-    (sum, process) => sum + (process.droppedFrames ?? 0),
-    0,
-  );
-  const totalDuplicateFrames = ffmpeg.processes.reduce(
-    (sum, process) => sum + (process.duplicateFrames ?? 0),
-    0,
-  );
-  const maxCpuPercent = ffmpeg.processes.reduce(
-    (max, process) => Math.max(max, process.cpuPercent ?? 0),
-    0,
-  );
-  const totalRssBytes = ffmpeg.processes.reduce((sum, process) => sum + (process.rssBytes ?? 0), 0);
+  const droppedValues = ffmpeg.processes
+    .map(process => process.droppedFrames)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const totalDroppedFrames =
+    droppedValues.length > 0 ? droppedValues.reduce((sum, value) => sum + value, 0) : null;
+
+  const duplicateValues = ffmpeg.processes
+    .map(process => process.duplicateFrames)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const totalDuplicateFrames =
+    duplicateValues.length > 0 ? duplicateValues.reduce((sum, value) => sum + value, 0) : null;
+
+  const cpuValues = ffmpeg.processes
+    .map(process => process.cpuPercent)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const maxCpuPercent = cpuValues.length > 0 ? Math.max(...cpuValues) : null;
+
+  const rssValues = ffmpeg.processes
+    .map(process => process.rssBytes)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const totalRssBytes =
+    rssValues.length > 0 ? rssValues.reduce((sum, value) => sum + value, 0) : null;
+
+  const processSpeeds = ffmpeg.processes
+    .filter(process => process.speed !== null && process.speed !== undefined)
+    .map(process => ({
+      label: (process.purpose && process.purpose[0]) || process.id || 'ffmpeg',
+      speed: process.speed as number,
+    }));
+  const formattedSpeed =
+    processSpeeds.length === 0
+      ? null
+      : processSpeeds.length === 1
+        ? formatMetricNumber(processSpeeds[0].speed, 2) + 'x'
+        : processSpeeds
+            .map(
+              entry => entry.label.toUpperCase() + ' ' + formatMetricNumber(entry.speed, 2) + 'x',
+            )
+            .join(' / ');
   // GPU metrics are per-process and optional (only hardware encoders are
   // measurable); aggregate them for the Processes summary when present.
   const gpuPercentValues = ffmpeg.processes
@@ -394,31 +420,25 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
           titleKey={Localization.Admin.LiveStreaming.Status.ffmpegSpeed}
           defaultTitle="FFmpeg speed"
         >
-          <MetricValue
-            value={
-              ffmpeg.processes.length > 0 &&
-              ffmpeg.processes[0].speed !== null &&
-              ffmpeg.processes[0].speed !== undefined
-                ? formatMetricNumber(ffmpeg.processes[0].speed, 2) + 'x'
-                : null
-            }
-            tooltip={NA_TOOLTIP_SOURCE}
-          />
+          <MetricValue value={formattedSpeed} tooltip={NA_TOOLTIP_SOURCE} />
         </StatCard>
         <StatCard
           titleKey={Localization.Admin.LiveStreaming.Status.droppedFrames}
           defaultTitle="Dropped frames"
         >
-          <MetricValue value={formatMetricNumber(totalDroppedFrames)} />
+          <MetricValue value={formatMetricNumber(totalDroppedFrames)} tooltip={NA_TOOLTIP_SOURCE} />
         </StatCard>
         <StatCard
           titleKey={Localization.Admin.LiveStreaming.Status.duplicateFrames}
           defaultTitle="Duplicate frames"
         >
-          <MetricValue value={formatMetricNumber(totalDuplicateFrames)} />
+          <MetricValue
+            value={formatMetricNumber(totalDuplicateFrames)}
+            tooltip={NA_TOOLTIP_SOURCE}
+          />
         </StatCard>
         <StatCard
-          titleKey={Localization.Admin.LiveStreaming.Status.ffmpegSpeed}
+          titleKey={Localization.Admin.LiveStreaming.Status.ffmpegProcesses}
           defaultTitle="Processes"
         >
           <MetricValue
@@ -427,9 +447,9 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
               ' (' +
               (ffmpeg.processModel || 'unknown') +
               '), CPU ' +
-              formatMetricPercent(maxCpuPercent, 1) +
+              (maxCpuPercent !== null ? formatMetricPercent(maxCpuPercent, 1) : 'N/A') +
               ', RSS ' +
-              formatBytes(totalRssBytes) +
+              (totalRssBytes !== null ? formatBytes(totalRssBytes) : 'N/A') +
               (hasGpuMetrics
                 ? ', GPU ' +
                   (maxGpuPercent !== null ? formatMetricPercent(maxGpuPercent, 0) : 'N/A') +

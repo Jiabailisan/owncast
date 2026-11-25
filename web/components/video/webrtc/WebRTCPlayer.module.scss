@@ -61,21 +61,20 @@
   border-radius: var(--theme-rounded-corners, 9px);
 }
 
-
-
-
-
-
 // A muted player shows a corner notice rather than a full-frame overlay.
 .bigUnmuteButton {
-  inset: 12px 12px auto auto;
+  position: absolute;
   inset: auto 12px 72px auto;
+  z-index: 6;
+  display: inline-flex;
   gap: 8px;
+  align-items: center;
   width: auto;
   height: auto;
   padding: 6px 12px;
   font-size: 13px;
   color: #fff;
+  cursor: pointer;
   background: rgb(0 0 0 / 72%);
   border: 1px solid rgb(255 255 255 / 14%);
   border-radius: 999px;

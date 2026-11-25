@@ -309,7 +309,7 @@ export const CurrentVariantsTable: FC = () => {
         description={
           <Translation
             translationKey={Localization.Admin.VideoVariantForm.copyNote}
-            defaultText="Copy requires H.264 video without B-frames. SRT sources are inspected automatically; RTMP sources fall back to transcoding."
+            defaultText="Copy requires H.264 video without B-frames. Both SRT and RTMP sources are inspected automatically; ineligible sources fall back according to each variant's setting."
           />
         }
       />

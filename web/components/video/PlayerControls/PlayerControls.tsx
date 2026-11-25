@@ -89,9 +89,10 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
   const [transportOpen, setTransportOpen] = useState(initialMenu === 'transport');
 
-  // The volume slider is part of the bar now, so it must not count as an open
-  // menu: doing so kept the bar pinned visible forever.
-  const anyMenuOpen = settingsOpen || transportOpen || statsOpen;
+  // The volume slider is part of the bar now, and the Stats for nerds overlay
+  // is a floating HUD rather than a dropdown menu, so neither should pin the
+  // bottom control bar visible forever.
+  const anyMenuOpen = settingsOpen || transportOpen;
 
   const scheduleHide = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -163,11 +164,11 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         event.clientY <= rect.bottom;
       pointerInsideRef.current = insidePlayer;
 
-      if (insidePlayer && !statsOpen) reveal();
+      if (insidePlayer) reveal();
     };
 
     const handleKey = () => {
-      if (!statsOpen) reveal();
+      reveal();
     };
 
     // A tap produces pointerdown, not pointermove, so touch devices need this
@@ -181,20 +182,26 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       window.removeEventListener('keydown', handleKey);
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
-  }, [reveal, statsOpen]);
+  }, [reveal]);
 
-  // Escape closes an open menu even when the click that opened it blurred the
-  // trigger, in which case the keydown never reaches the overlay root.
+  // Escape closes an open menu first, or closes the Stats for nerds panel when
+  // no menu is open, even when focus left the overlay root.
   useEffect(() => {
-    if (!settingsOpen && !transportOpen) return undefined;
+    if (!settingsOpen && !transportOpen && !statsOpen) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      setSettingsOpen(false);
-      setTransportOpen(false);
+      if (settingsOpen || transportOpen) {
+        setSettingsOpen(false);
+        setTransportOpen(false);
+        return;
+      }
+      if (statsOpen) {
+        callbacks.onToggleStats();
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [settingsOpen, transportOpen]);
+  }, [settingsOpen, transportOpen, statsOpen, callbacks]);
 
   // Close menus on outside pointerdown.
   useEffect(() => {
