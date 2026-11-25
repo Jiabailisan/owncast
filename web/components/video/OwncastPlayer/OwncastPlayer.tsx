@@ -281,10 +281,48 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   };
 
   const toggleFullScreen = () => {
-    if (playerRef.current.isFullscreen()) {
-      playerRef.current.exitFullscreen();
-    } else {
-      playerRef.current.requestFullscreen();
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen().catch(() => {});
+      } else if (doc.webkitExitFullscreen) {
+        Promise.resolve(doc.webkitExitFullscreen()).catch(() => {});
+      }
+      return;
+    }
+
+    // Request fullscreen on the outer player container rather than video.js's
+    // inner .video-js element so the overlay control bar and Stats for nerds
+    // panel stay inside the fullscreen subtree.
+    const container = containerRef.current as
+      (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
+    if (container?.requestFullscreen) {
+      container.requestFullscreen().catch(() => {});
+      return;
+    }
+    if (container?.webkitRequestFullscreen) {
+      Promise.resolve(container.webkitRequestFullscreen()).catch(() => {});
+      return;
+    }
+
+    // iOS Safari does not support Element.requestFullscreen on containers;
+    // fall back to native video fullscreen when exposed.
+    const video = ((playerRef.current?.el?.() as HTMLElement | undefined)?.querySelector('video') ||
+      null) as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (video?.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen();
+      return;
+    }
+
+    if (playerRef.current) {
+      if (playerRef.current.isFullscreen()) {
+        playerRef.current.exitFullscreen();
+      } else {
+        playerRef.current.requestFullscreen();
+      }
     }
   };
 
@@ -478,6 +516,22 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on(['playing', 'pause', 'ended', 'volumechange'], updateUnmuteButton);
     updateUnmuteButton();
   };
+
+  // Sync fullscreen button state with the document fullscreen element so
+  // container-level fullscreen (wrapping PlayerControls + StatsPanel) updates
+  // accurately across standard and WebKit browsers.
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element | null };
+      setFullscreen(Boolean(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+    };
+  }, []);
 
   // Live edge / behind-live tracking (HLS only; WebRTC is always live).
   useEffect(() => {
@@ -848,6 +902,15 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     player.on('volumechange', handleVolume);
     player.on('fullscreenchange', () => setFullscreen(Boolean(player.isFullscreen())));
+    const innerVideo = (player.el()?.querySelector('video') as HTMLVideoElement | null) ?? null;
+    const onWebkitBeginFullscreen = () => setFullscreen(true);
+    const onWebkitEndFullscreen = () => setFullscreen(false);
+    innerVideo?.addEventListener('webkitbeginfullscreen', onWebkitBeginFullscreen);
+    innerVideo?.addEventListener('webkitendfullscreen', onWebkitEndFullscreen);
+    player.on('dispose', () => {
+      innerVideo?.removeEventListener('webkitbeginfullscreen', onWebkitBeginFullscreen);
+      innerVideo?.removeEventListener('webkitendfullscreen', onWebkitEndFullscreen);
+    });
     syncVolumeState();
 
     playbackMetrics = new PlaybackMetrics(player, videojs);

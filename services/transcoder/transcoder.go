@@ -850,16 +850,10 @@ func (t *Transcoder) AddVariant(variant HLSVariant) {
 }
 
 // normalizeSharedH264Profile maps the browser-facing WebRTC profile labels to
-// the encoder profile names used by libx264/NVENC.
+// the encoder profile names used by libx264/NVENC, sharing the exact same
+// mapping as RTP outputs so profile matching cannot drift.
 func normalizeSharedH264Profile(profile string) string {
-	switch strings.ToLower(strings.TrimSpace(profile)) {
-	case "high":
-		return "high"
-	case "baseline", "constrained-baseline":
-		return "baseline"
-	default:
-		return "main"
-	}
+	return normalizeH264Profile(profile)
 }
 
 // SetInput sets the input stream on the filesystem.

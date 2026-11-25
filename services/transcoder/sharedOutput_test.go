@@ -188,6 +188,14 @@ func TestSharedLegsSelectCompatibleHLSVariant(t *testing.T) {
 	if strings.Contains(joined, "-filter:v scale") {
 		t.Fatalf("the source-size leg must not scale: %s", joined)
 	}
+	// Both the independent transcode leg and the shared leg must receive the
+	// shared Opus audio stream from the tee.
+	if !strings.Contains(joined, leg0.AudioURL) {
+		t.Fatalf("independent transcode leg lost its audio RTP output: %s", joined)
+	}
+	if !strings.Contains(joined, leg1.AudioURL) {
+		t.Fatalf("shared leg lost its audio RTP output: %s", joined)
+	}
 }
 
 // TestSharedOutputRejectsGOPMismatch pins the keyframe-interval rule: an HLS
@@ -376,5 +384,71 @@ func TestSharedOutputDoesNotShareWhenTheLegTargetsTheFullVideoRate(t *testing.T)
 	joined := strings.Join(tr.getFlags().command, " ")
 	if strings.Contains(joined, "select=\\'v:0\\'") {
 		t.Fatalf("the leg was fed a 192 kbps slower encode: %s", joined)
+	}
+}
+
+func TestSharedOutputWorksWithSingleWebRTCLeg(t *testing.T) {
+	tr := newGoldenTranscoder()
+	tr.codec = &NvencCodec{}
+	leg := sharedCompatibleOutput("h264_nvenc")
+	tr.SetRTPOutputs([]RTPOutput{leg})
+
+	if !tr.sharedOutputEnabled() {
+		t.Fatal("single compatible WebRTC leg must be allowed to share the HLS video encode")
+	}
+	joined := strings.Join(tr.getFlags().command, " ")
+	if got := strings.Count(joined, "-c:v:0 h264_nvenc"); got != 1 {
+		t.Fatalf("expected one shared video encoder, got %d: %s", got, joined)
+	}
+	if got := strings.Count(joined, "-c:a:1 libopus"); got != 1 {
+		t.Fatalf("expected one Opus encoder scoped to audio stream 1, got %d: %s", got, joined)
+	}
+	if !strings.Contains(joined, "select=\\'v:0\\'") || !strings.Contains(joined, leg.VideoURL) || !strings.Contains(joined, leg.AudioURL) {
+		t.Fatalf("single-leg shared output missing video/audio RTP slaves: %s", joined)
+	}
+}
+
+func TestSharedOutputMatchesConstrainedHighProfile(t *testing.T) {
+	tr := newGoldenTranscoder()
+	tr.codec = &NvencCodec{}
+	tr.SetSharedH264Profile("constrained-high")
+	leg := sharedCompatibleOutput("h264_nvenc")
+	leg.H264Profile = "constrained-high"
+	tr.SetRTPOutputs([]RTPOutput{leg})
+
+	if !tr.sharedOutputEnabled() {
+		t.Fatal("constrained-high profile must normalize identically on HLS and WebRTC sides")
+	}
+	joined := strings.Join(tr.getFlags().command, " ")
+	if !strings.Contains(joined, "-profile:v:0 high") {
+		t.Fatalf("expected shared encode to emit high profile for constrained-high: %s", joined)
+	}
+}
+
+func TestSharedOutputDeliversAudioToIndependentTranscodeLeg(t *testing.T) {
+	tr := newGoldenTranscoder()
+	tr.codec = &NvencCodec{}
+	sharedLeg := sharedCompatibleOutput("h264_nvenc")
+	sharedLeg.VideoURL = "rtp://127.0.0.1:46000?pkt_size=1200"
+	sharedLeg.AudioURL = "rtp://127.0.0.1:46001?pkt_size=1200"
+
+	independentLeg := sharedCompatibleOutput("h264_nvenc")
+	independentLeg.GOPFrames = 24 // 1 s GOP, does not match HLS 3 s GOP
+	independentLeg.VideoURL = "rtp://127.0.0.1:46002?pkt_size=1200"
+	independentLeg.AudioURL = "rtp://127.0.0.1:46003?pkt_size=1200"
+
+	tr.SetRTPOutputs([]RTPOutput{sharedLeg, independentLeg})
+
+	if !tr.sharedOutputEnabled() {
+		t.Fatal("expected shared output to activate when at least one leg matches")
+	}
+	joined := strings.Join(tr.getFlags().command, " ")
+	for _, want := range []string{sharedLeg.VideoURL, sharedLeg.AudioURL, independentLeg.VideoURL, independentLeg.AudioURL} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing RTP output %q in shared mode argv: %s", want, joined)
+		}
+	}
+	if got := strings.Count(joined, "select=\\'a:1\\'"); got != 2 {
+		t.Fatalf("expected both legs to select shared Opus audio stream a:1, got %d: %s", got, joined)
 	}
 }

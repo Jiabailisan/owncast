@@ -262,10 +262,11 @@ func (o RTPOutput) opusSettings() (bitrateKbps, frameMs int) {
 	return bitrateKbps, frameMs
 }
 
-// sharedAudioCompatible reports whether all legs use identical Opus settings
-// and payload type, so one encoded audio stream can feed every leg.
-func sharedAudioCompatible(outputs []RTPOutput) bool {
-	if len(outputs) < 2 {
+// allLegsShareOpusSettings reports whether at least one leg is present and all
+// legs use identical Opus settings and payload type, so one encoded Opus stream
+// can feed every leg.
+func allLegsShareOpusSettings(outputs []RTPOutput) bool {
+	if len(outputs) == 0 {
 		return false
 	}
 	bitrate, frame := outputs[0].opusSettings()
@@ -277,6 +278,13 @@ func sharedAudioCompatible(outputs []RTPOutput) bool {
 		}
 	}
 	return true
+}
+
+// sharedAudioCompatible reports whether multiple legs use identical Opus
+// settings and payload type, so a standalone audio tee can replace per-leg
+// Opus encodes.
+func sharedAudioCompatible(outputs []RTPOutput) bool {
+	return len(outputs) >= 2 && allLegsShareOpusSettings(outputs)
 }
 
 // sharedRTPAudioFlags renders a single Opus encode fanned out to every WebRTC

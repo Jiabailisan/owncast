@@ -119,3 +119,35 @@ func TestNormalizerAudioDeltas(t *testing.T) {
 	assert.EqualValues(t, 101, pkt.SequenceNumber)
 	assert.EqualValues(t, 48960, pkt.Timestamp)
 }
+
+func TestNormalizerTimestampWrapAround(t *testing.T) {
+	n := newNormalizer(90000, 3000)
+
+	p1 := videoPacket(10, 0xFFFFFFF0)
+	assert.False(t, n.apply(p1))
+	assert.EqualValues(t, 0xFFFFFFF0, p1.Timestamp)
+
+	// Normal 3000-tick step crosses 0xFFFFFFFF -> 0x00000BA8 without rebasing or freezing.
+	p2 := videoPacket(11, 0x00000BA8)
+	assert.False(t, n.apply(p2))
+	assert.EqualValues(t, 11, p2.SequenceNumber)
+	assert.EqualValues(t, 0x00000BA8, p2.Timestamp)
+
+	p3 := videoPacket(12, 0x00001760)
+	assert.False(t, n.apply(p3))
+	assert.EqualValues(t, 12, p3.SequenceNumber)
+	assert.EqualValues(t, 0x00001760, p3.Timestamp)
+}
+
+func TestNormalizerTimestampWrapAroundClampsLatePacket(t *testing.T) {
+	n := newNormalizer(90000, 3000)
+
+	n.apply(videoPacket(10, 0xFFFFFFF0))
+	n.apply(videoPacket(11, 0x00000BA8))
+
+	// A late reordered packet from just before the 32-bit wrap must still clamp
+	// to the newer post-wrap output timestamp instead of moving backwards.
+	late := videoPacket(10, 0xFFFFFFF0)
+	assert.False(t, n.apply(late))
+	assert.EqualValues(t, 0x00000BA8, late.Timestamp)
+}

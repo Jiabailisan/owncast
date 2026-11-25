@@ -55,6 +55,12 @@ const PLAYER_VOLUME = 'owncast_volume';
 // Unmuting restores full volume: mobile has no slider, and the persisted volume
 // may be zero, which would leave the viewer silent after unmuting.
 const AUTOPLAY_FALLBACK_VOLUME = 1;
+// Brief grace period for transient ICE "disconnected" hiccups (e.g. Wi-Fi roam)
+// before tearing down the session and attempting recovery.
+const ICE_DISCONNECT_GRACE_MS = 5000;
+// Attempt one automatic WHEP reconnect on mid-stream transport failure before
+// surfacing an error / triggering HLS fallback.
+const MAX_RUNTIME_RECONNECTS = 1;
 
 export type WebRTCPlayerProps = {
   whepUrl: string;
@@ -115,6 +121,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const startedMutedByViewerRef = useRef(false);
   const onFallbackRef = useRef(onFallback);
   const onReadyRef = useRef(onReady);
+  const runtimeReconnectsRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>('idle');
   // The heartbeat keeps the viewer count accurate and reports what only the
@@ -387,6 +394,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     };
   }, [online, phase, selectedVariant, variants]);
 
+  // Reset automatic reconnect budget when the target session changes.
+  useEffect(() => {
+    runtimeReconnectsRef.current = 0;
+  }, [whepUrl, online, selectedVariant]);
+
   // Attach/detach the peer connection session. Runs on URL/variant/online
   // changes and tears the previous session down before reconnecting.
   useEffect(() => {
@@ -405,7 +417,63 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
     const controller = new AbortController();
     let cancelled = false;
+    let disconnectHandled = false;
+    let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let localSession: WHEPSessionHandle | null = null;
+    const removeConnectionListeners: Array<() => void> = [];
+
+    const clearDisconnectTimer = () => {
+      if (disconnectTimer !== null) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
+    };
+
+    const detachConnectionListeners = () => {
+      clearDisconnectTimer();
+      while (removeConnectionListeners.length > 0) {
+        const remove = removeConnectionListeners.pop();
+        remove?.();
+      }
+    };
+
+    const handleRuntimeDisconnect = (reason: string) => {
+      if (cancelled || disconnectHandled) return;
+      disconnectHandled = true;
+      detachConnectionListeners();
+
+      if (runtimeReconnectsRef.current < MAX_RUNTIME_RECONNECTS) {
+        runtimeReconnectsRef.current += 1;
+        setRetryToken(token => token + 1);
+        return;
+      }
+
+      statsRef.current?.stop();
+      statsRef.current = null;
+      if (video) {
+        video.srcObject = null;
+      }
+      if (localSession) {
+        const closing = localSession;
+        localSession = null;
+        closing.close();
+        void closing.deleteSession();
+      }
+      sessionRef.current = null;
+      activeVariantNameRef.current = '';
+      setActiveVariantName('');
+      setBuffering(false);
+      setIsPlaying(false);
+      setPhase('error');
+      setErrorMessage(reason);
+
+      const whepError = new WHEPError('network', reason);
+      if (onFallbackRef.current) {
+        onFallbackRef.current(whepError);
+      } else {
+        console.warn('WebRTC playback lost:', whepError.code, whepError.message);
+      }
+    };
 
     const handleWaiting = () => setBuffering(true);
     const handleCanPlay = () => setBuffering(false);
@@ -444,6 +512,76 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         }
         localSession = session;
         sessionRef.current = session;
+
+        // Monitor ICE, peer connection and remote track lifecycle so a mid-stream
+        // drop (network switch, NAT timeout, or server-side variant withdrawal)
+        // recovers via reconnect or HLS fallback instead of freezing forever.
+        const { pc } = session;
+        if (pc && typeof pc.addEventListener === 'function') {
+          const evaluateConnectionState = () => {
+            if (cancelled || disconnectHandled) return;
+            const { iceConnectionState: iceState, connectionState: connState } = pc;
+            if (
+              iceState === 'failed' ||
+              iceState === 'closed' ||
+              connState === 'failed' ||
+              connState === 'closed'
+            ) {
+              handleRuntimeDisconnect('WebRTC connection lost');
+              return;
+            }
+            if (iceState === 'disconnected' || connState === 'disconnected') {
+              setBuffering(true);
+              if (disconnectTimer === null) {
+                disconnectTimer = setTimeout(() => {
+                  disconnectTimer = null;
+                  const { iceConnectionState: currentIce, connectionState: currentConn } = pc;
+                  if (
+                    currentIce === 'disconnected' ||
+                    currentIce === 'failed' ||
+                    currentIce === 'closed' ||
+                    currentConn === 'disconnected' ||
+                    currentConn === 'failed' ||
+                    currentConn === 'closed'
+                  ) {
+                    handleRuntimeDisconnect('WebRTC connection timed out');
+                  }
+                }, ICE_DISCONNECT_GRACE_MS);
+              }
+              return;
+            }
+            if (iceState === 'connected' || iceState === 'completed' || connState === 'connected') {
+              clearDisconnectTimer();
+              setBuffering(false);
+            }
+          };
+
+          pc.addEventListener('iceconnectionstatechange', evaluateConnectionState);
+          pc.addEventListener('connectionstatechange', evaluateConnectionState);
+          removeConnectionListeners.push(() => {
+            pc.removeEventListener('iceconnectionstatechange', evaluateConnectionState);
+            pc.removeEventListener('connectionstatechange', evaluateConnectionState);
+          });
+          evaluateConnectionState();
+        }
+
+        if (session.stream && typeof session.stream.getTracks === 'function') {
+          session.stream.getTracks().forEach(track => {
+            if (track.kind !== 'video') return;
+            if (track.readyState === 'ended') {
+              handleRuntimeDisconnect('WebRTC video track ended');
+              return;
+            }
+            if (typeof track.addEventListener !== 'function') return;
+            const onTrackEnded = () => {
+              handleRuntimeDisconnect('WebRTC video track ended');
+            };
+            track.addEventListener('ended', onTrackEnded);
+            removeConnectionListeners.push(() => {
+              track.removeEventListener('ended', onTrackEnded);
+            });
+          });
+        }
 
         // The server picks the variant when the selection is auto; name it so
         // the menu and the viewer table show the real rendition.
@@ -511,6 +649,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     return () => {
       cancelled = true;
       controller.abort();
+      detachConnectionListeners();
       statsRef.current?.stop();
       statsRef.current = null;
       if (video) {
@@ -928,7 +1067,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             <button
               type="button"
               className={styles.retryButton}
-              onClick={() => setRetryToken(token => token + 1)}
+              onClick={() => {
+                runtimeReconnectsRef.current = 0;
+                setRetryToken(token => token + 1);
+              }}
             >
               {retryLabel}
             </button>

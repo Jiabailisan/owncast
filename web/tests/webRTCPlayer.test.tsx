@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 import { WebRTCPlayer } from '../components/video/webrtc/WebRTCPlayer';
 import { startWebRTCStatsBeacon } from '../components/video/webrtc/webrtc-stats';
@@ -374,5 +374,115 @@ describe('WebRTCPlayer', () => {
       expect(notice).not.toBeNull();
       expect(notice?.textContent).toBe('Unmute');
     });
+  });
+
+  test('reconnects once on mid-stream ICE failure and falls back if the retry also fails', async () => {
+    const makeInteractiveSession = () => {
+      const pcListeners: Record<string, Set<() => void>> = {};
+      const pc = {
+        iceConnectionState: 'connected' as RTCIceConnectionState,
+        connectionState: 'connected' as RTCPeerConnectionState,
+        getStats: async () => new Map(),
+        addEventListener: jest.fn((event: string, fn: () => void) => {
+          pcListeners[event] = pcListeners[event] || new Set();
+          pcListeners[event].add(fn);
+        }),
+        removeEventListener: jest.fn((event: string, fn: () => void) => {
+          pcListeners[event]?.delete(fn);
+        }),
+      };
+      const emit = (event: string) => {
+        pcListeners[event]?.forEach(fn => fn());
+      };
+      const session: WHEPSessionHandle = {
+        ...makeSession(),
+        pc: pc as unknown as RTCPeerConnection,
+        stream: { id: 'stream', getTracks: () => [] } as unknown as MediaStream,
+      };
+      return { session, pc, emit };
+    };
+
+    const first = makeInteractiveSession();
+    const second = makeInteractiveSession();
+    const sessionFactory = jest
+      .fn()
+      .mockResolvedValueOnce(first.session)
+      .mockResolvedValueOnce(second.session);
+    const onFallback = jest.fn();
+
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        onFallback={onFallback}
+        enableStats={false}
+        sessionFactory={sessionFactory}
+      />,
+    );
+
+    await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(1));
+
+    // First mid-stream ICE failure triggers an automatic reconnect without falling back yet.
+    act(() => {
+      first.pc.iceConnectionState = 'failed';
+      first.emit('iceconnectionstatechange');
+    });
+
+    await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(2));
+    expect(onFallback).not.toHaveBeenCalled();
+    expect(first.session.close).toHaveBeenCalledTimes(1);
+
+    // A second failure exhausts the automatic reconnect budget and falls back.
+    act(() => {
+      second.pc.iceConnectionState = 'failed';
+      second.emit('iceconnectionstatechange');
+    });
+
+    await waitFor(() => expect(onFallback).toHaveBeenCalledTimes(1));
+    expect(onFallback.mock.calls[0][0].code).toBe('network');
+    expect(screen.getByRole('alert')).toHaveTextContent(/WebRTC connection lost/);
+  });
+
+  test('triggers recovery when the remote video track ends mid-stream', async () => {
+    const trackListeners: Record<string, Set<() => void>> = {};
+    const videoTrack = {
+      kind: 'video',
+      addEventListener: jest.fn((event: string, fn: () => void) => {
+        trackListeners[event] = trackListeners[event] || new Set();
+        trackListeners[event].add(fn);
+      }),
+      removeEventListener: jest.fn((event: string, fn: () => void) => {
+        trackListeners[event]?.delete(fn);
+      }),
+    };
+    const firstSession: WHEPSessionHandle = {
+      ...makeSession(),
+      stream: {
+        id: 'stream',
+        getTracks: () => [videoTrack],
+      } as unknown as MediaStream,
+    };
+    const secondSession = makeSession();
+    const sessionFactory = jest
+      .fn()
+      .mockResolvedValueOnce(firstSession)
+      .mockResolvedValueOnce(secondSession);
+
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats={false}
+        sessionFactory={sessionFactory}
+      />,
+    );
+
+    await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(1));
+    act(() => {
+      trackListeners.ended?.forEach(fn => fn());
+    });
+    await waitFor(() => expect(sessionFactory).toHaveBeenCalledTimes(2));
   });
 });

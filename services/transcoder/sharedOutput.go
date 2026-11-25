@@ -27,7 +27,7 @@ func (t *Transcoder) sharedOutputEnabled() bool {
 	if t.configRepository != nil && t.configRepository.GetS3Config().Enabled {
 		return false
 	}
-	if !sharedAudioCompatible(t.rtpOutputs) {
+	if !allLegsShareOpusSettings(t.rtpOutputs) {
 		return false
 	}
 
@@ -169,7 +169,7 @@ func teeOptionString(key, value string) string {
 // -frame_duration with "Codec AVOption ... has not been used for any stream",
 // which silently disabled the low-delay and frame-size settings WebRTC relies on.
 func (t *Transcoder) sharedAudioEncoderFlags() []string {
-	if !sharedAudioCompatible(t.rtpOutputs) {
+	if !allLegsShareOpusSettings(t.rtpOutputs) {
 		return nil
 	}
 	opusBitrate, opusFrame := t.rtpOutputs[0].opusSettings()
@@ -243,8 +243,10 @@ func (t *Transcoder) appendSharedVariantEncoders(flags []string) []string {
 	return flags
 }
 
-// sharedTeeSlaves renders the tee slave list: one HLS slave per variant, then
-// the shared video and audio RTP targets for every leg that reuses an encode.
+// sharedTeeSlaves renders the tee slave list: one HLS slave per variant, the
+// shared video RTP target for every leg that reuses an encode, and the shared
+// audio RTP target for every leg (including independent transcode and copy
+// legs) unless the source is video-only.
 func (t *Transcoder) sharedTeeSlaves(localListenerAddress string, plan map[int]int) []string {
 	slaves := make([]string, 0, len(t.variants)+2*len(t.rtpOutputs))
 	hlsFlags := strings.Join(t.sharedHLSFlags(), "+")
@@ -262,18 +264,17 @@ func (t *Transcoder) sharedTeeSlaves(localListenerAddress string, plan map[int]i
 	opusAudioOrdinal := len(t.variants)
 	for legIndex, output := range t.rtpOutputs {
 		if !output.CopyVideo {
-			videoVariant, ok := plan[legIndex]
-			if !ok {
-				// This leg's plan does not match any HLS encode, so it gets its
-				// own encode after the tee instead of a wrong rendition.
-				continue
+			if videoVariant, ok := plan[legIndex]; ok {
+				videoSlaveOptions := []string{
+					teeOptionString("select", teeSelect("v:"+strconv.Itoa(videoVariant))),
+					teeOptionString("f", "rtp"),
+					teeOptionString("payload_type", strconv.Itoa(output.VideoPayloadType)),
+				}
+				slaves = append(slaves, "["+strings.Join(videoSlaveOptions, ":")+"]"+withRTPPacketSize(output.VideoURL))
 			}
-			videoSlaveOptions := []string{
-				teeOptionString("select", teeSelect("v:"+strconv.Itoa(videoVariant))),
-				teeOptionString("f", "rtp"),
-				teeOptionString("payload_type", strconv.Itoa(output.VideoPayloadType)),
-			}
-			slaves = append(slaves, "["+strings.Join(videoSlaveOptions, ":")+"]"+withRTPPacketSize(output.VideoURL))
+			// Legs absent from plan get their own video encode after the tee
+			// (see appendIndependentLegOutputs), while still receiving the
+			// shared Opus audio stream below.
 		}
 
 		if t.sourceVideoOnly {

@@ -75,8 +75,9 @@ func (n *normalizer) apply(pkt *rtp.Packet) bool {
 		pkt.SequenceNumber = n.outBaseSeq + (origSeq - n.inBaseSeq)
 		pkt.Timestamp = n.outBaseTS + (origTS - n.inBaseTS)
 		// Multiple RTP packets of one video frame legitimately share a
-		// timestamp; only a regression must be clamped.
-		if pkt.Timestamp < n.lastOutTS {
+		// timestamp; only a regression must be clamped. Signed modular
+		// difference handles the 32-bit RTP timestamp wrap-around cleanly.
+		if int32(pkt.Timestamp-n.lastOutTS) < 0 { //nolint:gosec // wrap-around is the intended distance arithmetic
 			pkt.Timestamp = n.lastOutTS
 		}
 	}
