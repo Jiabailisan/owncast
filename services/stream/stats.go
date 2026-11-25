@@ -216,16 +216,46 @@ func (s *Service) SetViewerActiveWithVariantForSnapshot(viewer *models.Viewer, v
 	s.SetViewerActiveForSnapshot(viewer, snapshot)
 }
 
-// applyViewerQuality fills a request's viewer record with the advertised
-// quality of the active output variant at variantIndex.
-func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, snapshot LiveSnapshot) {
-	variants := outputVariantsFrom(snapshot.Broadcast, s.configRepository)
-	if variantIndex < 0 || variantIndex >= len(variants) {
-		return
+// hlsEnabledVariants returns the HLS-enabled variants in the exact sequential
+// order (0, 1, ...) FFmpeg uses for /hls/<index>/ directories.
+func hlsEnabledVariants(variants []models.StreamOutputVariant) []models.StreamOutputVariant {
+	enabled := make([]models.StreamOutputVariant, 0, len(variants))
+	for _, variant := range variants {
+		if variant.HLSEnabled() {
+			enabled = append(enabled, variant)
+		}
 	}
 
-	variant := variants[variantIndex]
-	if !variant.HLSEnabled() {
+	return enabled
+}
+
+// hlsVariantAt resolves an HLS path index (/hls/<hlsIndex>/) to its configured
+// StreamOutputVariant, matching FFmpeg's sequential renumbering of HLS-enabled
+// variants.
+func hlsVariantAt(variants []models.StreamOutputVariant, hlsIndex int) (models.StreamOutputVariant, bool) {
+	if hlsIndex < 0 {
+		return models.StreamOutputVariant{}, false
+	}
+	seen := 0
+	for _, variant := range variants {
+		if !variant.HLSEnabled() {
+			continue
+		}
+		if seen == hlsIndex {
+			return variant, true
+		}
+		seen++
+	}
+
+	return models.StreamOutputVariant{}, false
+}
+
+// applyViewerQuality fills a request's viewer record with the advertised
+// quality of the active HLS output variant at variantIndex.
+func (s *Service) applyViewerQuality(viewer *models.Viewer, variantIndex int, snapshot LiveSnapshot) {
+	variants := outputVariantsFrom(snapshot.Broadcast, s.configRepository)
+	variant, ok := hlsVariantAt(variants, variantIndex)
+	if !ok {
 		return
 	}
 

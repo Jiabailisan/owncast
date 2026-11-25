@@ -88,10 +88,6 @@ func (s *Service) resolveWebRTCLegs(
 		logLegDecision(legStatuses[len(legStatuses)-1])
 
 		if !decision.Enabled {
-			if webrtcVariants[index].Outputs != nil && webrtcVariants[index].Outputs.WebRTC != nil {
-				webrtcVariants[index].Outputs.WebRTC.Enabled = models.BoolPtr(false)
-			}
-
 			continue
 		}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -499,13 +500,15 @@ func (s *Service) Variants() []Variant {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]Variant, 0, len(s.variants))
-	for index := 0; index < len(s.variants); index++ {
-		tracks, ok := s.variants[index]
-		if !ok {
-			continue
-		}
-		out = append(out, tracks.variant)
+	indices := make([]int, 0, len(s.variants))
+	for index := range s.variants {
+		indices = append(indices, index)
+	}
+	slices.Sort(indices)
+
+	out := make([]Variant, 0, len(indices))
+	for _, index := range indices {
+		out = append(out, s.variants[index].variant)
 	}
 
 	return out

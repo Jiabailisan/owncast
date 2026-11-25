@@ -133,8 +133,10 @@ type Transcoder struct {
 type HLSVariant struct {
 	audioBitrate string // The audio bitrate
 
-	videoSize VideoSize // Resizes the video via scaling
-	index     int
+	videoSize   VideoSize // Resizes the video via scaling
+	index       int
+	configIndex int // Original index in StreamOutputVariants before HLS-only filtering
+	hasConfigID bool
 
 	framerate    int // The output framerate
 	videoBitrate int // The output bitrate
@@ -574,6 +576,8 @@ func (t *Transcoder) RTPOutputs() []RTPOutput {
 func getVariantFromConfigQuality(quality models.StreamOutputVariant, index int) HLSVariant {
 	variant := HLSVariant{}
 	variant.index = index
+	variant.configIndex = index
+	variant.hasConfigID = true
 	variant.isAudioPassthrough = quality.IsAudioPassthrough
 	variant.isVideoPassthrough = quality.IsVideoPassthrough
 

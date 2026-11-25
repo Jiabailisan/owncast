@@ -19,19 +19,25 @@ type variantsResponse struct {
 	Index int    `json:"index"`
 }
 
-// GetVideoStreamOutputVariants will return the video variants available.
+// GetVideoStreamOutputVariants will return the HLS video variants available,
+// indexed sequentially (0, 1, ...) to match FFmpeg's /hls/<index>/ output paths.
 func (h *Handlers) GetVideoStreamOutputVariants(w http.ResponseWriter, r *http.Request) {
 	outputVariants := h.configRepository.GetStreamOutputVariants()
 
-	streamSortVariants := make([]variantsSort, len(outputVariants))
-	for i, variant := range outputVariants {
+	streamSortVariants := make([]variantsSort, 0, len(outputVariants))
+	hlsIndex := 0
+	for _, variant := range outputVariants {
+		if !variant.HLSEnabled() {
+			continue
+		}
 		variantSort := variantsSort{
-			Index:              i,
+			Index:              hlsIndex,
 			Name:               variant.GetName(),
 			IsVideoPassthrough: variant.IsVideoPassthrough,
 			VideoBitrate:       variant.VideoBitrate,
 		}
-		streamSortVariants[i] = variantSort
+		streamSortVariants = append(streamSortVariants, variantSort)
+		hlsIndex++
 	}
 
 	sort.Slice(streamSortVariants, func(i, j int) bool {

@@ -53,7 +53,11 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	// (PAT/PMT and the H.264 parameter sets) passes within the first tens of
 	// milliseconds; a branch added after the pump began never sees it, and its
 	// FFmpeg probe fails with "non-existing PPS 0" / "unspecified size".
-	webrtcBranch := tee.AddLateBranch(webRTCBranchName, false, nil, session.InputFormat().Name, containerPrefix(session))
+	// Give Attempt 0 extra byte budget matching any prefetched head bytes so
+	// replaying a >4 MiB read-ahead buffer while FFmpeg spawns cannot trigger a
+	// spurious overflow before Attempt 0 begins reading stdin.
+	headBudget := int64(bufferedPrefetchBytes(mediaReader))
+	webrtcBranch := tee.AddLateBranchWithBudget(webRTCBranchName, false, nil, session.InputFormat().Name, containerPrefix(session), headBudget)
 	if webrtcBranch == nil {
 		// Registration does not fail in practice, but if it ever did, the HLS
 		// path must still start: the pump only needs the critical branch. The
@@ -66,7 +70,7 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	tee.Start()
 
 	go hls.Start(true)
-	go s.superviseWebRTCProcess(tee, session, webrtc, s.webRTCVariantGen, webrtcBranch)
+	go s.superviseWebRTCProcess(tee, session, webrtc, webrtc.variantGen, webrtcBranch)
 }
 
 // superviseWebRTCProcess runs the WebRTC-only FFmpeg process with a bounded

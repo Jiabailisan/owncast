@@ -22,6 +22,10 @@ const (
 	// coalescing timer flushing partial chunks, a 256 entry cap fired at about 384 KB of 1.5 KB
 	// reads, which is the early stop this bound was meant to avoid.
 	teeBranchQueueChunks = teeBranchQueueBytes / 1024
+	// teeCriticalBranchQueueChunks bounds the critical (HLS) branch channel so
+	// fanOut receives real backpressure once ~1 MiB is queued instead of
+	// draining tens of megabytes of prefetched head before FFmpeg starts.
+	teeCriticalBranchQueueChunks = 32
 	// teeBranchQueueBytes bounds an optional branch by bytes, which is what the memory limit is
 	// actually about. Counting chunks alone made the budget depend on how the source delivers:
 	// a file-like read fills a 32 KB chunk, while an SRT read is about 1.5 KB, so 256 chunks was
@@ -53,9 +57,11 @@ type teeBranch struct {
 	// dropped, FLV only describes itself at its header.
 	aligner any
 
-	reader *io.PipeReader
-	writer *io.PipeWriter
-	queue  chan []byte
+	reader     *io.PipeReader
+	writer     *io.PipeWriter
+	queue      chan []byte
+	byteBudget int64
+	chunkCap   int
 
 	// pending is the number of bytes accepted for this branch but not yet written to its
 	// process: queued plus the chunk currently in the pipe write. It is the memory this branch
@@ -245,20 +251,28 @@ func (t *ingestTee) overBudget(branch *teeBranch, next int) bool {
 	// One snapshot decides and is what the log reports. Reading the counters again afterwards
 	// described a different moment, which is how a branch stopped by the byte budget could be
 	// logged as a chunk-count stop.
+	byteBudget := branch.byteBudget
+	if byteBudget <= 0 {
+		byteBudget = teeBranchQueueBytes
+	}
+	chunkCap := branch.chunkCap
+	if chunkCap <= 0 {
+		chunkCap = teeBranchQueueChunks
+	}
 	pending := branch.pending.Load()
 	depth := len(branch.queue)
-	if pending+int64(next) <= teeBranchQueueBytes && depth < teeBranchQueueChunks {
+	if pending+int64(next) <= byteBudget && depth < chunkCap {
 		return false
 	}
 
 	reason := "chunk_count"
-	if pending+int64(next) > teeBranchQueueBytes {
+	if pending+int64(next) > byteBudget {
 		reason = "byte_budget"
 	}
 
 	log.Warnf("ingest tee: branch %q exceeded its byte or chunk budget; stopping it so the critical path continues "+
 		"reason=%s queue_depth=%d pending_bytes=%d next_bytes=%d byte_budget=%d chunk_cap=%d source_bytes=%d",
-		branch.name, reason, depth, pending, next, teeBranchQueueBytes, teeBranchQueueChunks, t.bytesIn.Load())
+		branch.name, reason, depth, pending, next, byteBudget, chunkCap, t.bytesIn.Load())
 	branch.fail(errTeeBranchOverflow)
 
 	return true
@@ -278,7 +292,7 @@ func queueBytes(b *teeBranch) uint64 {
 // reader (backpressure); optional branches are failed when their bounded queue
 // overflows so they can never stall the critical path.
 func (t *ingestTee) AddBranch(name string, critical bool, onOverflow func()) *io.PipeReader {
-	return t.addBranch(name, critical, onOverflow, nil)
+	return t.addBranch(name, critical, onOverflow, nil, 0)
 }
 
 // Branch returns the registered branch with the given name, or nil. A caller
@@ -300,6 +314,13 @@ func (t *ingestTee) Branch(name string) *teeBranch {
 // aligner repairs that: FLV gets a rebuilt header plus the cached decoder
 // configuration, MPEG-TS just drops the partial packet at the head.
 func (t *ingestTee) AddLateBranch(name string, critical bool, onOverflow func(), container string, prefix []byte) *io.PipeReader {
+	return t.AddLateBranchWithBudget(name, critical, onOverflow, container, prefix, 0)
+}
+
+// AddLateBranchWithBudget registers a branch with an optional extra byte budget
+// (capped at webRTCReadAheadMaxBytes) so Attempt 0 can absorb a prefetched
+// stream head while FFmpeg spawns without triggering a spurious overflow.
+func (t *ingestTee) AddLateBranchWithBudget(name string, critical bool, onOverflow func(), container string, prefix []byte, extraByteBudget int64) *io.PipeReader {
 	var aligner any
 	if container == "flv" {
 		aligner = newFLVAligner(prefix)
@@ -307,10 +328,10 @@ func (t *ingestTee) AddLateBranch(name string, critical bool, onOverflow func(),
 		aligner = newTSAligner()
 	}
 
-	return t.addBranch(name, critical, onOverflow, aligner)
+	return t.addBranch(name, critical, onOverflow, aligner, extraByteBudget)
 }
 
-func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), aligner any) *io.PipeReader {
+func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), aligner any, extraByteBudget int64) *io.PipeReader {
 	// A branch added after the pump finished (the source ended, or Close ran)
 	// would sit on a pipe nobody writes to or closes, blocking its reader
 	// forever. The check and the registration share t.mu with finishAll, so
@@ -324,13 +345,32 @@ func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), ali
 
 		return reader
 	}
+
+	byteBudget := int64(teeBranchQueueBytes)
+	if extraByteBudget > 0 {
+		if extraByteBudget > webRTCReadAheadMaxBytes {
+			extraByteBudget = webRTCReadAheadMaxBytes
+		}
+		byteBudget += extraByteBudget
+	}
+	chunkCap := int(byteBudget / 1024)
+	if chunkCap < teeBranchQueueChunks {
+		chunkCap = teeBranchQueueChunks
+	}
+	queueLen := chunkCap
+	if critical {
+		queueLen = teeCriticalBranchQueueChunks
+	}
+
 	reader, writer := io.Pipe()
 	branch := &teeBranch{
 		name:       name,
 		critical:   critical,
 		reader:     reader,
 		writer:     writer,
-		queue:      make(chan []byte, teeBranchQueueChunks),
+		queue:      make(chan []byte, queueLen),
+		byteBudget: byteBudget,
+		chunkCap:   chunkCap,
 		onOverflow: onOverflow,
 		aligner:    aligner,
 		endCh:      make(chan struct{}),
@@ -340,7 +380,7 @@ func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), ali
 	t.mu.Unlock()
 
 	go branch.pump()
-	log.Tracef("ingest tee: branch %q added (critical=%v aligned=%v)", name, critical, aligner != nil)
+	log.Tracef("ingest tee: branch %q added (critical=%v aligned=%v byteBudget=%d)", name, critical, aligner != nil, byteBudget)
 	return reader
 }
 

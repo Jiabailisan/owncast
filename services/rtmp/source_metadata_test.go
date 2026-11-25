@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/nareix/joy5/av"
+	"github.com/nareix/joy5/format/flv/flvio"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/ingest"
 )
 
 // newTestSession builds a session with a loopback connection and a discarded
@@ -224,5 +226,65 @@ func TestRTMPContainerPrefixRebuildsTheDecoderConfiguration(t *testing.T) {
 	audioBody := prefix[offset+11 : offset+11+audioSize]
 	if audioBody[0] != 0xAF || audioBody[1] != 0x00 {
 		t.Fatalf("audio tag is not an AAC sequence header: %x", audioBody[:2])
+	}
+}
+
+// TestRTMPOnMetaDataAfterInspectionPreservesProbedFields guards against a late
+// onMetaData tag overwriting probed HasBFrames/Profile/Level or being dropped
+// because Encoder was omitted from the dedup key.
+func TestRTMPOnMetaDataAfterInspectionPreservesProbedFields(t *testing.T) {
+	sess := newTestSession(t)
+	sess.inspectPacket(av.Packet{Type: av.H264DecoderConfig, Data: avcConfigRecord()})
+	for index := 0; index < 60; index++ {
+		sess.inspectPacket(av.Packet{
+			Type: av.H264,
+			Data: avccSlice([]byte{0x41, 0xC0}),
+			Time: timeMillis(index * 33),
+		})
+	}
+
+	before := sess.Broadcaster()
+	if before == nil || before.StreamDetails.HasBFrames == nil || *before.StreamDetails.HasBFrames {
+		t.Fatalf("expected probed HasBFrames=false before onMetaData, got %+v", before)
+	}
+
+	var published models.Broadcaster
+	svc := &Service{
+		setBroadcaster: func(_ ingest.Session, b models.Broadcaster) {
+			published = b
+		},
+	}
+
+	// Build a minimal AMF0 onMetaData tag matching the probed dimensions/codec
+	// while adding an Encoder name.
+	metaBuf := make([]byte, 512)
+	n := flvio.FillAMF0Vals(metaBuf, []interface{}{
+		"onMetaData",
+		flvio.AMFMap{
+			{K: "width", V: float64(1280)},
+			{K: "height", V: float64(720)},
+			{K: "videocodecid", V: float64(7)},
+			{K: "encoder", V: "OBS Studio 31.0"},
+		},
+	})
+	tag := flvio.Tag{Type: flvio.TAG_AMF0, Data: metaBuf[:n]}
+	svc.setCurrentBroadcasterInfo(sess, tag, "127.0.0.1")
+
+	after := sess.Broadcaster()
+	if after == nil {
+		t.Fatal("session broadcaster became nil")
+	}
+	details := after.StreamDetails
+	if details.HasBFrames == nil || *details.HasBFrames {
+		t.Fatalf("HasBFrames = %v, want probed false preserved", details.HasBFrames)
+	}
+	if details.VideoProfile != "high" || details.VideoLevel != "3.1" {
+		t.Fatalf("profile/level = %q/%q, want high/3.1 preserved", details.VideoProfile, details.VideoLevel)
+	}
+	if details.Encoder != "OBS Studio 31.0" {
+		t.Fatalf("encoder = %q, want OBS Studio 31.0 merged", details.Encoder)
+	}
+	if published.StreamDetails.HasBFrames == nil || *published.StreamDetails.HasBFrames {
+		t.Fatalf("published broadcaster lost probed HasBFrames: %+v", published.StreamDetails)
 	}
 }

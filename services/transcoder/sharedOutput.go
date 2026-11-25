@@ -62,10 +62,17 @@ func (t *Transcoder) sharedPlan() map[int]int {
 }
 
 // sharedVideoVariantFor maps a WebRTC leg to the HLS variant whose encoded
-// stream it can reuse. The same logical index is preferred, then any variant
-// with a matching output plan. The false return means the leg cannot be shared
-// and must get its own encode.
+// stream it can reuse. The variant matching the leg's configured VariantIndex
+// is preferred (even when earlier variants disabled HLS and shifted HLS
+// indices), then the same positional index, then any variant with a matching
+// output plan. The false return means the leg cannot be shared and must get its
+// own encode.
 func (t *Transcoder) sharedVideoVariantFor(output RTPOutput) (int, bool) {
+	for _, variant := range t.variants {
+		if variant.hasConfigID && variant.configIndex == output.VariantIndex && t.variantMatchesLeg(variant, output) {
+			return variant.index, true
+		}
+	}
 	if output.VariantIndex >= 0 && output.VariantIndex < len(t.variants) {
 		if t.variantMatchesLeg(t.variants[output.VariantIndex], output) {
 			return t.variants[output.VariantIndex].index, true

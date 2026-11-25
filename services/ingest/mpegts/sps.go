@@ -108,7 +108,11 @@ func ParseSPS(nal []byte) (*SPSInfo, bool) {
 					return nil, false
 				}
 				if present == 1 {
-					if err := skipScalingList(r, 16); err != nil {
+					size := 16
+					if i >= 6 {
+						size = 64
+					}
+					if err := skipScalingList(r, size); err != nil {
 						return nil, false
 					}
 				}

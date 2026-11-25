@@ -178,6 +178,27 @@ func (p *prefetchReader) Diagnostics() (bytes int64, elapsed time.Duration, reas
 // case is covered by the session's Done channel.
 func (p *prefetchReader) BudgetSpent() <-chan struct{} { return p.budgetSpent }
 
+// BufferedBytes returns the number of unread prefetched bytes currently held
+// in memory, including any nested prefetchReader wrapped as src.
+func (p *prefetchReader) BufferedBytes() int {
+	p.mu.Lock()
+	n := len(p.buf)
+	p.mu.Unlock()
+	if nested, ok := p.src.(*prefetchReader); ok {
+		n += nested.BufferedBytes()
+	}
+
+	return n
+}
+
+func bufferedPrefetchBytes(r io.Reader) int {
+	if p, ok := r.(*prefetchReader); ok {
+		return p.BufferedBytes()
+	}
+
+	return 0
+}
+
 // Read implements io.Reader: buffered bytes first, then the live stream.
 func (p *prefetchReader) Read(b []byte) (int, error) {
 	p.mu.Lock()
@@ -191,6 +212,9 @@ func (p *prefetchReader) Read(b []byte) (int, error) {
 	if len(p.buf) > 0 {
 		n := copy(b, p.buf)
 		p.buf = p.buf[n:]
+		if len(p.buf) == 0 {
+			p.buf = nil
+		}
 		p.mu.Unlock()
 		return n, nil
 	}

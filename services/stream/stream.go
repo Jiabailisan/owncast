@@ -233,8 +233,9 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	s.StreamConnected(broadcast)
 
 	// Prepare WebRTC delivery first: the transcoder plan includes the RTP
-	// legs for the variants WebRTC exposes.
-	webrtc := s.configureWebRTC(session, broadcast.OutputSettings, source)
+	// legs for the variants WebRTC exposes. Pass &mediaReader so a bitrate wait
+	// can pump the ingest stream without losing bytes before FFmpeg starts.
+	webrtc := s.configureWebRTC(session, &mediaReader, broadcast.OutputSettings, source)
 	processModel := s.configRepository.GetOutputProcessModel()
 	// Remember what this stream started with: the admin reports a pending
 	// process-model change only when it differs from the running one.
@@ -271,9 +272,12 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		tr.Start(true)
 	}()
 
-	selectedThumbnailVideoQualityIndex, isVideoPassthrough := s.configRepository.FindHighestVideoQualityIndex(broadcast.OutputSettings)
-	s.thumbnailGen = transcoder.NewThumbnailGenerator(s.cfg, s.configRepository)
-	s.thumbnailGen.Start(segmentPath, selectedThumbnailVideoQualityIndex, isVideoPassthrough)
+	hlsVariants := hlsEnabledVariants(broadcast.OutputSettings)
+	if len(hlsVariants) > 0 {
+		selectedThumbnailVideoQualityIndex, isVideoPassthrough := s.configRepository.FindHighestVideoQualityIndex(hlsVariants)
+		s.thumbnailGen = transcoder.NewThumbnailGenerator(s.cfg, s.configRepository)
+		s.thumbnailGen.Start(segmentPath, selectedThumbnailVideoQualityIndex, isVideoPassthrough)
+	}
 
 	return nil
 }
@@ -567,8 +571,13 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 		return
 	}
 
-	for index := range broadcast.OutputSettings {
-		s.makeVariantIndexOffline(index, offlineFilePath, offlineFilename)
+	hlsIndex := 0
+	for _, variant := range broadcast.OutputSettings {
+		if !variant.HLSEnabled() {
+			continue
+		}
+		s.makeVariantIndexOffline(hlsIndex, offlineFilePath, offlineFilename)
+		hlsIndex++
 	}
 
 	s.StartOfflineCleanupTimer()

@@ -162,13 +162,23 @@ func (s *session) refreshSourceMetadata() {
 
 // setDeclaredDetails records the onMetaData claim for this session and republishes
 // the merged view, so a metadata tag that arrives after the first inspection
-// still lands on the right session.
+// still lands on the right session without clobbering probed fields.
 func (s *session) setDeclaredDetails(details models.InboundStreamDetails) {
 	s.sourceMu.Lock()
 	s.declared = details
+	hasInspector := s.inspector != nil
+	if !hasInspector {
+		s.SetBroadcaster(&models.Broadcaster{
+			RemoteAddr:    remoteAddrString(s),
+			Time:          time.Now(),
+			StreamDetails: details,
+		})
+	}
 	s.sourceMu.Unlock()
 
-	s.refreshSourceMetadata()
+	if hasInspector {
+		s.refreshSourceMetadata()
+	}
 }
 
 // publishSourceMetadata publishes one snapshot of the inspected properties.
@@ -177,15 +187,16 @@ func (s *session) setDeclaredDetails(details models.InboundStreamDetails) {
 // decision may already be waking up on the verdict.
 func (s *session) publishSourceMetadata(info flv.Info) {
 	details := s.mergeDetails(info)
-	if details.VideoCodec == "" && details.AudioCodec == "" && details.Width == 0 {
+	if details.VideoCodec == "" && details.AudioCodec == "" && details.Width == 0 && details.Encoder == "" {
 		return
 	}
 
-	key := fmt.Sprintf("%s|%s|%s|%s|%d|%d|%t|%t|%d|%d|%d|%d",
-		details.VideoCodec, details.AudioCodec, details.VideoProfile, details.VideoLevel,
+	key := fmt.Sprintf("%q|%s|%s|%s|%s|%d|%d|%t|%t|%d|%s|%d|%d|%d|%t",
+		details.Encoder, details.VideoCodec, details.AudioCodec, details.VideoProfile, details.VideoLevel,
 		details.Width, details.Height, details.HasBFrames != nil,
 		details.HasBFrames != nil && *details.HasBFrames,
-		details.VideoBitrate, details.AudioBitrate, details.AudioSampleRate, details.AudioChannels)
+		details.VideoBitrate, details.VideoBitrateSource,
+		details.AudioBitrate, details.AudioSampleRate, details.AudioChannels, details.VideoOnly)
 
 	s.sourceMu.Lock()
 	defer s.sourceMu.Unlock()

@@ -843,11 +843,13 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     player.on('seeked', () => setBuffering(false));
     pingTarget.measureLatency = () => measureHlsLatencyMs(player);
 
-    // renditionName resolves the configured variant name for a variant index.
+    // renditionName resolves the configured variant name for an HLS variant index.
+    // /api/video/variants is sorted by passthrough/bitrate descending, so match
+    // by quality.index rather than array position.
     const renditionName = (variantIndex: number | null): string => {
       if (variantIndex === null) return '';
 
-      return qualitiesRef.current[variantIndex]?.name || '';
+      return qualitiesRef.current.find(quality => quality.index === variantIndex)?.name || '';
     };
 
     // activeRenditionName reads the playlist VHS is actually playing, so the menu,

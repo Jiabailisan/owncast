@@ -33,12 +33,14 @@ func (s *Service) setCurrentBroadcasterInfo(session *session, t flvio.Tag, remot
 
 	// The session is the source of truth: it is this connection's own session, so the
 	// metadata can never land on a session a later connection installed. The claim
-	// is merged with what the FLV/H.264 inspector saw, and the bitstream wins
-	// wherever it has a value: onMetaData describes what the encoder was told to
-	// do, not what the stream carries.
+	// is merged under sourceMu with what the FLV/H.264 inspector saw, and the
+	// bitstream wins wherever it has a value: onMetaData describes what the encoder
+	// was told to do, not what the stream carries.
 	if session != nil {
-		session.SetBroadcaster(&broadcaster)
 		session.setDeclaredDetails(broadcaster.StreamDetails)
+		if merged := session.Broadcaster(); merged != nil {
+			broadcaster = *merged
+		}
 	}
 
 	s.setBroadcaster(session, broadcaster)

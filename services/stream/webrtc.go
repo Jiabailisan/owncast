@@ -2,6 +2,7 @@ package stream
 
 import (
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -63,6 +64,66 @@ type WebRTCProvider interface {
 	DisableVariants(generation uint64, variantIndices []int)
 }
 
+// cloneProtocolOutputSettings deep-copies a ProtocolOutputSettings pointer so
+// planning passes cannot mutate shared broadcast output settings in place.
+func cloneProtocolOutputSettings(src *models.ProtocolOutputSettings) *models.ProtocolOutputSettings {
+	if src == nil {
+		return nil
+	}
+	copied := *src
+	if src.Enabled != nil {
+		enabled := *src.Enabled
+		copied.Enabled = &enabled
+	}
+
+	return &copied
+}
+
+// cloneOutputVariants deep-copies output variants including nested Outputs
+// pointers so per-stream WebRTC planning never mutates broadcast.OutputSettings.
+func cloneOutputVariants(variants []models.StreamOutputVariant) []models.StreamOutputVariant {
+	cloned := make([]models.StreamOutputVariant, len(variants))
+	for index, variant := range variants {
+		copied := variant
+		if variant.Outputs != nil {
+			copied.Outputs = &models.VariantOutputs{
+				HLS:    cloneProtocolOutputSettings(variant.Outputs.HLS),
+				WebRTC: cloneProtocolOutputSettings(variant.Outputs.WebRTC),
+			}
+		}
+		cloned[index] = copied
+	}
+
+	return cloned
+}
+
+// disableUnplannedWebRTCVariants returns a cloned variant slice where any
+// WebRTC-enabled variant without an enabled decision is marked disabled before
+// publishing to WHEP.
+func disableUnplannedWebRTCVariants(
+	variants []models.StreamOutputVariant,
+	decisions map[int]webrtc.LegDecision,
+) []models.StreamOutputVariant {
+	published := cloneOutputVariants(variants)
+	for index := range published {
+		if !published[index].WebRTCEnabled() {
+			continue
+		}
+		if decision, ok := decisions[index]; ok && decision.Enabled {
+			continue
+		}
+		if published[index].Outputs == nil {
+			published[index].Outputs = &models.VariantOutputs{}
+		}
+		if published[index].Outputs.WebRTC == nil {
+			published[index].Outputs.WebRTC = &models.ProtocolOutputSettings{}
+		}
+		published[index].Outputs.WebRTC.Enabled = models.BoolPtr(false)
+	}
+
+	return published
+}
+
 // effectiveWebRTCVariants resolves the output variants WebRTC should deliver.
 // When the operator enabled WebRTC globally but did not map any output variant
 // to it, every HLS variant is exposed over WebRTC too (documented behavior so
@@ -72,25 +133,21 @@ type WebRTCProvider interface {
 func effectiveWebRTCVariants(variants []models.StreamOutputVariant) []models.StreamOutputVariant {
 	for _, variant := range variants {
 		if variant.WebRTCEnabled() {
-			full := make([]models.StreamOutputVariant, len(variants))
-			copy(full, variants)
-			return full
+			return cloneOutputVariants(variants)
 		}
 	}
 
-	full := make([]models.StreamOutputVariant, len(variants))
-	for index, variant := range variants {
-		copied := variant
-		if copied.HLSEnabled() {
-			if copied.Outputs == nil {
-				copied.Outputs = &models.VariantOutputs{}
+	full := cloneOutputVariants(variants)
+	for index := range full {
+		if full[index].HLSEnabled() {
+			if full[index].Outputs == nil {
+				full[index].Outputs = &models.VariantOutputs{}
 			}
-			copied.Outputs.WebRTC = &models.ProtocolOutputSettings{
+			full[index].Outputs.WebRTC = &models.ProtocolOutputSettings{
 				Enabled: models.BoolPtr(true),
 				Mode:    models.OutputModeInherit,
 			}
 		}
-		full[index] = copied
 	}
 	return full
 }
@@ -376,13 +433,14 @@ func legStatusFromDecision(index int, variant models.StreamOutputVariant, decisi
 }
 
 // webRTCOutputs is what this stream's WebRTC delivery needs: the RTP destinations the
-// transcoder feeds and the media legs behind them.
+// transcoder feeds, the media legs behind them, and the published variant generation.
 type webRTCOutputs struct {
-	outputs []transcoder.RTPOutput
-	legs    []WebRTCMediaLeg
+	outputs    []transcoder.RTPOutput
+	legs       []WebRTCMediaLeg
+	variantGen uint64
 }
 
-func (s *Service) configureWebRTC(session ingest.Session, variants []models.StreamOutputVariant, source webrtc.SourceInfo) webRTCOutputs {
+func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader, variants []models.StreamOutputVariant, source webrtc.SourceInfo) webRTCOutputs {
 	if s.webRTC == nil {
 		return webRTCOutputs{}
 	}
@@ -394,10 +452,11 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 	// A transcode leg that keeps the source size and has no explicit bitrate
 	// targets the measured source rate. The bitrate window needs about a second
 	// of media time, which a copy verdict can beat, so give the measurement one
-	// bounded chance and re-plan with it. This happens once, before FFmpeg starts:
-	// a bitrate that moves later never restarts the encoder.
+	// bounded chance (actively pumping mediaReader so the inspector sees new
+	// bytes) and re-plan with it. This happens once, before FFmpeg starts: a
+	// bitrate that moves later never restarts the encoder.
 	if needsMeasuredBitrate(decisions) {
-		if refreshed, ok := s.awaitSourceBitrate(session); ok {
+		if refreshed, ok := s.awaitSourceBitrate(session, mediaReader); ok {
 			source = refreshed
 			decisions, legs, warnings, hasEnabled = s.resolveWebRTCLegs(webrtcVariants, webrtcConfig, source)
 		}
@@ -410,7 +469,8 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 		return webRTCOutputs{}
 	}
 
-	generation, err := s.webRTC.SetVariants(webrtcVariants)
+	publishedVariants := disableUnplannedWebRTCVariants(webrtcVariants, decisions)
+	generation, err := s.webRTC.SetVariants(publishedVariants)
 	if err != nil {
 		log.Errorln("webrtc: unable to publish variants; continuing with HLS only:", err)
 		warnings = append(warnings, models.StatusWarning{Code: "webrtc_variants", Message: err.Error()})
@@ -422,12 +482,12 @@ func (s *Service) configureWebRTC(session ingest.Session, variants []models.Stre
 	s.webRTCVariantGen = generation
 	s.webRTCMu.Unlock()
 
-	outputs, mediaLegs, warnings, failed := s.openWebRTCLegs(webrtcVariants, decisions, webrtcConfig, generation, warnings)
+	outputs, mediaLegs, warnings, failed := s.openWebRTCLegs(publishedVariants, decisions, webrtcConfig, generation, warnings)
 	// A variant whose leg failed must not stay selectable over WHEP.
 	s.webRTC.DisableVariants(generation, failed)
 	s.setWebRTCWarnings(warnings)
 
-	return webRTCOutputs{outputs: outputs, legs: mediaLegs}
+	return webRTCOutputs{outputs: outputs, legs: mediaLegs, variantGen: generation}
 }
 
 // webRTCBitrateWaitTimeout bounds the wait for a measured source video bitrate.
@@ -450,17 +510,43 @@ func needsMeasuredBitrate(decisions map[int]webrtc.LegDecision) bool {
 }
 
 // awaitSourceBitrate waits briefly for the session to publish a measured video
-// bitrate and returns the refreshed source description. It reports false when
-// the bitrate stays unknown, in which case the caller keeps the documented
-// default.
-func (s *Service) awaitSourceBitrate(session ingest.Session) (webrtc.SourceInfo, bool) {
+// bitrate and returns the refreshed source description. Because FFmpeg has not
+// started reading mediaReader yet (and any copy-verdict prefetch has already
+// stopped), it pumps mediaReader through a bounded prefetchReader for the
+// duration of the wait so SRT/RTMP inspectors keep receiving bytes and nothing
+// is lost before FFmpeg starts.
+func (s *Service) awaitSourceBitrate(session ingest.Session, mediaReader *io.Reader) (webrtc.SourceInfo, bool) {
+	if broadcaster := session.Broadcaster(); broadcaster != nil && broadcaster.StreamDetails.VideoBitrate > 0 {
+		return webrtc.SourceInfoFromDetails(string(session.Protocol()), broadcaster.StreamDetails), true
+	}
+
 	deadline := time.Now().Add(webRTCBitrateWaitTimeout)
+	var budgetSpent <-chan struct{}
+	if mediaReader != nil && *mediaReader != nil && sessionCanReportSourceInfo(session) {
+		if bufferedPrefetchBytes(*mediaReader) >= webRTCReadAheadMaxBytes {
+			return webrtc.SourceInfo{}, false
+		}
+		bitratePrefetch := newPrefetchReader(*mediaReader)
+		// Drain any prior prefetchReader head (freeing its slice) and continue
+		// reading fresh bytes up to the shared webRTCReadAheadMaxBytes ceiling.
+		bitratePrefetch.Prefetch(deadline, webRTCReadAheadMaxBytes)
+		*mediaReader = bitratePrefetch
+		budgetSpent = bitratePrefetch.BudgetSpent()
+		defer bitratePrefetch.Stop("bitrate")
+	}
+
 	ticker := time.NewTicker(sourceInfoPollInterval)
 	defer ticker.Stop()
 
 	for time.Now().Before(deadline) {
 		select {
 		case <-session.Done():
+			return webrtc.SourceInfo{}, false
+		case <-budgetSpent:
+			if broadcaster := session.Broadcaster(); broadcaster != nil && broadcaster.StreamDetails.VideoBitrate > 0 {
+				return webrtc.SourceInfoFromDetails(string(session.Protocol()), broadcaster.StreamDetails), true
+			}
+
 			return webrtc.SourceInfo{}, false
 		case <-ticker.C:
 		}
