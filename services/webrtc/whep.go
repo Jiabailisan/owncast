@@ -154,11 +154,9 @@ func (h *whepHandler) serveSession(w http.ResponseWriter, r *http.Request, sessi
 
 		return
 	}
-	if !cfg.Enabled {
-		h.writeError(w, r, http.StatusServiceUnavailable, CodeDisabled, "webrtc delivery is disabled", 0)
-
-		return
-	}
+	// Do not reject DELETE/PATCH when cfg.Enabled is false: disabling WebRTC
+	// blocks new POST offers in serveOffer, while existing sessions must still
+	// be able to finish trickle ICE or tear down cleanly.
 	if err := checkRequestOrigin(r, cfg); err != nil {
 		h.writeError(w, r, http.StatusForbidden, CodeDomainMismatch, err.Error(), 0)
 

@@ -87,15 +87,16 @@ type Transcoder struct {
 	// logger; used to suppress immediate repeats.
 	lastLogMessage string
 
-	TranscoderCompleted  func(error)
-	playlistOutputPath   string
-	ffmpegPath           string
-	segmentIdentifier    string
-	internalListenerPort string
-	internalListenerHost string
-	input                string
-	segmentOutputPath    string
-	variants             []HLSVariant
+	TranscoderCompleted     func(error)
+	onMasterPlaylistWritten func(localFilePath string)
+	playlistOutputPath      string
+	ffmpegPath              string
+	segmentIdentifier       string
+	internalListenerPort    string
+	internalListenerHost    string
+	input                   string
+	segmentOutputPath       string
+	variants                []HLSVariant
 
 	currentStreamOutputSettings []models.StreamOutputVariant
 	currentLatencyLevel         models.LatencyLevel
@@ -584,6 +585,8 @@ func getVariantFromConfigQuality(quality models.StreamOutputVariant, index int) 
 	// If no audio bitrate is specified then we pass through original audio
 	if quality.AudioBitrate == 0 {
 		variant.isAudioPassthrough = true
+	} else if !variant.isAudioPassthrough {
+		variant.SetAudioBitrate(strconv.Itoa(quality.AudioBitrate) + "k")
 	}
 
 	if quality.VideoBitrate == 0 {
@@ -597,7 +600,7 @@ func getVariantFromConfigQuality(quality models.StreamOutputVariant, index int) 
 	variant.SetVideoBitrate(quality.VideoBitrate)
 
 	// If the video is being passed through then
-	// don't continue to set options on the variant.
+	// don't continue to set video scaling/encoding options on the variant.
 	if variant.isVideoPassthrough {
 		return variant
 	}
@@ -608,7 +611,6 @@ func getVariantFromConfigQuality(quality models.StreamOutputVariant, index int) 
 	variant.cpuUsageLevel = quality.CPUUsageLevel
 
 	variant.SetVideoBitrate(quality.VideoBitrate)
-	variant.SetAudioBitrate(strconv.Itoa(quality.AudioBitrate) + "k")
 	variant.SetVideoScalingWidth(quality.ScaledWidth)
 	variant.SetVideoScalingHeight(quality.ScaledHeight)
 	variant.SetVideoFramerate(quality.GetFramerate())
@@ -836,6 +838,13 @@ func (v *HLSVariant) getAudioQualityString() []string {
 // CODECS attribute. "auto" (or empty) leaves the level to the encoder.
 func (t *Transcoder) SetSharedH264Level(level string) {
 	t.sharedH264Level = level
+}
+
+// SetMasterPlaylistWrittenCallback registers a hook invoked after the shared
+// tee output writes stream.m3u8 locally, so external storage / CDN rewrites run
+// just as they do when FFmpeg uploads the master playlist via HTTP.
+func (t *Transcoder) SetMasterPlaylistWrittenCallback(fn func(localFilePath string)) {
+	t.onMasterPlaylistWritten = fn
 }
 
 func (t *Transcoder) SetSharedH264Profile(profile string) {

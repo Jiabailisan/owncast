@@ -249,8 +249,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const startedMutedByViewer = savedVolume !== null && Number(savedVolume) === 0;
 
   const setSavedVolume = () => {
+    const player = playerRef.current;
+    if (!player) return;
     try {
-      playerRef.current.volume(getLocalStorage(PLAYER_VOLUME) || 1);
+      player.volume(getLocalStorage(PLAYER_VOLUME) || 1);
     } catch (err) {
       console.warn(err);
     }
@@ -264,33 +266,41 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   };
 
   const handleVolume = () => {
-    setLocalStorage(PLAYER_VOLUME, playerRef.current.muted() ? 0 : playerRef.current.volume());
+    const player = playerRef.current;
+    if (!player) return;
+    setLocalStorage(PLAYER_VOLUME, player.muted() ? 0 : player.volume());
     syncVolumeState();
   };
 
   const togglePlayback = () => {
-    if (playerRef.current.paused()) {
-      playerRef.current.play();
+    const player = playerRef.current;
+    if (!player) return;
+    if (player.paused()) {
+      player.play();
     } else {
-      playerRef.current.pause();
+      player.pause();
     }
   };
 
   const toggleMute = () => {
-    if (playerRef.current.muted() || playerRef.current.volume() === 0) {
+    const player = playerRef.current;
+    if (!player) return;
+    if (player.muted() || player.volume() === 0) {
       // Unmuting restores full volume; the slider is not offered on touch devices,
       // so 100% is the only sensible default.
-      playerRef.current.volume(1);
-      playerRef.current.muted(false);
+      player.volume(1);
+      player.muted(false);
     } else {
-      playerRef.current.volume(0);
+      player.volume(0);
     }
     handleVolume();
   };
 
   const setPlayerVolume = (next: number) => {
-    playerRef.current.muted(false);
-    playerRef.current.volume(Math.max(0, Math.min(1, next)));
+    const player = playerRef.current;
+    if (!player) return;
+    player.muted(false);
+    player.volume(Math.max(0, Math.min(1, next)));
     handleVolume();
   };
 
@@ -875,12 +885,26 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     },
     { enableOnContentEditable: false },
   );
-  useHotkeys('0', () => playerRef.current.volume(playerRef.current.volume() + 0.1), {
-    enableOnContentEditable: false,
-  });
-  useHotkeys('9', () => playerRef.current.volume(playerRef.current.volume() - 0.1), {
-    enableOnContentEditable: false,
-  });
+  useHotkeys(
+    '0',
+    () => {
+      const player = playerRef.current;
+      if (player) player.volume(Math.min(1, player.volume() + 0.1));
+    },
+    {
+      enableOnContentEditable: false,
+    },
+  );
+  useHotkeys(
+    '9',
+    () => {
+      const player = playerRef.current;
+      if (player) player.volume(Math.max(0, player.volume() - 0.1));
+    },
+    {
+      enableOnContentEditable: false,
+    },
+  );
 
   const prefersReducedMotion =
     typeof window !== 'undefined' &&

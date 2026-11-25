@@ -76,4 +76,37 @@ describe('VideoJS lifecycle', () => {
     rerender(<VideoJS options={optionsFor('/hls/stream.m3u8')} onReady={jest.fn()} />);
     expect(createdPlayers()).toHaveLength(1);
   });
+
+  test('cachebuster resolves relative m3u8 URIs against window.location.href', () => {
+    let requestHook: ((o: { uri: string }) => { uri: string }) | undefined;
+    (videojs as unknown as jest.Mock).mockImplementationOnce(() => {
+      const player = {
+        autoplay: jest.fn(),
+        src: jest.fn(),
+        on: jest.fn((event: string, cb: () => void) => {
+          if (event === 'xhr-hooks-ready') {
+            cb();
+          }
+        }),
+        off: jest.fn(),
+        dispose: jest.fn(),
+        tech: jest.fn(() => ({
+          vhs: {
+            xhr: {
+              onRequest: (hook: (o: { uri: string }) => { uri: string }) => {
+                requestHook = hook;
+              },
+            },
+          },
+        })),
+      };
+      createdPlayers().push(player);
+      return player;
+    });
+
+    render(<VideoJS options={optionsFor('/hls/stream.m3u8')} onReady={jest.fn()} />);
+    expect(requestHook).toBeDefined();
+    const out = requestHook!({ uri: '0/stream.m3u8' });
+    expect(out.uri).toMatch(/^http:\/\/localhost\/0\/stream\.m3u8\?cachebust=[0-9a-f]+$/);
+  });
 });

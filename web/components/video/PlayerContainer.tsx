@@ -136,13 +136,14 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
   );
 
   const webRTCAvailable = Boolean(webRTCConfigured && webRTCSupported);
+  const fallbackToHls = webrtcConfig?.fallbackToHls !== false;
   let protocol: Protocol = 'hls';
   if (forceProtocol === 'webrtc') {
     protocol = 'webrtc';
   } else if (forceProtocol !== 'hls') {
     protocol = resolveTransport(transportPreference, {
       webrtcAvailable: webRTCAvailable,
-      sessionFallback,
+      sessionFallback: fallbackToHls && sessionFallback,
     });
   }
 
@@ -164,6 +165,9 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
 
   const handleWebRTCFallback = useCallback(
     (error: WHEPError) => {
+      if (!fallbackToHls) {
+        return;
+      }
       writeSessionFallback(true, streamIdentity);
       setSessionFallback(true);
       setFallbackReason(error);
@@ -176,7 +180,7 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
     // The identity belongs in the dependencies: without it the callback keeps the identity of
     // the stream that mounted it, and a failure after a switch stores the previous stream's
     // fallback, which then applies to the wrong stream.
-    [onProtocolChange, streamIdentity, transportPreference],
+    [fallbackToHls, onProtocolChange, streamIdentity, transportPreference],
   );
 
   useEffect(() => {
@@ -218,7 +222,7 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
         initiallyMuted={initiallyMuted}
         title={title}
         sessionFactory={webRTCSessionFactory}
-        onFallback={handleWebRTCFallback}
+        onFallback={fallbackToHls ? handleWebRTCFallback : undefined}
         transport={transportPreference}
         webrtcAvailable={webRTCAvailable}
         onTransportChange={handleTransportChange}

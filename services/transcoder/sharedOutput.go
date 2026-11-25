@@ -445,8 +445,13 @@ func (t *Transcoder) writeMasterPlaylist() {
 		builder.WriteString("#EXT-X-STREAM-INF:" + strings.Join(attributes, ",") + "\n")
 		builder.WriteString(strconv.Itoa(variant.index) + "/stream.m3u8\n")
 	}
-	if err := os.WriteFile(path.Join(config.HLSStoragePath, "stream.m3u8"), []byte(builder.String()), 0o600); err != nil {
+	masterPath := path.Join(config.HLSStoragePath, "stream.m3u8")
+	if err := os.WriteFile(masterPath, []byte(builder.String()), 0o600); err != nil {
 		log.Errorf("transcoder: could not write HLS master playlist: %v", err)
+		return
+	}
+	if t.onMasterPlaylistWritten != nil {
+		t.onMasterPlaylistWritten(masterPath)
 	}
 }
 

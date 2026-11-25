@@ -297,6 +297,13 @@ describe('auto WebRTC quality fallback', () => {
       ])?.index,
     ).toBe(1);
     expect(chooseEncodedWebRTCVariant([{ index: 0, name: 'Source copy' }])).toBeNull();
+    // Structured isPassthrough overrides name heuristics when supplied by /api/config.
+    expect(
+      chooseEncodedWebRTCVariant([
+        { index: 0, name: '1080p60', isPassthrough: true },
+        { index: 1, name: 'Source Encoded', isPassthrough: false },
+      ])?.index,
+    ).toBe(1);
   });
 
   test('collectVideoInboundTotals aggregates inbound video counters', async () => {

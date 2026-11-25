@@ -74,11 +74,12 @@ type webRTCConfigResponse struct {
 
 // webRTCVariantResponse is one selectable WebRTC variant.
 type webRTCVariantResponse struct {
-	Index  int    `json:"index"`
-	Name   string `json:"name"`
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
-	FPS    int    `json:"fps,omitempty"`
+	Index         int    `json:"index"`
+	Name          string `json:"name"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+	FPS           int    `json:"fps,omitempty"`
+	IsPassthrough bool   `json:"isPassthrough,omitempty"`
 }
 
 // webRTCICEServerResponse is a viewer-facing ICE server entry. Long-lived TURN
@@ -215,17 +216,18 @@ func (h *Handlers) getConfigResponse(r *http.Request) webConfigResponse {
 		Authentication:             authenticationResponse,
 		AppearanceVariables:        configRepository.GetCustomColorVariableValues(),
 		HideViewerCount:            configRepository.GetHideViewerCount(),
-		WebRTC:                     buildPublicWebRTCConfig(configRepository.GetWebRTCConfig(), h.stream.GetCurrentBroadcast()),
+		WebRTC:                     buildPublicWebRTCConfig(configRepository.GetWebRTCConfig(), h.stream.GetCurrentBroadcast(), h.stream.WebRTCLegs()),
 		Player:                     buildPublicPlayerConfig(appearance),
 	}
 }
 
-// buildPublicWebRTCConfig renders the additive public WebRTC block. Variants
-// mirror the output variants WebRTC would deliver: explicit per-variant
-// mappings when present, otherwise all HLS variants (documented implicit
-// enable). It returns nil when WebRTC delivery is disabled so existing clients
-// see no change at all.
-func buildPublicWebRTCConfig(cfg models.WebRTCConfig, broadcast *models.CurrentBroadcast) *webRTCConfigResponse {
+// buildPublicWebRTCConfig renders the additive public WebRTC block. When live
+// runtime WebRTC leg decisions are available, only active (non-disabled) legs
+// are exposed so withdrawn or failed variants are not advertised to new viewers;
+// otherwise it mirrors the configured output variants (explicit per-variant
+// mappings when present, else all HLS variants). Returns nil when WebRTC
+// delivery is disabled so existing clients see no change at all.
+func buildPublicWebRTCConfig(cfg models.WebRTCConfig, broadcast *models.CurrentBroadcast, legs []models.WebRTCLegStatus) *webRTCConfigResponse {
 	if !cfg.Enabled {
 		return nil
 	}
@@ -238,6 +240,40 @@ func buildPublicWebRTCConfig(cfg models.WebRTCConfig, broadcast *models.CurrentB
 		FallbackToHLS: cfg.FallbackToHLS,
 	}
 	if broadcast == nil {
+		return response
+	}
+
+	if len(legs) > 0 {
+		legByVariant := make(map[int]models.WebRTCLegStatus, len(legs))
+		for _, leg := range legs {
+			legByVariant[leg.VariantIndex] = leg
+		}
+		for index, variant := range broadcast.OutputSettings {
+			leg, ok := legByVariant[index]
+			if !ok || leg.Mode == models.WebRTCLegModeDisabled {
+				continue
+			}
+			width := variant.ScaledWidth
+			height := variant.ScaledHeight
+			fps := variant.GetFramerate()
+			if leg.ScaledWidth > 0 {
+				width = leg.ScaledWidth
+			}
+			if leg.ScaledHeight > 0 {
+				height = leg.ScaledHeight
+			}
+			if leg.Framerate > 0 {
+				fps = leg.Framerate
+			}
+			response.Variants = append(response.Variants, webRTCVariantResponse{
+				Index:         index,
+				Name:          variant.GetName(),
+				Width:         width,
+				Height:        height,
+				FPS:           fps,
+				IsPassthrough: leg.Mode == models.WebRTCLegModeCopy,
+			})
+		}
 		return response
 	}
 
@@ -256,11 +292,12 @@ func buildPublicWebRTCConfig(cfg models.WebRTCConfig, broadcast *models.CurrentB
 			continue
 		}
 		response.Variants = append(response.Variants, webRTCVariantResponse{
-			Index:  index,
-			Name:   variant.GetName(),
-			Width:  variant.ScaledWidth,
-			Height: variant.ScaledHeight,
-			FPS:    variant.GetFramerate(),
+			Index:         index,
+			Name:          variant.GetName(),
+			Width:         variant.ScaledWidth,
+			Height:        variant.ScaledHeight,
+			FPS:           variant.GetFramerate(),
+			IsPassthrough: variant.IsVideoPassthrough,
 		})
 	}
 	return response

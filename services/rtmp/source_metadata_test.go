@@ -288,3 +288,22 @@ func TestRTMPOnMetaDataAfterInspectionPreservesProbedFields(t *testing.T) {
 		t.Fatalf("published broadcaster lost probed HasBFrames: %+v", published.StreamDetails)
 	}
 }
+
+func TestRTMPContainerPrefixVideoOnlySetsVideoFlagOnly(t *testing.T) {
+	sess := newTestSession(t)
+	sess.inspectPacket(av.Packet{Type: av.H264DecoderConfig, Data: avcConfigRecord()})
+
+	videoOnly := sess.ContainerPrefix()
+	if len(videoOnly) < 13 {
+		t.Fatalf("expected FLV prefix, got %d bytes", len(videoOnly))
+	}
+	if videoOnly[4] != 0x01 {
+		t.Fatalf("video-only FLV type flags = 0x%02x, want 0x01", videoOnly[4])
+	}
+
+	sess.inspectPacket(av.Packet{Type: av.AACDecoderConfig, Data: []byte{0x11, 0x90}})
+	videoAndAudio := sess.ContainerPrefix()
+	if videoAndAudio[4] != 0x05 {
+		t.Fatalf("video+audio FLV type flags = 0x%02x, want 0x05", videoAndAudio[4])
+	}
+}

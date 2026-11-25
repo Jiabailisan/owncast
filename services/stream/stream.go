@@ -252,7 +252,10 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		}
 
 		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
-		tr.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
+		webrtcCfg := s.configRepository.GetWebRTCConfig()
+		tr.SetSharedH264Profile(webrtcCfg.H264Profile)
+		tr.SetSharedH264Level(webrtcCfg.H264Level)
+		tr.SetMasterPlaylistWrittenCallback(s.handler.MasterPlaylistWritten)
 		purpose := []string{publicPipelineHLS}
 		if len(webrtc.outputs) > 0 {
 			purpose = append(purpose, "webrtc")

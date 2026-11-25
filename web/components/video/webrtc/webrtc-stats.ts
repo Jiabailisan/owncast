@@ -560,12 +560,17 @@ export function packetLossPctFor(
 }
 
 // chooseEncodedWebRTCVariant returns the first variant that is not a
-// passthrough/source copy, preferring an explicit encoded quality. It returns
-// null when every advertised variant is passthrough (nothing to fall back to).
+// passthrough/source copy, preferring the structured isPassthrough flag when
+// provided by /api/config and falling back to name matching for older servers.
+// Returns null when every advertised variant is passthrough.
 export function chooseEncodedWebRTCVariant(
   variants: WebRTCVariantInfo[] | undefined | null,
 ): WebRTCVariantInfo | null {
   if (!variants || variants.length === 0) return null;
+  const hasStructuredFlag = variants.some(variant => typeof variant.isPassthrough === 'boolean');
+  if (hasStructuredFlag) {
+    return variants.find(variant => variant.isPassthrough === false) || null;
+  }
   const encoded = variants.find(variant => !/pass|copy|source/i.test(variant.name || ''));
   return encoded || null;
 }

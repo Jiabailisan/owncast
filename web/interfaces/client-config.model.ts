@@ -49,6 +49,7 @@ export interface WebRTCVariantInfo {
   width?: number;
   height?: number;
   fps?: number;
+  isPassthrough?: boolean;
 }
 
 export interface WebRTCClientConfig {

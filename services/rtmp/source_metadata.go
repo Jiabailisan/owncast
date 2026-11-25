@@ -79,9 +79,17 @@ func (s *session) ContainerPrefix() []byte {
 		return nil
 	}
 
-	// The FLV header is followed by PreviousTagSize0 = 0; every tag is then
-	// followed by its own size, which is what flvTag appends.
-	prefix := []byte{'F', 'L', 'V', 0x01, 0x05, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00}
+	// The FLV header advertises only the media tracks whose decoder configuration
+	// is actually present (bit 0 = video, bit 2 = audio), followed by
+	// PreviousTagSize0 = 0; every tag is then followed by its own size.
+	var typeFlags byte
+	if len(video) > 0 {
+		typeFlags |= 0x01
+	}
+	if len(audio) > 0 {
+		typeFlags |= 0x04
+	}
+	prefix := []byte{'F', 'L', 'V', 0x01, typeFlags, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00}
 	if len(video) > 0 {
 		// AVC sequence header: frame type 1 (keyframe) | codec 7 (AVC), packet
 		// type 0, composition time 0.

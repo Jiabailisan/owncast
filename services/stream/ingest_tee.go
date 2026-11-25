@@ -152,24 +152,31 @@ func (b *teeBranch) feedAligner(chunk []byte) ([]byte, bool) {
 // pump writes queued chunks to the branch's pipe. On a graceful finish it
 // drains the queue before closing the writer so no tail bytes are lost.
 func (b *teeBranch) pump() {
+	writeAligned := func(chunk []byte) bool {
+		rawLen := int64(len(chunk))
+		aligned, ok := b.feedAligner(chunk)
+		if !ok {
+			b.pending.Add(-rawLen)
+			return true
+		}
+		if _, err := b.writer.Write(aligned); err != nil {
+			b.pending.Add(-rawLen)
+			b.fail(err)
+			return false
+		}
+		b.pending.Add(-rawLen)
+		b.bytesOut.Add(uint64(len(aligned)))
+		if len(b.queue) == 0 {
+			b.oldestQueued.Store(0)
+		}
+		return true
+	}
+
 	for {
 		select {
 		case chunk := <-b.queue:
-			aligned, ok := b.feedAligner(chunk)
-			if !ok {
-				b.pending.Add(-int64(len(chunk)))
-
-				continue
-			}
-			chunk = aligned
-			if _, err := b.writer.Write(chunk); err != nil {
-				b.fail(err)
+			if !writeAligned(chunk) {
 				return
-			}
-			b.pending.Add(-int64(len(chunk)))
-			b.bytesOut.Add(uint64(len(chunk)))
-			if len(b.queue) == 0 {
-				b.oldestQueued.Store(0)
 			}
 		case <-b.failCh:
 			return
@@ -177,8 +184,7 @@ func (b *teeBranch) pump() {
 			for {
 				select {
 				case chunk := <-b.queue:
-					if _, err := b.writer.Write(chunk); err != nil {
-						b.fail(err)
+					if !writeAligned(chunk) {
 						return
 					}
 				default:
@@ -494,17 +500,23 @@ func (a *flvAligner) feed(chunk []byte) ([]byte, bool) {
 	return nil, false
 }
 
-// flvTagBoundary returns the offset of the first position where two consecutive
-// valid FLV tag headers can be read, or false when none is present yet.
+// flvTagBoundary returns the offset of the first position where a valid FLV tag
+// header is followed by its matching PreviousTagSize (11 + dataSize) and a
+// second valid FLV tag header, or false when none is present yet.
 func flvTagBoundary(buffer []byte) (int, bool) {
 	for offset := 0; offset+11 <= len(buffer); offset++ {
 		if !isFLVTagHeader(buffer[offset:]) {
 			continue
 		}
-		end := offset + 11 + flvTagDataSize(buffer[offset:]) + 4
+		dataSize := flvTagDataSize(buffer[offset:])
+		end := offset + 11 + dataSize + 4
 		if end+11 > len(buffer) {
 			// The next header is not buffered yet, so this candidate cannot be
 			// confirmed. Keep looking: a later offset may already be confirmed.
+			continue
+		}
+		prevTagSize := int(buffer[end-4])<<24 | int(buffer[end-3])<<16 | int(buffer[end-2])<<8 | int(buffer[end-1])
+		if prevTagSize != 11+dataSize {
 			continue
 		}
 		if isFLVTagHeader(buffer[end:]) {

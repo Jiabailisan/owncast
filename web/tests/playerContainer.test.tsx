@@ -263,4 +263,16 @@ describe('PlayerContainer protocol selection', () => {
     renderWithConfig(enabledConfig(), true, undefined, 'stream-B');
     expect(screen.getByTestId('hls-player')).toBeInTheDocument();
   });
+
+  test('respects fallbackToHls=false by staying on WebRTCPlayer without switching to HLS', () => {
+    const noFallbackConfig = enabledConfig();
+    noFallbackConfig.webrtc!.fallbackToHls = false;
+    sessionStorage.setItem(
+      WEBRTC_FALLBACK_SESSION_KEY,
+      JSON.stringify({ value: true, identity: '' }),
+    );
+    renderWithConfig(noFallbackConfig);
+    expect(screen.getByTestId('webrtc-player')).toBeInTheDocument();
+    expect(screen.queryByTestId('hls-player')).not.toBeInTheDocument();
+  });
 });

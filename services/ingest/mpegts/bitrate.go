@@ -259,14 +259,9 @@ type pesAccumulator struct {
 func (a *pesAccumulator) addPacket(esBytes int, pts int64, hasPTS, payloadStart bool) (int64, int, bool) {
 	if payloadStart {
 		flushPTS, flushBytes, flush := a.pts, a.bytes, a.hasPTS && a.bytes > 0
-		a.bytes = 0
-		a.pts = 0
-		a.hasPTS = false
-		if esBytes > 0 {
-			a.bytes = esBytes
-			a.pts = pts
-			a.hasPTS = hasPTS
-		}
+		a.bytes = esBytes
+		a.pts = pts
+		a.hasPTS = hasPTS
 		return flushPTS, flushBytes, flush
 	}
 	a.bytes += esBytes
@@ -277,6 +272,11 @@ func (a *pesAccumulator) addPacket(esBytes int, pts int64, hasPTS, payloadStart 
 // feeds the H.264 inspector and updates the rolling video bitrate.
 func (i *Inspector) consumeVideoPayload(payload []byte, payloadStart bool) {
 	es, pts, hasPTS := parsePESPayload(payload, payloadStart)
+	// Always process payloadStart (PUSI=1) before returning on an empty ES slice
+	// so the previous PES flushes and the new PES PTS is recorded for follow-up packets.
+	if flushPTS, flushBytes, flush := i.videoPES.addPacket(len(es), pts, hasPTS, payloadStart); flush {
+		i.recordVideoBitrate(flushPTS, flushBytes)
+	}
 	if len(es) == 0 {
 		return
 	}
@@ -286,10 +286,6 @@ func (i *Inspector) consumeVideoPayload(payload []byte, payloadStart bool) {
 		i.es = append([]byte(nil), i.es[len(i.es)-maxESBuffer/2:]...)
 	}
 	i.scanNALs()
-
-	if flushPTS, flushBytes, flush := i.videoPES.addPacket(len(es), pts, hasPTS, payloadStart); flush {
-		i.recordVideoBitrate(flushPTS, flushBytes)
-	}
 }
 
 // recordVideoBitrate adds one completed PES sample to the video bitrate
@@ -306,6 +302,13 @@ func (i *Inspector) recordVideoBitrate(pts int64, payloadBytes int) {
 // headers for the codec details and updates the rolling audio bitrate.
 func (i *Inspector) consumeAudioPayload(payload []byte, payloadStart bool) {
 	es, pts, hasPTS := parsePESPayload(payload, payloadStart)
+	if flushPTS, flushBytes, flush := i.audioPES.addPacket(len(es), pts, hasPTS, payloadStart); flush {
+		i.audioRate.add(flushPTS, flushBytes)
+		if kbps, ok := i.audioRate.rateKbps(); ok {
+			i.info.AudioBitrateKbps = kbps
+			i.info.AudioBitrateValid = true
+		}
+	}
 	if len(es) == 0 {
 		return
 	}
@@ -315,14 +318,6 @@ func (i *Inspector) consumeAudioPayload(payload []byte, payloadStart bool) {
 		i.audioES = append([]byte(nil), i.audioES[len(i.audioES)-maxAudioESBuffer/2:]...)
 	}
 	i.parseADTSFrames()
-
-	if flushPTS, flushBytes, flush := i.audioPES.addPacket(len(es), pts, hasPTS, payloadStart); flush {
-		i.audioRate.add(flushPTS, flushBytes)
-		if kbps, ok := i.audioRate.rateKbps(); ok {
-			i.info.AudioBitrateKbps = kbps
-			i.info.AudioBitrateValid = true
-		}
-	}
 }
 
 // parseADTSFrames walks the retained audio bytes, records the AAC details from

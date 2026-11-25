@@ -36,9 +36,10 @@ const (
 // window with a 1 s minimum span), so the two protocols report comparable
 // numbers and an unmeasurable window stays "unknown" instead of guessing.
 const (
-	bitrateWindowMs  = 3000
-	minBitrateSpanMs = 1000
-	maxBitratePoints = 4096
+	bitrateWindowMs      = 3000
+	minBitrateSpanMs     = 1000
+	maxBitratePoints     = 4096
+	bitrateResetJitterMs = 1000
 )
 
 // Info is the inspected source property set. Zero values mean "unknown".
@@ -76,19 +77,41 @@ type bitratePoint struct {
 // the MPEG-TS tracker: headers are excluded, the window is 3 s of media time and
 // the value stays invalid below a 1 s span.
 type rateTracker struct {
-	points []bitratePoint
-	total  int
-	value  float64
-	valid  bool
+	points    []bitratePoint
+	total     int
+	maxTimeMs uint32
+	hasMax    bool
+	value     float64
+	valid     bool
 }
 
 func (t *rateTracker) add(timeMs uint32, payload int) {
+	if !t.hasMax {
+		t.maxTimeMs = timeMs
+		t.hasMax = true
+	} else {
+		step := timeDeltaMs(timeMs, t.maxTimeMs)
+		switch {
+		case step < -bitrateResetJitterMs:
+			// Genuine backward timestamp reset: discard stale window samples.
+			t.points = t.points[:0]
+			t.total = 0
+			t.maxTimeMs = timeMs
+		case step > 0:
+			t.maxTimeMs = timeMs
+		default:
+			// Mild non-monotonic DTS jitter (<= 1s): clamp to the monotonic
+			// watermark so bytes are still counted without evicting the window.
+			timeMs = t.maxTimeMs
+		}
+	}
+
 	t.points = append(t.points, bitratePoint{timeMs: timeMs, bytes: payload})
 	t.total += payload
-	// Drop samples outside the window, measured from the newest sample so a
-	// stalled timestamp cannot keep the window open forever.
+	// Drop samples outside the window, measured from the newest monotonic time
+	// so a stalled timestamp cannot keep the window open forever.
 	for len(t.points) > 1 {
-		span := timeDeltaMs(timeMs, t.points[0].timeMs)
+		span := timeDeltaMs(t.maxTimeMs, t.points[0].timeMs)
 		if span <= bitrateWindowMs {
 			break
 		}
@@ -105,7 +128,7 @@ func (t *rateTracker) add(timeMs uint32, payload int) {
 	if len(t.points) < 2 {
 		return
 	}
-	span := timeDeltaMs(timeMs, t.points[0].timeMs)
+	span := timeDeltaMs(t.maxTimeMs, t.points[0].timeMs)
 	if span < minBitrateSpanMs {
 		return
 	}
@@ -113,10 +136,10 @@ func (t *rateTracker) add(timeMs uint32, payload int) {
 	t.valid = true
 }
 
-// timeDeltaMs returns b-a in milliseconds, tolerating the 32-bit timestamp wrap
-// that an RTMP stream reaches after about 49 days.
+// timeDeltaMs returns signed (a - b) in milliseconds using 32-bit modular
+// arithmetic, tolerating both mild backward DTS jitter and 32-bit wrap-around.
 func timeDeltaMs(a, b uint32) int64 {
-	return int64(a - b)
+	return int64(int32(a - b))
 }
 
 // Inspector consumes RTMP FLV tags and publishes the source properties.

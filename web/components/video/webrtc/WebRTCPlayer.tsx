@@ -197,16 +197,21 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     if (!reporter.current) {
       reporter.current = new ViewerReporter(async () => ({
         protocol: 'webrtc' as const,
-        // Report the rendition, not the word auto: match the decoded height against
-        // the variant names when the session does not report which one it is.
+        // Report the rendition, not the word auto: prefer the server-announced
+        // active variant name, then explicit selection, then structured height
+        // match (falling back to name match only when height metadata is absent).
         quality: (() => {
+          if (activeVariantNameRef.current) {
+            return activeVariantNameRef.current;
+          }
           if (qualityLabelRef.current && qualityLabelRef.current !== 'auto') {
             return qualityLabelRef.current;
           }
 
           const height = videoRef.current?.videoHeight;
           const matched = height
-            ? (variants || []).find(
+            ? (variants || []).find(variant => variant.height === height) ||
+              (variants || []).find(
                 variant =>
                   typeof variant.name === 'string' && variant.name.includes(String(height)),
               )
@@ -364,6 +369,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     const timer = window.setInterval(async () => {
       const session = sessionRef.current;
       if (!session) return;
+      // Never reconnect onto the exact variant the session is already playing.
+      if (session.variantIndex === encodedVariant.index) return;
+      const activeVariant = (variants || []).find(v => v.index === session.variantIndex);
+      if (activeVariant && activeVariant.isPassthrough === false) return;
       try {
         const totals = await collectVideoInboundTotals(session.pc);
         if (cancelled || selectedVariantRef.current !== null) return;
@@ -689,21 +698,23 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     const receivers =
       typeof session.pc.getReceivers === 'function'
         ? (session.pc.getReceivers() as (RTCRtpReceiver & {
-            jitterBufferTarget?: number;
-            playoutDelayHint?: number;
+            jitterBufferTarget?: number | null;
+            playoutDelayHint?: number | null;
           })[])
         : [];
     receivers.forEach(receiver => {
       try {
         if ('jitterBufferTarget' in receiver) {
-          receiver.jitterBufferTarget = latencyEnabled ? 200 : 1000;
+          // Restore browser default (null) when Minimize latency is off instead
+          // of forcing a 1000 ms buffer delay on low-latency WebRTC playback.
+          receiver.jitterBufferTarget = latencyEnabled ? 200 : null;
         }
       } catch {
         // Not supported by this browser.
       }
       try {
         if ('playoutDelayHint' in receiver) {
-          receiver.playoutDelayHint = latencyEnabled ? 0.2 : 1;
+          receiver.playoutDelayHint = latencyEnabled ? 0.2 : null;
         }
       } catch {
         // Not supported by this browser.

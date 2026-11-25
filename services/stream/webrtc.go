@@ -483,8 +483,9 @@ func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader
 	s.webRTCMu.Unlock()
 
 	outputs, mediaLegs, warnings, failed := s.openWebRTCLegs(publishedVariants, decisions, webrtcConfig, generation, warnings)
-	// A variant whose leg failed must not stay selectable over WHEP.
+	// A variant whose leg failed must not stay selectable over WHEP or appear active in live status.
 	s.webRTC.DisableVariants(generation, failed)
+	s.markWebRTCLegsDisabledForGeneration(generation, failed)
 	s.setWebRTCWarnings(warnings)
 
 	return webRTCOutputs{outputs: outputs, legs: mediaLegs, variantGen: generation}

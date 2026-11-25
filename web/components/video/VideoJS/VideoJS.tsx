@@ -80,9 +80,7 @@ export const VideoJS: FC<VideoJSProps> = ({ options, onReady }) => {
           const { uri } = o;
           let updatedURI = uri;
           if (o.uri.match('m3u8')) {
-            const u = uri.startsWith('http')
-              ? new URL(uri)
-              : new URL(uri, window.location.protocol + window.location.host);
+            const u = uri.startsWith('http') ? new URL(uri) : new URL(uri, window.location.href);
             const cachebuster = Math.random().toString(16).slice(2, 8);
             u.searchParams.append('cachebust', cachebuster);
             updatedURI = u.toString();
