@@ -119,7 +119,14 @@ class PlaybackMetrics {
     // reference so stop() restores it instead of leaking a global closure.
     this.videojs = videojs;
     this.previousVhsXhr = videojs?.Vhs?.xhr;
-    const baseVjsXhr = this.previousVhsXhr || videojs?.xhr;
+    // VHS's default Vhs.xhr dispatcher (marked with original === true) forwards
+    // back to videojs.Vhs.xhr whenever original !== true, which would recurse
+    // infinitely if we delegated to it. Keep previousVhsXhr for stop() restore,
+    // but bypass the VHS dispatcher by calling videojs.xhr directly.
+    const baseVjsXhr =
+      this.previousVhsXhr && this.previousVhsXhr.original !== true
+        ? this.previousVhsXhr
+        : videojs?.xhr;
     this.xhrWrapper = (...args) => {
       try {
         const request = args[0];
@@ -178,19 +185,22 @@ class PlaybackMetrics {
     if (this.videojs?.Vhs && this.videojs.Vhs.xhr === this.xhrWrapper) {
       this.videojs.Vhs.xhr = this.previousVhsXhr;
     }
+    const disposed = Boolean(this.player?.isDisposed?.());
     // Component teardown does not reliably emit Video.js's ended event.
     // Preserve the terminal state while its viewer is still active.
-    if (this.hasStartedPlaying && !this.player.ended()) {
+    if (this.hasStartedPlaying && (!this.player || disposed || !this.player.ended())) {
       this.sendEventReport('ps', { sta: 'e' });
     }
-    this.player.off('play', this.handlePlay);
-    this.player.off('playing', this.handlePlaying);
-    this.player.off('pause', this.handlePause);
-    this.player.off('ended', this.handleEnded);
-    this.player.off('error', this.handleError);
-    this.player.off('stalled', this.handleBuffering);
-    this.player.off('waiting', this.handleBuffering);
-    this.player.off('canplaythrough', this.handleNoLongerBuffering);
+    if (this.player && !disposed) {
+      this.player.off('play', this.handlePlay);
+      this.player.off('playing', this.handlePlaying);
+      this.player.off('pause', this.handlePause);
+      this.player.off('ended', this.handleEnded);
+      this.player.off('error', this.handleError);
+      this.player.off('stalled', this.handleBuffering);
+      this.player.off('waiting', this.handleBuffering);
+      this.player.off('canplaythrough', this.handleNoLongerBuffering);
+    }
   }
 
   // Keep our client clock in sync with the server clock to determine

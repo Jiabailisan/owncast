@@ -1170,6 +1170,12 @@ class LatencyCompensator {
         return;
       }
 
+      // Already pinned: keep the original snapshot intact so a repeated pin
+      // call cannot overwrite it and lose the user's pre-catchup renditions.
+      if (this.pinnedQualitySnapshot) {
+        return;
+      }
+
       // If the viewer manually locked a single rendition, respect that choice:
       // do not downgrade it while catching up and do not re-enable other
       // renditions on stop.
@@ -1180,12 +1186,10 @@ class LatencyCompensator {
         return;
       }
 
-      if (!this.pinnedQualitySnapshot) {
-        this.pinnedQualitySnapshot = representations.map((rep, index) => ({
-          rep,
-          enabled: enabledStates[index],
-        }));
-      }
+      this.pinnedQualitySnapshot = representations.map((rep, index) => ({
+        rep,
+        enabled: enabledStates[index],
+      }));
 
       if (this.qualityPinMode === 'current') {
         const playlist = tech.vhs.playlists.media();

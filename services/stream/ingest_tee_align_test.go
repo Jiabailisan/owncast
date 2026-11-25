@@ -9,7 +9,6 @@ import (
 // header followed by tags with their PreviousTagSize fields.
 func buildFLVStream(tagSizes ...int) []byte {
 	stream := []byte{'F', 'L', 'V', 0x01, 0x05, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00}
-	previous := 0
 	for index, size := range tagSizes {
 		tagType := byte(9)
 		if index%2 == 1 {
@@ -19,8 +18,8 @@ func buildFLVStream(tagSizes ...int) []byte {
 		stream = append(stream, header...)
 		payload := bytes.Repeat([]byte{0xAA}, size)
 		stream = append(stream, payload...)
-		stream = append(stream, byte(previous>>24), byte(previous>>16), byte(previous>>8), byte(previous))
-		previous = 11 + size
+		tagSize := 11 + size
+		stream = append(stream, byte(tagSize>>24), byte(tagSize>>16), byte(tagSize>>8), byte(tagSize))
 	}
 
 	return stream

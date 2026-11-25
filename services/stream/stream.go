@@ -531,6 +531,9 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 		s.stopWebRTCProcess()
 		s.closeIngestTee()
 		s.closeWebRTC()
+		s.processModelMu.Lock()
+		s.runningProcessModel = ""
+		s.processModelMu.Unlock()
 		s.clearCurrentSessionIfStale()
 	}()
 	_ = s.chat.SendSystemAction("The stream is ending.", true)

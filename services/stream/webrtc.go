@@ -441,7 +441,9 @@ type webRTCOutputs struct {
 }
 
 func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader, variants []models.StreamOutputVariant, source webrtc.SourceInfo) webRTCOutputs {
-	if s.webRTC == nil {
+	if !s.webRTCDeliveryEnabled() {
+		s.setWebRTCLegs(nil)
+		s.setWebRTCWarnings(nil)
 		return webRTCOutputs{}
 	}
 
@@ -473,6 +475,11 @@ func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader
 	generation, err := s.webRTC.SetVariants(publishedVariants)
 	if err != nil {
 		log.Errorln("webrtc: unable to publish variants; continuing with HLS only:", err)
+		for i := range legs {
+			legs[i].Mode = models.WebRTCLegModeDisabled
+			legs[i].OutputBitrateKbps = nil
+		}
+		s.setWebRTCLegs(legs)
 		warnings = append(warnings, models.StatusWarning{Code: "webrtc_variants", Message: err.Error()})
 		s.setWebRTCWarnings(warnings)
 		return webRTCOutputs{}

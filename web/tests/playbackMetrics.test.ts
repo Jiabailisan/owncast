@@ -93,4 +93,36 @@ describe('PlaybackMetrics', () => {
       expect(args.length).toBe(2);
     });
   });
+
+  test('bypasses VHS original dispatcher to avoid infinite XHR recursion', () => {
+    const player = makePlayer();
+    const underlyingXhr = jest.fn(() => 'xhr-handle');
+    const videojs: {
+      xhr: jest.Mock;
+      Vhs: { xhr: ((...args: unknown[]) => unknown) & { original?: boolean } };
+    } = {
+      xhr: underlyingXhr,
+      Vhs: {
+        xhr: Object.assign(
+          (...args: unknown[]) => {
+            const xhrMethod = videojs.Vhs.xhr.original === true ? videojs.xhr : videojs.Vhs.xhr;
+            return xhrMethod(...args);
+          },
+          { original: true },
+        ),
+      },
+    };
+    const originalDispatcher = videojs.Vhs.xhr;
+    const metrics = new PlaybackMetrics(player, videojs);
+
+    const request = { uri: '/hls/0/stream.m3u8' };
+    const result = videojs.Vhs.xhr(request, jest.fn());
+
+    expect(result).toBe('xhr-handle');
+    expect(underlyingXhr).toHaveBeenCalledTimes(1);
+    expect(request.uri).toContain('CMCD=');
+
+    metrics.stop();
+    expect(videojs.Vhs.xhr).toBe(originalDispatcher);
+  });
 });

@@ -220,9 +220,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     prevMediaBytes: number | null;
     prevMediaSeconds: number | null;
     prevMediaTransferMs: number | null;
-    windowMediaBytes: number | null;
-    windowMediaSeconds: number | null;
-    windowMediaTransferMs: number | null;
+    windowBitrateBytes: number | null;
+    windowBitrateSeconds: number | null;
+    windowTransferBytes: number | null;
+    windowTransferMs: number | null;
     audioBitrateKbps: number | null;
     videoPipeline: string | null;
   }>({
@@ -233,9 +234,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     prevMediaBytes: null,
     prevMediaSeconds: null,
     prevMediaTransferMs: null,
-    windowMediaBytes: null,
-    windowMediaSeconds: null,
-    windowMediaTransferMs: null,
+    windowBitrateBytes: null,
+    windowBitrateSeconds: null,
+    windowTransferBytes: null,
+    windowTransferMs: null,
     audioBitrateKbps: null,
     videoPipeline: null,
   });
@@ -605,9 +607,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     meter.prevMediaBytes = null;
     meter.prevMediaSeconds = null;
     meter.prevMediaTransferMs = null;
-    meter.windowMediaBytes = null;
-    meter.windowMediaSeconds = null;
-    meter.windowMediaTransferMs = null;
+    meter.windowBitrateBytes = null;
+    meter.windowBitrateSeconds = null;
+    meter.windowTransferBytes = null;
+    meter.windowTransferMs = null;
     setSparklines({ video: [], audio: [] });
     let disposed = false;
     let statusAbort: AbortController | null = null;
@@ -699,24 +702,25 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
       // Video.js VHS exposes cumulative transfer counters under vhs.stats.*
       // (fall back to top-level vhs.* if a mock/version puts them there). Use
-      // segment-completion deltas so the chart tracks recent bitrate rather than
-      // a flattened whole-session average.
+      // atomic segment-completion delta pairs so the chart tracks recent bitrate
+      // and download speed without ever mixing delta numerators with cumulative
+      // denominators.
+      const parseOptionalFinite = (value: unknown): number | null => {
+        if (value === null || value === undefined || value === '') return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      };
       const vhsStats = vhs?.stats ?? vhs;
-      const cumBytes = Number.isFinite(Number(vhsStats?.mediaBytesTransferred))
-        ? Number(vhsStats.mediaBytesTransferred)
-        : null;
-      const cumSeconds = Number.isFinite(Number(vhsStats?.mediaSecondsLoaded))
-        ? Number(vhsStats.mediaSecondsLoaded)
-        : null;
-      const cumTransferMs = Number.isFinite(Number(vhsStats?.mediaTransferDuration))
-        ? Number(vhsStats.mediaTransferDuration)
-        : null;
+      const cumBytes = parseOptionalFinite(vhsStats?.mediaBytesTransferred);
+      const cumSeconds = parseOptionalFinite(vhsStats?.mediaSecondsLoaded);
+      const cumTransferMs = parseOptionalFinite(vhsStats?.mediaTransferDuration);
 
       if (cumBytes !== null) {
-        if (meter.prevMediaBytes === null) {
-          meter.windowMediaBytes = cumBytes;
-          meter.windowMediaSeconds = cumSeconds;
-          meter.windowMediaTransferMs = cumTransferMs;
+        if (meter.prevMediaBytes === null || cumBytes < meter.prevMediaBytes) {
+          meter.windowBitrateBytes = cumBytes;
+          meter.windowBitrateSeconds = cumSeconds;
+          meter.windowTransferBytes = cumBytes;
+          meter.windowTransferMs = cumTransferMs;
         } else if (cumBytes > meter.prevMediaBytes) {
           const deltaBytes = cumBytes - meter.prevMediaBytes;
           const deltaSeconds =
@@ -727,11 +731,14 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
             cumTransferMs !== null && meter.prevMediaTransferMs !== null
               ? cumTransferMs - meter.prevMediaTransferMs
               : null;
-          meter.windowMediaBytes = deltaBytes;
-          meter.windowMediaSeconds =
-            deltaSeconds !== null && deltaSeconds > 0 ? deltaSeconds : null;
-          meter.windowMediaTransferMs =
-            deltaTransferMs !== null && deltaTransferMs > 0 ? deltaTransferMs : null;
+          if (deltaSeconds !== null && deltaSeconds > 0) {
+            meter.windowBitrateBytes = deltaBytes;
+            meter.windowBitrateSeconds = deltaSeconds;
+          }
+          if (deltaTransferMs !== null && deltaTransferMs > 0) {
+            meter.windowTransferBytes = deltaBytes;
+            meter.windowTransferMs = deltaTransferMs;
+          }
         }
         meter.prevMediaBytes = cumBytes;
         meter.prevMediaSeconds = cumSeconds;
@@ -740,21 +747,31 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
       const rawBandwidth =
         mediaPlaylist?.attributes?.BANDWIDTH ?? activeRepresentation?.bandwidth ?? null;
-      const meterInput = {
-        mediaBytesTransferred: meter.windowMediaBytes ?? cumBytes,
-        mediaSecondsLoaded: meter.windowMediaSeconds ?? cumSeconds,
-        mediaTransferDurationMs: meter.windowMediaTransferMs ?? cumTransferMs,
-        systemBandwidthBps: Number.isFinite(Number(vhs?.systemBandwidth))
-          ? Number(vhs?.systemBandwidth)
-          : null,
-        representationBandwidthBps: Number.isFinite(Number(rawBandwidth))
-          ? Number(rawBandwidth)
-          : null,
+      const commonMeterInput = {
+        systemBandwidthBps: parseOptionalFinite(vhs?.systemBandwidth),
+        representationBandwidthBps: parseOptionalFinite(rawBandwidth),
         decodedBitsPerSecond,
         audioBitrateKbps: meter.audioBitrateKbps,
       };
-      const videoBitrateKbps = hlsVideoBitrateKbps(meterInput);
-      const connectionSpeedKbps = hlsConnectionSpeedKbps(meterInput, videoBitrateKbps);
+      const hasWindowBitrate =
+        meter.windowBitrateBytes !== null && meter.windowBitrateSeconds !== null;
+      const hasWindowTransfer =
+        meter.windowTransferBytes !== null && meter.windowTransferMs !== null;
+      const videoBitrateKbps = hlsVideoBitrateKbps({
+        ...commonMeterInput,
+        mediaBytesTransferred: hasWindowBitrate ? meter.windowBitrateBytes : cumBytes,
+        mediaSecondsLoaded: hasWindowBitrate ? meter.windowBitrateSeconds : cumSeconds,
+        mediaTransferDurationMs: null,
+      });
+      const connectionSpeedKbps = hlsConnectionSpeedKbps(
+        {
+          ...commonMeterInput,
+          mediaBytesTransferred: hasWindowTransfer ? meter.windowTransferBytes : cumBytes,
+          mediaSecondsLoaded: null,
+          mediaTransferDurationMs: hasWindowTransfer ? meter.windowTransferMs : cumTransferMs,
+        },
+        videoBitrateKbps,
+      );
       const resolution = hlsResolution(video?.videoWidth, video?.videoHeight, fps);
       const dpr =
         typeof window !== 'undefined' &&
@@ -953,6 +970,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   };
 
   const handlePlayerReady = async (player, videojs) => {
+    let disposed = false;
     playerRef.current = player;
     setSavedVolume();
     setupUnmuteButton(player, videojs);
@@ -960,7 +978,14 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     pingTarget.video = (player.el()?.querySelector('video') as HTMLVideoElement | null) ?? null;
 
     player.on('dispose', () => {
+      disposed = true;
+      releaseLatencyCompensator();
+      playbackMetricsRef.current?.stop();
+      playbackMetricsRef.current = null;
       ping.stop();
+      if (playerRef.current === player) {
+        playerRef.current = null;
+      }
     });
 
     player.on('waiting', () => setBuffering(true));
@@ -1046,10 +1071,17 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 
     try {
       const fetchedQualities = await VideoSettingsService.getVideoQualities();
+      if (disposed || player.isDisposed?.() || playerRef.current !== player) {
+        return;
+      }
       qualitiesRef.current = fetchedQualities;
       setQualities(fetchedQualities);
     } catch (err) {
       console.warn('Unable to load HLS qualities', err);
+    }
+
+    if (disposed || player.isDisposed?.() || playerRef.current !== player) {
+      return;
     }
 
     setupLatencyCompensator(player);

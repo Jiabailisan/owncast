@@ -297,11 +297,18 @@ describe('auto WebRTC quality fallback', () => {
       ])?.index,
     ).toBe(1);
     expect(chooseEncodedWebRTCVariant([{ index: 0, name: 'Source copy' }])).toBeNull();
-    // Structured isPassthrough overrides name heuristics when supplied by /api/config.
+    // Structured isPassthrough overrides name heuristics when supplied by /api/config,
+    // including when an older server omits false via omitempty.
     expect(
       chooseEncodedWebRTCVariant([
         { index: 0, name: '1080p60', isPassthrough: true },
         { index: 1, name: 'Source Encoded', isPassthrough: false },
+      ])?.index,
+    ).toBe(1);
+    expect(
+      chooseEncodedWebRTCVariant([
+        { index: 0, name: '1080p60', isPassthrough: true },
+        { index: 1, name: 'Source Encoded' },
       ])?.index,
     ).toBe(1);
   });

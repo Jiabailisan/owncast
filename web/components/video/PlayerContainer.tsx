@@ -111,7 +111,7 @@ export const PlayerContainer: FC<PlayerContainerProps> = ({
       setCustomPlayerFailed(false);
     }
     previousOnlineRef.current = online;
-  }, [online]);
+  }, [online, streamIdentity]);
 
   // A new stream clears the previous one's fallback even when the page never observed the
   // offline gap: a fast switch can go from online to online, and the old failure must not

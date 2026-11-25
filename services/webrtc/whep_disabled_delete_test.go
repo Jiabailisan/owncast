@@ -6,8 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/owncast/owncast/models"
 )
 
 func TestWHEPAllowsSessionDeleteWhenDisabled(t *testing.T) {
@@ -33,5 +31,4 @@ func TestWHEPAllowsSessionDeleteWhenDisabled(t *testing.T) {
 	deleted := whepRequest(t, svc, http.MethodDelete, sessionLoc, "", "", nil)
 	assert.Equal(t, http.StatusNoContent, deleted.Code)
 	assert.Equal(t, 0, svc.ViewerCount())
-	_ = models.WebRTCConfig{}
 }

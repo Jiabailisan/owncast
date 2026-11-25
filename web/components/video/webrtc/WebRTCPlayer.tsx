@@ -372,7 +372,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       // Never reconnect onto the exact variant the session is already playing.
       if (session.variantIndex === encodedVariant.index) return;
       const activeVariant = (variants || []).find(v => v.index === session.variantIndex);
-      if (activeVariant && activeVariant.isPassthrough === false) return;
+      const hasStructuredFlag = (variants || []).some(v => typeof v.isPassthrough === 'boolean');
+      if (activeVariant && hasStructuredFlag && activeVariant.isPassthrough !== true) return;
       try {
         const totals = await collectVideoInboundTotals(session.pc);
         if (cancelled || selectedVariantRef.current !== null) return;
@@ -573,6 +574,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             pc.removeEventListener('connectionstatechange', evaluateConnectionState);
           });
           evaluateConnectionState();
+          if (cancelled || disconnectHandled) return;
         }
 
         if (session.stream && typeof session.stream.getTracks === 'function') {
@@ -591,6 +593,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
               track.removeEventListener('ended', onTrackEnded);
             });
           });
+          if (cancelled || disconnectHandled) return;
         }
 
         // The server picks the variant when the selection is auto; name it so

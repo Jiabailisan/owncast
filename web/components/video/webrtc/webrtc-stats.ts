@@ -569,7 +569,7 @@ export function chooseEncodedWebRTCVariant(
   if (!variants || variants.length === 0) return null;
   const hasStructuredFlag = variants.some(variant => typeof variant.isPassthrough === 'boolean');
   if (hasStructuredFlag) {
-    return variants.find(variant => variant.isPassthrough === false) || null;
+    return variants.find(variant => variant.isPassthrough !== true) || null;
   }
   const encoded = variants.find(variant => !/pass|copy|source/i.test(variant.name || ''));
   return encoded || null;

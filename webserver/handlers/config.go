@@ -79,7 +79,7 @@ type webRTCVariantResponse struct {
 	Width         int    `json:"width,omitempty"`
 	Height        int    `json:"height,omitempty"`
 	FPS           int    `json:"fps,omitempty"`
-	IsPassthrough bool   `json:"isPassthrough,omitempty"`
+	IsPassthrough bool   `json:"isPassthrough"`
 }
 
 // webRTCICEServerResponse is a viewer-facing ICE server entry. Long-lived TURN

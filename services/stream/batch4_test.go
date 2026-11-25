@@ -2,8 +2,12 @@ package stream
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
+
+	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/webrtc"
 )
 
 func buildValidFLVTag(tagType byte, body []byte) []byte {
@@ -57,5 +61,93 @@ func TestIngestTeePendingLedgerStaysZeroAfterFLVAlignerAndEndChAligns(t *testing
 	}
 	if pending := branch.pending.Load(); pending != 0 {
 		t.Fatalf("branch.pending = %d after full drain, want 0 (aligner rewrite must not drift pending ledger)", pending)
+	}
+}
+
+type stubConfigureWebRTCProvider struct {
+	enabled         bool
+	setVariantsErr  error
+	setVariantsCall int
+}
+
+func (p *stubConfigureWebRTCProvider) Enabled() bool { return p.enabled }
+func (p *stubConfigureWebRTCProvider) SetVariants([]models.StreamOutputVariant) (uint64, error) {
+	p.setVariantsCall++
+	if p.setVariantsErr != nil {
+		return 0, p.setVariantsErr
+	}
+	return 1, nil
+}
+func (p *stubConfigureWebRTCProvider) OpenMediaLeg(int, uint64) (WebRTCMediaLeg, error) {
+	return nil, nil
+}
+func (p *stubConfigureWebRTCProvider) CloseMediaLeg(int) error       { return nil }
+func (p *stubConfigureWebRTCProvider) DisableVariants(uint64, []int) {}
+func (p *stubConfigureWebRTCProvider) VariantGeneration() uint64     { return 1 }
+
+type failOnReadReader struct{ t *testing.T }
+
+func (r failOnReadReader) Read([]byte) (int, error) {
+	r.t.Fatal("mediaReader must not be read when WebRTC delivery is disabled")
+	return 0, io.EOF
+}
+
+func TestConfigureWebRTCSkipsPrefetchAndClearsStateWhenDisabled(t *testing.T) {
+	provider := &stubConfigureWebRTCProvider{enabled: false}
+	svc := &Service{
+		configRepository: newStreamStatsTestRepo(t),
+		webRTC:           provider,
+	}
+	svc.setWebRTCLegs([]models.WebRTCLegStatus{{VariantIndex: 0, Mode: models.WebRTCLegModeCopy}})
+	svc.setWebRTCWarnings([]models.StatusWarning{{Code: "stale", Message: "stale"}})
+
+	var reader io.Reader = failOnReadReader{t: t}
+	out := svc.configureWebRTC(newTestIngestSession("disabled"), &reader, []models.StreamOutputVariant{
+		{Name: "Source", IsVideoPassthrough: true},
+	}, webrtc.SourceInfo{})
+
+	if len(out.outputs) != 0 {
+		t.Fatalf("outputs = %d, want 0", len(out.outputs))
+	}
+	if provider.setVariantsCall != 0 {
+		t.Fatalf("SetVariants calls = %d, want 0 when WebRTC is disabled", provider.setVariantsCall)
+	}
+	if legs := svc.WebRTCLegs(); len(legs) != 0 {
+		t.Fatalf("WebRTCLegs = %+v, want empty when WebRTC is disabled", legs)
+	}
+	if warnings := svc.WebRTCWarnings(); len(warnings) != 0 {
+		t.Fatalf("WebRTCWarnings = %+v, want empty when WebRTC is disabled", warnings)
+	}
+}
+
+func TestConfigureWebRTCDisablesLegsWhenSetVariantsFails(t *testing.T) {
+	provider := &stubConfigureWebRTCProvider{
+		enabled:        true,
+		setVariantsErr: errors.New("publish failed"),
+	}
+	svc := &Service{
+		configRepository: newStreamStatsTestRepo(t),
+		webRTC:           provider,
+	}
+
+	var reader io.Reader = bytes.NewReader(nil)
+	out := svc.configureWebRTC(newTestIngestSession("set-variants-err"), &reader, []models.StreamOutputVariant{
+		{Name: "720p", ScaledWidth: 1280, ScaledHeight: 720, VideoBitrate: 2500, Framerate: 30},
+	}, webrtc.SourceInfo{
+		Protocol: "rtmp",
+	})
+
+	if len(out.outputs) != 0 {
+		t.Fatalf("outputs = %d, want 0 on SetVariants error", len(out.outputs))
+	}
+	legs := svc.WebRTCLegs()
+	if len(legs) != 1 {
+		t.Fatalf("len(WebRTCLegs) = %d, want 1", len(legs))
+	}
+	if legs[0].Mode != models.WebRTCLegModeDisabled {
+		t.Fatalf("legs[0].Mode = %q, want disabled after SetVariants error", legs[0].Mode)
+	}
+	if legs[0].OutputBitrateKbps != nil {
+		t.Fatalf("legs[0].OutputBitrateKbps = %v, want nil when disabled", *legs[0].OutputBitrateKbps)
 	}
 }

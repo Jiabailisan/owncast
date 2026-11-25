@@ -55,6 +55,11 @@ describe('LatencyCompensator quality pinning vs manual quality lock', () => {
     expect(reps[0].playlist.disabled).toBe(true);
     expect(reps[1].playlist.disabled).not.toBe(true);
 
+    // Calling pin a second time while already pinned must preserve the snapshot.
+    compensator.enableOnlyLowQualityPlayback();
+    expect(reps[0].playlist.disabled).toBe(true);
+    expect(reps[1].playlist.disabled).not.toBe(true);
+
     compensator.enableAllQualityPlayback();
     expect(reps[0].playlist.disabled).not.toBe(true);
     expect(reps[1].playlist.disabled).not.toBe(true);

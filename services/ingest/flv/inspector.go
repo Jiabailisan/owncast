@@ -112,7 +112,7 @@ func (t *rateTracker) add(timeMs uint32, payload int) {
 	// so a stalled timestamp cannot keep the window open forever.
 	for len(t.points) > 1 {
 		span := timeDeltaMs(t.maxTimeMs, t.points[0].timeMs)
-		if span <= bitrateWindowMs {
+		if span >= 0 && span <= bitrateWindowMs {
 			break
 		}
 		t.total -= t.points[0].bytes
