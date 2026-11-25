@@ -172,6 +172,15 @@ Two changes fix the join:
 Post-fix captures show both branches byte-identical (15.9 MB each) with PAT at
 188 B and SPS/PPS/IDR at 597/626/1274 B, and the probe errors are gone.
 
+Two shutdown windows in the same area are also closed. The pump's EOF path runs
+`finishAll` before the deferred `close(stopped)`, and a branch registered in
+that gap used to receive a live pipe nobody writes to or closes — the same
+hang on the Close path. The finished flag is now set in the same critical
+section that snapshots the branches, and `addBranch` checks it under that lock:
+a late branch either is finished by the pump or gets an already-closed pipe.
+A targeted test hammers registrations during the shutdown window (200 attempts)
+and asserts every branch sees EOF; it fails against the pre-fix code.
+
 ## 7. Verification
 
 A 2560x1440@60, Main/5.1, no-B-frame H.264 source was published over SRT and

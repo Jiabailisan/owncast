@@ -202,6 +202,13 @@ type ingestTee struct {
 	startOnce    sync.Once
 	startAllowed chan struct{}
 
+	// finished records that the pump stopped feeding branches (source ended,
+	// Close ran, or the start gate saw a closed done). Guarded by mu. A branch
+	// registered after this gets an already-closed pipe: between finishAll and
+	// close(stopped) there is a window where stopped is still open, so the flag,
+	// not the channel, is what addBranch must check.
+	finished bool
+
 	// Diagnostics: how much the pump has taken from the source, and when it last delivered.
 	// They answer whether a branch fell behind because the input arrived in a burst or because
 	// nothing was draining it.
@@ -306,14 +313,16 @@ func (t *ingestTee) AddLateBranch(name string, critical bool, onOverflow func(),
 func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), aligner any) *io.PipeReader {
 	// A branch added after the pump finished (the source ended, or Close ran)
 	// would sit on a pipe nobody writes to or closes, blocking its reader
-	// forever. Hand it an already-closed pipe instead: EOF immediately.
-	select {
-	case <-t.stopped:
+	// forever. The check and the registration share t.mu with finishAll, so
+	// they cannot interleave: either this branch is in finishAll's snapshot and
+	// gets finished, or the flag is already set and it gets a closed pipe.
+	t.mu.Lock()
+	if t.finished {
+		t.mu.Unlock()
 		reader, writer := io.Pipe()
 		_ = writer.Close()
 
 		return reader
-	default:
 	}
 	reader, writer := io.Pipe()
 	branch := &teeBranch{
@@ -327,8 +336,6 @@ func (t *ingestTee) addBranch(name string, critical bool, onOverflow func(), ali
 		endCh:      make(chan struct{}),
 		failCh:     make(chan struct{}),
 	}
-
-	t.mu.Lock()
 	t.branches = append(t.branches, branch)
 	t.mu.Unlock()
 
@@ -722,6 +729,12 @@ func (t *ingestTee) fanOut(chunk []byte) {
 
 func (t *ingestTee) finishAll() {
 	t.mu.Lock()
+	// The flag is set in the same critical section that snapshots the branches:
+	// a branch registering after this either is in the snapshot (and gets
+	// finished below) or sees the flag (and gets a closed pipe). Without this,
+	// a registration landing between the snapshot and close(stopped) would hang
+	// on a pipe nobody writes to or closes.
+	t.finished = true
 	branches := make([]*teeBranch, len(t.branches))
 	copy(branches, t.branches)
 	t.mu.Unlock()
