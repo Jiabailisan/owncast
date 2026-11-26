@@ -14,6 +14,7 @@ import (
 func (h *Handlers) GetStatus(w http.ResponseWriter, r *http.Request) {
 	response := h.getStatusResponse()
 
+	middleware.EnableCors(w)
 	w.Header().Set("Content-Type", "application/json")
 	middleware.DisableCache(w)
 

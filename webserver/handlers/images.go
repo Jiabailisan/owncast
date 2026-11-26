@@ -25,12 +25,13 @@ func (h *Handlers) GetThumbnail(w http.ResponseWriter, r *http.Request) {
 	var imageBytes []byte
 	var err error
 
-	if h.previewThumbCache.Get(imagePath) != nil {
-		ci := h.previewThumbCache.Get(imagePath)
+	if ci := h.previewThumbCache.Get(imagePath); ci != nil {
 		imageBytes = ci.Value()
 	} else if utils.DoesFileExists(imagePath) {
 		imageBytes, err = getImage(imagePath)
-		h.previewThumbCache.Set(imagePath, imageBytes, inMemoryCacheTime)
+		if err == nil && len(imageBytes) > 0 {
+			h.previewThumbCache.Set(imagePath, imageBytes, inMemoryCacheTime)
+		}
 	} else {
 		h.GetLogo(w, r)
 		return
@@ -54,12 +55,13 @@ func (h *Handlers) GetPreview(w http.ResponseWriter, r *http.Request) {
 	var imageBytes []byte
 	var err error
 
-	if h.previewThumbCache.Get(imagePath) != nil {
-		ci := h.previewThumbCache.Get(imagePath)
+	if ci := h.previewThumbCache.Get(imagePath); ci != nil {
 		imageBytes = ci.Value()
 	} else if utils.DoesFileExists(imagePath) {
 		imageBytes, err = getImage(imagePath)
-		h.previewThumbCache.Set(imagePath, imageBytes, inMemoryCacheTime)
+		if err == nil && len(imageBytes) > 0 {
+			h.previewThumbCache.Set(imagePath, imageBytes, inMemoryCacheTime)
+		}
 	} else {
 		h.GetLogo(w, r)
 		return

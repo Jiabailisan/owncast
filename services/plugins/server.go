@@ -492,13 +492,12 @@ func isHTMLName(name string) bool {
 }
 
 func (s *Server) serveDynamic(w http.ResponseWriter, r *http.Request, p *Loaded, requestPath string, authenticated bool, injectStyles bool) {
-	// Snapshot the instance under the lock: Loaded.Close may clear it during
-	// shutdown (and tests may exercise only the static path). Reading p.plugin
-	// unlocked raced with that write. No instance means no dynamic handler.
+	// Snapshot and check export under the lock so Loaded.Close cannot close the
+	// underlying wasm instance between reading p.plugin and calling FunctionExists.
 	p.mu.Lock()
-	pl := p.plugin
+	hasHandler := p.plugin != nil && p.plugin.FunctionExists("on_http_request")
 	p.mu.Unlock()
-	if pl == nil || !pl.FunctionExists("on_http_request") {
+	if !hasHandler {
 		http.NotFound(w, r)
 		return
 	}
@@ -559,9 +558,9 @@ func (s *Server) CallAuthCheck(ctx context.Context, slug string, input []byte) (
 		return nil, fmt.Errorf("auth check unavailable for plugin %q", slug)
 	}
 	p.mu.Lock()
-	pl := p.plugin
+	hasAuthCheck := p.plugin != nil && p.plugin.FunctionExists("on_auth_check")
 	p.mu.Unlock()
-	if pl == nil || !pl.FunctionExists("on_auth_check") {
+	if !hasAuthCheck {
 		return nil, fmt.Errorf("auth check unavailable for plugin %q", slug)
 	}
 	callCtx, cancel := context.WithTimeout(ctx, HTTPHandlerTimeout)
@@ -582,6 +581,7 @@ func (s *Server) buildRequestEnvelope(r *http.Request, requestPath string, authe
 	// is the legacy token source.
 	headers := flattenValues(r.Header)
 	delete(headers, "Cookie")
+	delete(headers, "Authorization")
 	query := flattenValues(r.URL.Query())
 	delete(query, "accessToken")
 
@@ -647,6 +647,7 @@ func writePluginHTTPResponse(w http.ResponseWriter, out []byte, injectStyles boo
 	// the plugin asked for via owncast.auth.grantSession / endSession (an empty
 	// slice for any plugin that didn't, which is the common case).
 	stripSetCookie(w.Header(), SessionCookieName)
+	stripSetCookie(w.Header(), "owncast_admin_session")
 	for _, c := range sessionCookies {
 		http.SetCookie(w, c)
 	}

@@ -21,13 +21,23 @@ func (h *Handlers) ServeCustomJavascript(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	body := []byte(h.configRepository.GetCustomJavascript())
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	adminJS := h.configRepository.GetCustomJavascript()
+	var body []byte
+	if len(adminJS) > 0 {
+		// Isolate admin custom JS so a runtime error in user-supplied script
+		// cannot abort execution of plugin scripts appended afterwards.
+		body = append(body, []byte("try {\n")...)
+		body = append(body, []byte(adminJS)...)
+		if adminJS[len(adminJS)-1] != '\n' {
+			body = append(body, '\n')
+		}
+		body = append(body, []byte("} catch (err) { console.error('Custom JavaScript error:', err); }\n")...)
+	}
 	if h.pluginJSContent != nil {
 		pluginJS := h.pluginJSContent()
 		if len(pluginJS) > 0 {
-			if len(body) > 0 && body[len(body)-1] != '\n' {
-				body = append(body, '\n')
-			}
 			body = append(body, pluginJS...)
 		}
 	}

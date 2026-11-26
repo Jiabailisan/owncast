@@ -90,6 +90,7 @@ type Inspector struct {
 	audioPID uint16
 
 	es         []byte
+	esScanPos  int
 	sliceTypes map[uint]int
 	sliceCount int
 
@@ -261,21 +262,48 @@ func (i *Inspector) scanNALs() {
 	for {
 		start, startLen := findStartCode(buf, searchFrom)
 		if start < 0 {
+			i.esScanPos = len(buf)
 			break
 		}
-		next, _ := findStartCode(buf, start+startLen+1)
+		nextFrom := start + startLen + 1
+		// For the first incomplete NAL in the buffer, resume searching for its
+		// terminating start code near where the previous packet ended (minus 3
+		// bytes for a 4-byte start code split across packets), turning O(N^2)
+		// per-packet rescanning into O(N).
+		if searchFrom == 0 && i.esScanPos > nextFrom+3 {
+			nextFrom = i.esScanPos - 3
+		}
+		next, _ := findStartCode(buf, nextFrom)
 		if next < 0 {
+			i.esScanPos = len(buf)
 			break
 		}
 		nal := buf[start+startLen : next]
 		i.handleNAL(nal)
 		consumedUpTo = next
 		searchFrom = next
+		i.esScanPos = 0
+	}
+
+	if i.videoProbeComplete() {
+		i.es = nil
+		i.esScanPos = 0
+		return
 	}
 
 	if consumedUpTo > 0 {
-		i.es = append([]byte(nil), buf[consumedUpTo:]...)
+		remaining := len(buf) - consumedUpTo
+		copy(buf, buf[consumedUpTo:])
+		i.es = buf[:remaining]
+		i.esScanPos = remaining
 	}
+}
+
+// videoProbeComplete reports whether SPS geometry/profile and the B-frame
+// verdict have all been decided, after which the inspector only needs O(1) PES
+// byte accounting for rolling bitrate and can stop scanning NAL bytes.
+func (i *Inspector) videoProbeComplete() bool {
+	return i.info.BFrameChecked && i.info.Width > 0 && i.info.Height > 0 && i.info.Profile != ""
 }
 
 // findStartCode returns the index and length (3 or 4) of the next Annex-B start

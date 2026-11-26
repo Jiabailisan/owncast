@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
@@ -40,6 +42,11 @@ func withPluginUploadReadTimeout(next http.Handler) http.Handler {
 // content-type gating). apc carries the methodified ActivityPub HTTP
 // handler set.
 func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, mw *middleware.Middleware, apc *apcontrollers.Controllers, pluginContent http.Handler, pluginAdmin http.Handler, viewerAuthGate func(http.Handler) http.Handler, webrtcHandler http.Handler) error {
+	return StartWithContext(context.Background(), cfg, enableVerboseLogging, h, mw, apc, pluginContent, pluginAdmin, viewerAuthGate, webrtcHandler)
+}
+
+// StartWithContext starts the HTTP server and performs graceful shutdown when ctx is cancelled.
+func StartWithContext(ctx context.Context, cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, mw *middleware.Middleware, apc *apcontrollers.Controllers, pluginContent http.Handler, pluginAdmin http.Handler, viewerAuthGate func(http.Handler) http.Handler, webrtcHandler http.Handler) error {
 	// @behlers New Router
 	r := chi.NewRouter()
 
@@ -108,19 +115,26 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 	// Plugin management API. Mounted on the outer mux (beside the OpenAPI
 	// /api router, which owns /api/* via chi) so these routes don't collide
 	// with the generated handler. nil when the plugin host is disabled.
+	// Wrap with Recoverer and protect viewer-facing plugin endpoints with
+	// viewerAuthGate so they do not bypass gate authentication.
 	if pluginAdmin != nil {
-		m.Handle("/api/admin/plugins", pluginAdmin)
-		m.Handle("/api/admin/plugins/", pluginAdmin)
+		recoveredPluginAdmin := chiMW.Recoverer(pluginAdmin)
+		gatedPluginPublic := recoveredPluginAdmin
+		if viewerAuthGate != nil {
+			gatedPluginPublic = chiMW.Recoverer(viewerAuthGate(pluginAdmin))
+		}
+		m.Handle("/api/admin/plugins", recoveredPluginAdmin)
+		m.Handle("/api/admin/plugins/", recoveredPluginAdmin)
 		// Plugin registry browse + install. Sibling prefix of
 		// /api/admin/plugins/ so the trailing-slash matcher above
 		// doesn't claim these paths. The pluginAdmin mux dispatches
 		// the action (list / install) internally.
-		m.Handle("/api/admin/plugin-registry/", pluginAdmin)
-		m.Handle("/api/plugins/actions", pluginAdmin)
+		m.Handle("/api/admin/plugin-registry/", recoveredPluginAdmin)
+		m.Handle("/api/plugins/actions", gatedPluginPublic)
 		// Plugin icons: GET /api/plugins/<name>/icon. The pluginAdmin
 		// mux narrows on the /icon suffix internally; this prefix
 		// mount just routes the namespace.
-		m.Handle("/api/plugins/", pluginAdmin)
+		m.Handle("/api/plugins/", gatedPluginPublic)
 	}
 
 	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -146,12 +160,25 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 	protocols.SetUnencryptedHTTP2(true)
 
 	compress, _ := newHTTPCompressionAdapter()
+	compressedHandler := compress(m)
+	selectiveCompress := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Bypass compression for already-compressed media segments, static public
+		// files, and explicit Range requests so httpcompression neither burns CPU
+		// on MPEG-TS video nor strips Range/Accept-Ranges headers.
+		if r.Header.Get("Range") != "" ||
+			strings.HasSuffix(r.URL.Path, ".ts") ||
+			strings.HasPrefix(r.URL.Path, "/public/") {
+			m.ServeHTTP(w, r)
+			return
+		}
+		compressedHandler.ServeHTTP(w, r)
+	})
 	server := &http.Server{
 		Addr:              net.JoinHostPort(ip, strconv.Itoa(port)),
 		ReadHeaderTimeout: 4 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       60 * time.Second,
-		Handler:           withPluginUploadReadTimeout(compress(m)),
+		Handler:           withPluginUploadReadTimeout(selectiveCompress),
 		Protocols:         protocols,
 	}
 
@@ -162,12 +189,54 @@ func Start(cfg *config.Config, enableVerboseLogging bool, h *handlers.Handlers, 
 	}
 	log.Infoln("Configure this server by visiting /admin.")
 
-	return server.ListenAndServe()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		log.Infoln("Shutdown signal received; stopping HTTP server gracefully...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Warnln("HTTP server graceful shutdown error:", err)
+		}
+		err := <-errCh
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
 }
 
 func newHTTPCompressionAdapter() (func(http.Handler) http.Handler, error) {
+	// Whitelist text-based and playlist/API responses only so already-compressed
+	// binary assets (MPEG-TS video segments, JPEG/PNG/GIF/WebP images, WOFF2
+	// fonts) are never re-compressed on the CPU.
 	return httpcompression.DefaultAdapter(
-		httpcompression.ContentTypes([]string{"text/event-stream"}, true),
+		httpcompression.ContentTypes([]string{
+			"text/html",
+			"text/css",
+			"text/plain",
+			"text/javascript",
+			"application/javascript",
+			"application/json",
+			"application/activity+json",
+			"application/ld+json",
+			"application/jrd+json",
+			"application/manifest+json",
+			"application/vnd.apple.mpegurl",
+			"application/x-mpegurl",
+			"application/xml",
+			"text/xml",
+			"image/svg+xml",
+		}, false),
 	)
 }
 

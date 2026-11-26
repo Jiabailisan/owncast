@@ -277,13 +277,16 @@ func (i *Inspector) consumeVideoPayload(payload []byte, payloadStart bool) {
 	if flushPTS, flushBytes, flush := i.videoPES.addPacket(len(es), pts, hasPTS, payloadStart); flush {
 		i.recordVideoBitrate(flushPTS, flushBytes)
 	}
-	if len(es) == 0 {
+	if len(es) == 0 || i.videoProbeComplete() {
 		return
 	}
 
 	i.es = append(i.es, es...)
 	if len(i.es) > maxESBuffer {
-		i.es = append([]byte(nil), i.es[len(i.es)-maxESBuffer/2:]...)
+		keep := maxESBuffer / 2
+		copy(i.es, i.es[len(i.es)-keep:])
+		i.es = i.es[:keep]
+		i.esScanPos = 0
 	}
 	i.scanNALs()
 }
@@ -309,15 +312,20 @@ func (i *Inspector) consumeAudioPayload(payload []byte, payloadStart bool) {
 			i.info.AudioBitrateValid = true
 		}
 	}
-	if len(es) == 0 {
+	if len(es) == 0 || i.audioDetailsSet {
 		return
 	}
 
 	i.audioES = append(i.audioES, es...)
 	if len(i.audioES) > maxAudioESBuffer {
-		i.audioES = append([]byte(nil), i.audioES[len(i.audioES)-maxAudioESBuffer/2:]...)
+		keep := maxAudioESBuffer / 2
+		copy(i.audioES, i.audioES[len(i.audioES)-keep:])
+		i.audioES = i.audioES[:keep]
 	}
 	i.parseADTSFrames()
+	if i.audioDetailsSet {
+		i.audioES = nil
+	}
 }
 
 // parseADTSFrames walks the retained audio bytes, records the AAC details from

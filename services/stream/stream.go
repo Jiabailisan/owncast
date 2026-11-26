@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path"
 	"path/filepath"
 	"time"
 
@@ -150,7 +149,7 @@ func (s *Service) transitionToOfflineVideoStreamContent() {
 	}
 
 	// Delete the preview Gif
-	_ = os.Remove(path.Join(config.DataDirectory, "preview.gif"))
+	_ = os.Remove(filepath.Join(s.cfg.TempDir, "preview.gif"))
 }
 
 func (s *Service) resetDirectories() {
@@ -161,8 +160,9 @@ func (s *Service) resetDirectories() {
 
 	// Remove the previous thumbnail
 	logo := s.configRepository.GetLogoPath()
-	if utils.DoesFileExists(logo) {
-		err := utils.Copy(path.Join("data", logo), filepath.Join(config.DataDirectory, "thumbnail.jpg"))
+	logoSrc := filepath.Join("data", logo)
+	if logo != "" && utils.DoesFileExists(logoSrc) {
+		err := utils.Copy(logoSrc, filepath.Join(s.cfg.TempDir, "thumbnail.jpg"))
 		if err != nil {
 			log.Warnln(err)
 		}
@@ -599,8 +599,10 @@ func (s *Service) StartOfflineCleanupTimer() {
 	s.StopOfflineCleanupTimer()
 	timer := time.NewTimer(5 * time.Minute)
 	done := make(chan struct{})
+	s.offlineCleanupMu.Lock()
 	s.offlineCleanupTimer = timer
 	s.offlineCleanupDone = done
+	s.offlineCleanupMu.Unlock()
 	go func() {
 		select {
 		case <-timer.C:

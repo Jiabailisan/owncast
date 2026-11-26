@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/pkg/errors"
 )
@@ -38,17 +39,29 @@ func GetEmoji() fs.FS {
 	return ef
 }
 
-// GetWebIndexTemplate will return the bot/scraper metadata template.
-func GetWebIndexTemplate() (*template.Template, error) {
-	webFiles := GetWeb()
-	name := "index.html"
-	t, err := template.ParseFS(webFiles, name)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to open index.html template")
-	}
+var (
+	webIndexTemplateOnce sync.Once
+	webIndexTemplate     *template.Template
+	webIndexTemplateErr  error
 
-	tmpl := template.Must(t, err)
-	return tmpl, err
+	botMetadataTemplateOnce sync.Once
+	botMetadataParsed       *template.Template
+	botMetadataErr          error
+)
+
+// GetWebIndexTemplate will return the compiled embedded index.html template,
+// parsed once and cached for the lifetime of the process.
+func GetWebIndexTemplate() (*template.Template, error) {
+	webIndexTemplateOnce.Do(func() {
+		wf := GetWeb()
+		t, err := template.ParseFS(wf, "index.html")
+		if err != nil {
+			webIndexTemplateErr = errors.Wrap(err, "unable to open index.html template")
+			return
+		}
+		webIndexTemplate = t
+	})
+	return webIndexTemplate, webIndexTemplateErr
 }
 
 //go:embed offline-v2.ts
@@ -88,10 +101,16 @@ func getFileSystemStaticFileOrDefault(path string, defaultData []byte) []byte {
 //go:embed metadata.html.tmpl
 var botMetadataTemplate embed.FS
 
-// GetBotMetadataTemplate will return the bot/scraper metadata template.
+// GetBotMetadataTemplate will return the bot/scraper metadata template,
+// parsed once and cached for the lifetime of the process.
 func GetBotMetadataTemplate() (*template.Template, error) {
-	name := "metadata.html.tmpl"
-	t, err := template.ParseFS(botMetadataTemplate, name)
-	tmpl := template.Must(t, err)
-	return tmpl, err
+	botMetadataTemplateOnce.Do(func() {
+		t, err := template.ParseFS(botMetadataTemplate, "metadata.html.tmpl")
+		if err != nil {
+			botMetadataErr = errors.Wrap(err, "unable to open metadata.html.tmpl template")
+			return
+		}
+		botMetadataParsed = t
+	})
+	return botMetadataParsed, botMetadataErr
 }

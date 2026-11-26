@@ -186,7 +186,7 @@ func (s *Service) Addclient(conn *websocket.Conn, user *models.User, accessToken
 		if isNewJoin {
 			s.sendUserJoinedMessage(client)
 		}
-		s.sendWelcomeMessageToClient(client)
+		go s.sendWelcomeMessageToClient(client)
 	}
 
 	// Asynchronously, optionally, fetch GeoIP data.
@@ -318,11 +318,6 @@ func (s *Service) HandleClientConnection(w http.ResponseWriter, r *http.Request)
 		log.Warnln("rejecting incoming client connection as it exceeds the max client count of", s.maxSocketConnectionLimit)
 		_, _ = w.Write([]byte(events.ErrorMaxConnectionsExceeded))
 		return
-	}
-
-	// To allow dev web environments to connect.
-	upgrader.CheckOrigin = func(r *http.Request) bool {
-		return true
 	}
 
 	// Read the access token before upgrading so we can set the chat identity
@@ -538,6 +533,13 @@ func (s *Service) eventReceived(event chatClientEvent) {
 func (s *Service) sendWelcomeMessageToClient(c *Client) {
 	// Add an artificial delay so people notice this message come in.
 	time.Sleep(7 * time.Second)
+
+	s.mu.RLock()
+	_, stillConnected := s.clients[c.Id]
+	s.mu.RUnlock()
+	if !stillConnected {
+		return
+	}
 
 	welcomeMessage := utils.RenderSimpleMarkdown(s.configRepository.GetServerWelcomeMessage())
 

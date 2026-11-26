@@ -631,7 +631,7 @@ func NewTranscoder(cfg *config.Config, configRepository models.EngineConfig) *Tr
 
 	transcoder.currentStreamOutputSettings = configRepository.GetStreamOutputVariants()
 	transcoder.currentLatencyLevel = configRepository.GetStreamLatencyLevel()
-	transcoder.codec = getCodec(configRepository.GetVideoCodec())
+	transcoder.codec = getCodecForFFmpeg(configRepository.GetVideoCodec(), ffmpegPath)
 	transcoder.segmentOutputPath = config.HLSStoragePath
 	transcoder.playlistOutputPath = config.HLSStoragePath
 
@@ -689,11 +689,13 @@ func (v *HLSVariant) getVariantString(t *Transcoder) []string {
 		if t.codec.ExtraFilters() != "" {
 			filters = append(filters, t.codec.ExtraFilters())
 		}
-		scalingAlgorithm := "bilinear"
-		variantEncoderCommands = append(variantEncoderCommands, []string{
-			"-sws_flags", scalingAlgorithm,
-			"-filter:v:" + strconv.Itoa(v.index), strings.Join(filters, ","),
-		}...)
+		if t.codec.Scaler() == "" {
+			scalingAlgorithm := "bilinear"
+			variantEncoderCommands = append(variantEncoderCommands, "-sws_flags", scalingAlgorithm)
+		}
+		variantEncoderCommands = append(variantEncoderCommands,
+			"-filter:v:"+strconv.Itoa(v.index), strings.Join(filters, ","),
+		)
 	} else if t.codec.ExtraFilters() != "" && !v.isVideoPassthrough {
 		variantEncoderCommands = append(variantEncoderCommands, []string{
 			"-filter:v:" + strconv.Itoa(v.index), t.codec.ExtraFilters(),

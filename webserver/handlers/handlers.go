@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/jellydator/ttlcache/v3"
 
@@ -175,8 +176,8 @@ func NewHandlers(deps Deps) *Handlers {
 		pluginPageContent:       deps.PluginPageContent,
 		pluginTabs:              deps.PluginTabs,
 		previewThumbCache: ttlcache.New(
-			ttlcache.WithTTL[string, []byte](15),
-			ttlcache.WithCapacity[string, []byte](1),
+			ttlcache.WithTTL[string, []byte](15*time.Second),
+			ttlcache.WithCapacity[string, []byte](4),
 			ttlcache.WithDisableTouchOnHit[string, []byte](),
 		),
 	}

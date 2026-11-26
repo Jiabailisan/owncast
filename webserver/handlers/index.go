@@ -28,18 +28,21 @@ import (
 // directory instead of the embedded bundle; /admin, /api, /hls, /ws, /webrtc,
 // federation and /.well-known are registered separately and keep working.
 func (h *Handlers) IndexHandler(w http.ResponseWriter, r *http.Request) {
-	middleware.EnableCors(w)
+	isAdminPath := strings.HasPrefix(r.URL.Path, "/admin")
+	if !isAdminPath {
+		middleware.EnableCors(w)
+	}
 
 	// /admin always keeps the built-in bundle so an operator can never lock
 	// themselves out with a broken custom viewer directory.
-	if !strings.HasPrefix(r.URL.Path, "/admin") {
+	if !isAdminPath {
 		if appearance := h.resolveAppearance(); appearance.Mode == settings.FrontendCustomFrontend {
 			h.serveCustomFrontend(w, r, appearance.FrontendDir)
 			return
 		}
 	}
 
-	isIndexRequest := r.URL.Path == "/" || filepath.Base(r.URL.Path) == "index.html" || filepath.Base(r.URL.Path) == ""
+	isIndexRequest := r.URL.Path == "/" || r.URL.Path == "/index.html"
 
 	if isIndexRequest && (utils.IsUserAgentAPlayer(r.UserAgent()) || requestAcceptsVideo(r)) {
 		http.Redirect(w, r, "/hls/stream.m3u8", http.StatusTemporaryRedirect)
@@ -53,10 +56,14 @@ func (h *Handlers) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set a cache control max-age header
-	middleware.SetCachingHeaders(w, r)
+	// Set a cache control header (authenticated admin HTML must not be marked public).
+	if isAdminPath {
+		w.Header().Set("Cache-Control", "private, no-store")
+	} else {
+		middleware.SetCachingHeaders(w, r)
+	}
 
-	nonceRandom, _ := utils.GenerateRandomString(5)
+	nonceRandom, _ := utils.GenerateRandomString(16)
 
 	// Set our global HTTP headers
 	middleware.SetHeaders(w, fmt.Sprintf("nonce-%s", nonceRandom))
@@ -152,7 +159,7 @@ func (h *Handlers) renderIndexHtml(w http.ResponseWriter, r *http.Request, nonce
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(buf.Bytes())
 }
@@ -172,13 +179,31 @@ type MetadataPage struct {
 // Return a basic HTML page with server-rendered metadata from the config
 // to give to Opengraph clients and web scrapers (bots, web crawlers, etc).
 func (h *Handlers) handleScraperMetadataPage(w http.ResponseWriter, r *http.Request) {
-	cacheKey := "bot-scraper-html"
+	configRepository := h.configRepository
+	scheme := "http"
+	host := r.Host
+	if siteURL := strings.TrimSpace(configRepository.GetServerURL()); siteURL != "" {
+		if parsed, err := url.Parse(siteURL); err == nil {
+			if parsed.Scheme != "" {
+				scheme = parsed.Scheme
+			}
+			// Prefer the configured canonical host over the untrusted request Host
+			// header so spoofed bot requests cannot poison the shared metadata cache.
+			if parsed.Host != "" {
+				host = parsed.Host
+			}
+		}
+	}
+
+	cacheKey := "bot-scraper-html:" + scheme + "://" + host
 	cacheHtmlExpiration := time.Duration(60) * time.Second
 	c := h.cache.GetOrCreate(cacheKey, cacheHtmlExpiration)
 
 	cachedHtml := c.Get(cacheKey)
 	if cachedHtml != nil {
-		w.Header().Set("Content-Type", "text/html")
+		middleware.SetCachingHeaders(w, r)
+		w.Header().Set("ETag", fmt.Sprintf("%x", md5.Sum(cachedHtml))) // nolint:gosec
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(cachedHtml)
 		return
 	}
@@ -190,35 +215,16 @@ func (h *Handlers) handleScraperMetadataPage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	scheme := "http"
-	configRepository := h.configRepository
-	if siteURL := configRepository.GetServerURL(); siteURL != "" {
-		if parsed, err := url.Parse(siteURL); err == nil && parsed.Scheme != "" {
-			scheme = parsed.Scheme
-		}
-	}
-
-	fullURL, err := url.Parse(fmt.Sprintf("%s://%s%s", scheme, r.Host, r.URL.Path))
-	if err != nil {
-		log.Errorln(err)
-	}
-	imageURL, err := url.Parse(fmt.Sprintf("%s://%s%s", scheme, r.Host, "/logo/external"))
-	if err != nil {
-		log.Errorln(err)
-	}
+	baseURL := &url.URL{Scheme: scheme, Host: host}
+	fullURL := baseURL.ResolveReference(&url.URL{Path: r.URL.Path})
+	imageURL := baseURL.ResolveReference(&url.URL{Path: "/logo/external"})
 
 	status := h.stream.GetStatus()
 
 	// If the thumbnail does not exist or we're offline then just use the logo image
 	var thumbnailURL string
 	if status.Online && utils.DoesFileExists(filepath.Join(config.DataDirectory, "tmp", thumbnailFilename)) {
-		thumbnail, err := url.Parse(fmt.Sprintf("%s://%s/%s", scheme, r.Host, thumbnailFilename))
-		if err != nil {
-			log.Errorln(err)
-			thumbnailURL = imageURL.String()
-		} else {
-			thumbnailURL = thumbnail.String()
-		}
+		thumbnailURL = baseURL.ResolveReference(&url.URL{Path: "/" + thumbnailFilename}).String()
 	} else {
 		thumbnailURL = imageURL.String()
 	}
@@ -245,7 +251,7 @@ func (h *Handlers) handleScraperMetadataPage(w http.ResponseWriter, r *http.Requ
 	// Set a cache header
 	middleware.SetCachingHeaders(w, r)
 	w.Header().Set("ETag", fmt.Sprintf("%x", md5.Sum(b.Bytes()))) // nolint:gosec
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err = w.Write(b.Bytes()); err != nil {
 		log.Errorln(err)
 	}

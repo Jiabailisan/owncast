@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -276,7 +277,12 @@ func (c *VaapiCodec) GetPresetForLevel(l int) string {
 }
 
 // NvencCodec represents an instance of the Nvenc Codec.
-type NvencCodec struct{}
+// When cudaScale is true (probed from `ffmpeg -filters` for scale_cuda), the
+// entire decode -> scale -> encode pipeline stays in GPU VRAM with zero PCIe
+// frame transfers and zero CPU libswscale usage.
+type NvencCodec struct {
+	cudaScale bool
+}
 
 // Name returns the codec name.
 func (c *NvencCodec) Name() string {
@@ -290,20 +296,33 @@ func (c *NvencCodec) DisplayName() string {
 
 // GlobalFlags are the global flags used with this codec in the transcoder.
 func (c *NvencCodec) GlobalFlags() []string {
-	flags := []string{
-		hwAccelFlag, "cuda",
+	if c.cudaScale {
+		return []string{
+			hwAccelFlag, "cuda",
+			"-hwaccel_output_format", "cuda",
+		}
 	}
 
-	return flags
+	return []string{
+		hwAccelFlag, "cuda",
+	}
 }
 
 // PixelFormat is the pixel format required for this codec.
 func (c *NvencCodec) PixelFormat() string {
+	if c.cudaScale {
+		return "cuda"
+	}
+
 	return "yuv420p"
 }
 
 // Scaler is the scaler used for resizing the video in the transcoder.
 func (c *NvencCodec) Scaler() string {
+	if c.cudaScale {
+		return "scale_cuda"
+	}
+
 	return ""
 }
 
@@ -566,6 +585,40 @@ func GetCodecs(ffmpegPath string) []string {
 	}
 
 	return codecs
+}
+
+var ffmpegFilterProbeCache sync.Map
+
+// ffmpegSupportsFilter probes `ffmpeg -hide_banner -filters` once per binary
+// path and reports whether the named filter is compiled in.
+func ffmpegSupportsFilter(ffmpegPath, filterName string) bool {
+	if ffmpegPath == "" || filterName == "" {
+		return false
+	}
+	cacheKey := ffmpegPath + "\x00" + filterName
+	if cached, ok := ffmpegFilterProbeCache.Load(cacheKey); ok {
+		return cached.(bool)
+	}
+	out, err := exec.Command(ffmpegPath, "-hide_banner", "-filters").CombinedOutput()
+	supported := false
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[1] == filterName {
+				supported = true
+				break
+			}
+		}
+	}
+	ffmpegFilterProbeCache.Store(cacheKey, supported)
+	return supported
+}
+
+func getCodecForFFmpeg(name, ffmpegPath string) Codec {
+	if name == (&NvencCodec{}).Name() {
+		return &NvencCodec{cudaScale: ffmpegSupportsFilter(ffmpegPath, "scale_cuda")}
+	}
+	return getCodec(name)
 }
 
 func getCodec(name string) Codec {

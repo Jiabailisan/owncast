@@ -258,9 +258,9 @@ func (p *Loaded) CallPageContent(ctx context.Context, slug string, user *HostUse
 
 func (p *Loaded) callContentExport(ctx context.Context, export, slug string, user *HostUser) (string, error) {
 	p.mu.Lock()
-	pl := p.plugin
+	hasExport := p.plugin != nil && p.plugin.FunctionExists(export)
 	p.mu.Unlock()
-	if pl == nil || !pl.FunctionExists(export) {
+	if !hasExport {
 		return "", nil
 	}
 	req := map[string]any{"slug": slug}
@@ -303,9 +303,9 @@ func (p *Loaded) CallPageScripts(ctx context.Context) (string, error) {
 // on_page_scripts). Returns empty string when the plugin doesn't export it.
 func (p *Loaded) callVoidExport(ctx context.Context, export string) (string, error) {
 	p.mu.Lock()
-	pl := p.plugin
+	hasExport := p.plugin != nil && p.plugin.FunctionExists(export)
 	p.mu.Unlock()
-	if pl == nil || !pl.FunctionExists(export) {
+	if !hasExport {
 		return "", nil
 	}
 	callCtx, cancel := context.WithTimeout(ctx, HTTPHandlerTimeout)

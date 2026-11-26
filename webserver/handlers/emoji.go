@@ -15,6 +15,7 @@ import (
 // GetCustomEmojiList returns a list of emoji via the API.
 func GetCustomEmojiList(w http.ResponseWriter, r *http.Request) {
 	emojiList := datastore.GetEmojiList()
+	w.Header().Set("Content-Type", "application/json")
 	middleware.SetCachingHeaders(w, r)
 
 	if err := json.NewEncoder(w).Encode(emojiList); err != nil {

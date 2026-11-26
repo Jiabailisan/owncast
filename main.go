@@ -6,7 +6,9 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -195,7 +197,7 @@ func main() {
 
 	handleCommandLineFlags(cfg, configRepository)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	cacheContainer := cache.New()
@@ -536,9 +538,9 @@ func main() {
 		PluginTabs:              pluginTabs,
 	})
 
-	// Stage 10: serve. Blocks until shutdown.
-	if err := router.Start(cfg, *enableVerboseLogging, h, mw, apSvc.Controllers(), pluginContentHandler, pluginAdminHandler, viewerAuthGate, webRTCSvc.Handler()); err != nil {
-		log.Fatalln("failed to start/run the router", err)
+	// Stage 10: serve. Blocks until shutdown signal or server error.
+	if err := router.StartWithContext(ctx, cfg, *enableVerboseLogging, h, mw, apSvc.Controllers(), pluginContentHandler, pluginAdminHandler, viewerAuthGate, webRTCSvc.Handler()); err != nil {
+		log.Errorln("failed to start/run the router:", err)
 	}
 }
 
@@ -561,13 +563,12 @@ func handleCommandLineFlags(cfg *config.Config, configRepository configrepositor
 	if *webServerPortOverride != "" {
 		portNumber, err := strconv.Atoi(*webServerPortOverride)
 		if err != nil {
-			log.Warnln(err)
-			return
-		}
-
-		log.Println("Saving new web server port number to", portNumber)
-		if err := configRepository.SetHTTPPortNumber(float64(portNumber)); err != nil {
-			log.Errorln(err)
+			log.Warnln("invalid -webserverport flag:", err)
+		} else {
+			log.Println("Saving new web server port number to", portNumber)
+			if err := configRepository.SetHTTPPortNumber(float64(portNumber)); err != nil {
+				log.Errorln(err)
+			}
 		}
 	}
 	cfg.WebServerPort = configRepository.GetHTTPPortNumber()
