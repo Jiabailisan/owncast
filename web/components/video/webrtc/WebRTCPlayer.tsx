@@ -19,6 +19,7 @@ import {
   collectWebRTCStatsPanel,
   collectVideoInboundTotals,
   chooseEncodedWebRTCVariant,
+  chooseNextLowerWebRTCVariant,
   packetLossPctFor,
   VideoInboundTotals,
   AUTO_QUALITY_SWITCH_LOSS_PCT,
@@ -136,8 +137,30 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [bigUnmuteVisible, setBigUnmuteVisible] = useState(false);
+  // selectedVariant is the viewer's explicit menu choice (null = Auto).
+  // autoFallbackVariant is an internal Auto downgrade chosen on sustained loss
+  // so the UI keeps showing "Auto (<active>)" instead of overwriting the choice.
   const [selectedVariant, setSelectedVariant] = useState<number | null>(null);
+  const [autoFallbackVariant, setAutoFallbackVariant] = useState<number | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+
+  const navConnection =
+    typeof navigator !== 'undefined'
+      ? (
+          navigator as Navigator & {
+            connection?: { saveData?: boolean; effectiveType?: string };
+          }
+        ).connection
+      : undefined;
+  const preferLowInitial =
+    navConnection?.saveData === true ||
+    navConnection?.effectiveType === 'slow-2g' ||
+    navConnection?.effectiveType === '2g' ||
+    navConnection?.effectiveType === '3g';
+  const effectiveVariant =
+    selectedVariant ??
+    autoFallbackVariant ??
+    (preferLowInitial ? (chooseEncodedWebRTCVariant(variants)?.index ?? null) : null);
 
   const [fullscreen, setFullscreen] = useState(false);
   const [latencyEnabled, setLatencyEnabled] = useState(
@@ -342,24 +365,32 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     updateBigUnmute();
   }, [autoplay, initiallyMuted, updateBigUnmute]);
 
-  // A configuration refresh can remove the selected variant; fall back to Auto
-  // instead of connecting to a nonexistent WHEP variant.
+  // A configuration refresh can remove the selected or fallback variant; fall
+  // back to default Auto instead of connecting to a nonexistent WHEP variant.
   useEffect(() => {
     if (selectedVariant !== null && !(variants || []).some(v => v.index === selectedVariant)) {
       setSelectedVariant(null);
     }
-  }, [variants, selectedVariant]);
+    if (
+      autoFallbackVariant !== null &&
+      !(variants || []).some(v => v.index === autoFallbackVariant)
+    ) {
+      setAutoFallbackVariant(null);
+    }
+  }, [variants, selectedVariant, autoFallbackVariant]);
 
-  // Auto keeps the passthrough variant while it is healthy. If its packet loss
-  // stays above the threshold the viewer would otherwise see a frozen picture
-  // (commonly the high-bitrate source copy on a lossy link), so reconnect to an
-  // encoded variant instead. An explicit user quality choice is never overridden.
+  // Reset automatic fallback when the stream restarts or the WHEP URL changes
+  // so a fresh broadcast starts back at the top rendition.
+  useEffect(() => {
+    setAutoFallbackVariant(null);
+  }, [whepUrl, online]);
+
+  // Auto keeps the highest rendition while it is healthy. If video packet loss
+  // stays above the threshold, step down to the next lower encoded tier while
+  // keeping the menu selection in Auto ("Auto (<active>)"). An explicit user
+  // quality choice is never overridden.
   useEffect(() => {
     if (!online || phase !== 'ready' || selectedVariant !== null) {
-      return undefined;
-    }
-    const encodedVariant = chooseEncodedWebRTCVariant(variants);
-    if (!encodedVariant) {
       return undefined;
     }
 
@@ -369,11 +400,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     const timer = window.setInterval(async () => {
       const session = sessionRef.current;
       if (!session) return;
-      // Never reconnect onto the exact variant the session is already playing.
-      if (session.variantIndex === encodedVariant.index) return;
-      const activeVariant = (variants || []).find(v => v.index === session.variantIndex);
-      const hasStructuredFlag = (variants || []).some(v => typeof v.isPassthrough === 'boolean');
-      if (activeVariant && hasStructuredFlag && activeVariant.isPassthrough !== true) return;
+      const nextLower = chooseNextLowerWebRTCVariant(variants, session.variantIndex);
+      if (!nextLower || session.variantIndex === nextLower.index) return;
       try {
         const totals = await collectVideoInboundTotals(session.pc);
         if (cancelled || selectedVariantRef.current !== null) return;
@@ -387,7 +415,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
               consecutiveBadSamples = 0;
             }
             if (consecutiveBadSamples >= AUTO_QUALITY_SWITCH_SAMPLES) {
-              setSelectedVariant(encodedVariant.index);
+              setAutoFallbackVariant(nextLower.index);
               return;
             }
           }
@@ -402,12 +430,12 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [online, phase, selectedVariant, variants]);
+  }, [online, phase, selectedVariant, autoFallbackVariant, variants]);
 
   // Reset automatic reconnect budget when the target session changes.
   useEffect(() => {
     runtimeReconnectsRef.current = 0;
-  }, [whepUrl, online, selectedVariant]);
+  }, [whepUrl, online, effectiveVariant]);
 
   // Attach/detach the peer connection session. Runs on URL/variant/online
   // changes and tears the previous session down before reconnecting.
@@ -509,7 +537,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
     sessionFactoryImpl({
       whepUrl,
-      variantIndex: selectedVariant,
+      variantIndex: effectiveVariant,
       iceServers,
       signal: controller.signal,
     })
@@ -684,7 +712,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     };
     // The effect intentionally re-runs only for connection-relevant inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [whepUrl, online, selectedVariant, retryToken, sessionFactory]);
+  }, [whepUrl, online, effectiveVariant, retryToken, sessionFactory]);
 
   // Minimize latency applies real receiver-side playout limits. Setting
   // jitterBufferTarget (Chrome) and playoutDelayHint (Firefox/older Chrome) to
@@ -810,7 +838,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       const video = videoRef.current;
       if (video && video.playbackRate !== 1) video.playbackRate = 1;
     };
-  }, [latencyEnabled, phase, selectedVariant]);
+  }, [latencyEnabled, phase, effectiveVariant]);
 
   // Sample WebRTC stats at 1 Hz while the Stats for nerds panel is open.
   useEffect(() => {
@@ -1184,6 +1212,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             onGoLive: goLive,
             onTransportChange,
             onQualityChange: quality => {
+              setAutoFallbackVariant(null);
               if (quality === 'auto') {
                 setSelectedVariant(null);
                 return;

@@ -176,10 +176,10 @@ func TestEligibleForCopy(t *testing.T) {
 			reasons: []string{ReasonLevelUnsupported},
 		},
 		{
-			name:    "configured level lowers the copy cap",
-			source:  mutate(func(s *SourceInfo) { s.VideoLevel = "4.2" }),
-			cfg:     models.WebRTCConfig{H264Level: "4.0"},
-			reasons: []string{ReasonLevelUnsupported},
+			name:     "configured transcode level does not reject browser-safe copy source",
+			source:   mutate(func(s *SourceInfo) { s.VideoLevel = "5.1" }),
+			cfg:      models.WebRTCConfig{H264Profile: "main", H264Level: "4.2"},
+			eligible: true,
 		},
 		{
 			name:    "empty source metadata",

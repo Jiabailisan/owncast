@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -391,6 +392,44 @@ type MediaLeg struct {
 
 	wg        sync.WaitGroup
 	closeOnce sync.Once
+
+	// copySourceLevel records the ingest source's H.264 level (e.g. "5.1") for
+	// video-copy legs so WHEP answers advertise a level high enough for the
+	// copied bitstream even when the global transcode level cap is lower (e.g. 4.2).
+	copyLevelMu     sync.RWMutex
+	copySourceLevel string
+}
+
+// SetCopySourceLevel records the source H.264 level for a copy media leg.
+func (l *MediaLeg) SetCopySourceLevel(level string) {
+	if l == nil {
+		return
+	}
+	l.copyLevelMu.Lock()
+	l.copySourceLevel = strings.TrimSpace(level)
+	l.copyLevelMu.Unlock()
+}
+
+// copyLevel returns the H.264 level (major*10+minor) that a copy leg requires
+// in the WHEP answer SDP, preferring the configured source metadata and falling
+// back to live SPS level_idc when available.
+func (l *MediaLeg) copyLevel() (int, bool) {
+	if l == nil {
+		return 0, false
+	}
+	l.copyLevelMu.RLock()
+	raw := l.copySourceLevel
+	l.copyLevelMu.RUnlock()
+	if parsed, ok := parseH264Level(raw); ok && parsed > 0 {
+		return parsed, true
+	}
+	if l.videoForwarder != nil {
+		if sps, _ := l.videoForwarder.parameterSets(); len(sps) >= 4 && sps[3] > 0 && int(sps[3]) <= browserSafeMaxLevel {
+			return int(sps[3]), true
+		}
+	}
+
+	return 0, false
 }
 
 // OpenMediaLeg binds the two loopback UDP sockets for one WebRTC variant and

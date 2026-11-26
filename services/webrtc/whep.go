@@ -399,7 +399,7 @@ func (s *Service) createViewerSession(r *http.Request, clientIP string, variantI
 	}
 	reservationActive = false
 	owned = false
-	rewriteAnswerH264Level(peer.answer, s.Config())
+	rewriteAnswerH264LevelForLeg(peer.answer, s.Config(), s.mediaLeg(variantIndex))
 	log.Infof("webrtc: viewer session %s started for variant %d from %s", sess.id, variantIndex, sess.ip)
 
 	return sess, peer.answer, nil
@@ -414,10 +414,17 @@ var answerH264LevelPattern = regexp.MustCompile("profile-level-id=([0-9a-fA-F]{4
 // H.264 payload (42e01f -> 4d0033 causes "no codecs in common"), but accepts
 // the same profile with a higher level (42e033).
 func rewriteAnswerH264Level(answer *webrtc.SessionDescription, cfg models.WebRTCConfig) {
+	rewriteAnswerH264LevelForLeg(answer, cfg, nil)
+}
+
+// rewriteAnswerH264LevelForLeg mirrors rewriteAnswerH264Level while ensuring a
+// copy leg whose browser-safe source level (e.g. 5.1) exceeds the global
+// transcode level setting (e.g. 4.2) advertises at least the source's level.
+func rewriteAnswerH264LevelForLeg(answer *webrtc.SessionDescription, cfg models.WebRTCConfig, leg *MediaLeg) {
 	if answer == nil {
 		return
 	}
-	levelHex := h264LevelHex(cfg.H264Level, cfg.H264Profile)
+	levelHex := effectiveAnswerH264LevelHex(cfg, leg)
 	answer.SDP = answerH264LevelPattern.ReplaceAllStringFunc(answer.SDP, func(match string) string {
 		index := strings.Index(match, "profile-level-id=")
 		if index < 0 {
@@ -426,6 +433,26 @@ func rewriteAnswerH264Level(answer *webrtc.SessionDescription, cfg models.WebRTC
 		prefix := match[:index+len("profile-level-id=")+4]
 		return prefix + levelHex
 	})
+}
+
+func effectiveAnswerH264LevelHex(cfg models.WebRTCConfig, leg *MediaLeg) string {
+	baseHex := h264LevelHex(cfg.H264Level, cfg.H264Profile)
+	if leg == nil {
+		return baseHex
+	}
+	copyLevel, ok := leg.copyLevel()
+	if !ok || copyLevel <= 0 {
+		return baseHex
+	}
+	if copyLevel > browserSafeMaxLevel {
+		copyLevel = browserSafeMaxLevel
+	}
+	baseVal, err := strconv.ParseInt(baseHex, 16, 32)
+	if err != nil || copyLevel > int(baseVal) {
+		return fmt.Sprintf("%02x", copyLevel)
+	}
+
+	return baseHex
 }
 
 // negotiate creates the PeerConnection, adds the variant tracks and performs

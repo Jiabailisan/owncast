@@ -254,21 +254,19 @@ func normalizeProfileName(raw string) string {
 //     onMetaData) is not eligible: reordering breaks the browser jitter buffer.
 //  4. Resolution must be known, even in both dimensions and at most 4096x2160
 //     (4K UHD; the largest size browsers decode reliably at H.264 level 5.1).
-//  5. The H.264 level must be known and at most 5.1 (or the explicitly
-//     configured target level when that is lower).
+//  5. The H.264 level must be known and at most 5.1 (browserSafeMaxLevel).
 //
-// cfg supplies the configured H.264 profile/level: an explicit target level
-// lowers the copy level cap; the configured profile is only used for the
-// advertised-SDP warning in ResolveWebRTCLeg, not to reject browser-safe copy.
+// cfg supplies the configured H.264 profile/level for transcoded WebRTC legs:
+// neither the transcode profile nor the transcode level rejects a browser-safe
+// copy source (up to 5.1), so aligning transcoded legs with HLS (e.g. main/4.2
+// for 1080p60) does not force a browser-safe 1440p60 L5.1 passthrough tier to
+// transcode. Copy legs advertise their source level in the WHEP answer SDP.
 func EligibleForCopy(source SourceInfo, cfg models.WebRTCConfig) (bool, []string) {
 	if sourceIsEmpty(source) {
 		return false, []string{reasonf(ReasonNoSourceInfo, "source metadata is not available yet")}
 	}
 
 	maxLevel := browserSafeMaxLevel
-	if configured, ok := parseH264Level(cfg.H264Level); ok && configured < maxLevel && configured > 0 {
-		maxLevel = configured
-	}
 
 	reasons := make([]string, 0, 5)
 	reasons = append(reasons, codecCopyReasons(source.VideoCodec)...)

@@ -940,8 +940,17 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const navConnection =
     typeof navigator !== 'undefined'
-      ? (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+      ? (
+          navigator as Navigator & {
+            connection?: { saveData?: boolean; effectiveType?: string };
+          }
+        ).connection
       : undefined;
+  const preferLowInitial =
+    navConnection?.saveData === true ||
+    navConnection?.effectiveType === 'slow-2g' ||
+    navConnection?.effectiveType === '2g' ||
+    navConnection?.effectiveType === '3g';
   const startsInaudible = initiallyMuted || startedMutedByViewer;
   const autoplayMode = autoplayModeForSetting(autoplay, {
     prefersReducedMotion,
@@ -962,9 +971,16 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     muted: initiallyMuted,
     html5: {
       vhs: {
-        enableLowInitialPlaylist: true,
+        // High-quality-first Auto: start on the highest available rendition
+        // unless save-data or slow cellular is signaled, then let VHS ABR
+        // downgrade smoothly if real segment throughput cannot sustain it.
+        enableLowInitialPlaylist: preferLowInitial,
+        limitRenditionByPlayerDimensions: false,
         experimentalBufferBasedABR: true,
-        useNetworkInformationApi: true,
+        // Chromium caps navigator.connection.downlink at 10 Mbps, which would
+        // falsely exclude 12+ Mbps passthrough tiers on high-speed links.
+        useNetworkInformationApi: false,
+        ...(preferLowInitial ? {} : { bandwidth: 100_000_000 }),
         maxPlaylistRetries: 30,
       },
     },

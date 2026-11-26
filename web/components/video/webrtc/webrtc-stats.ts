@@ -574,3 +574,36 @@ export function chooseEncodedWebRTCVariant(
   const encoded = variants.find(variant => !/pass|copy|source/i.test(variant.name || ''));
   return encoded || null;
 }
+
+// chooseNextLowerWebRTCVariant returns the next lower-quality fallback variant
+// after currentVariantIndex in the server-ordered quality ladder (highest to
+// lowest). When the active variant is passthrough, this matches
+// chooseEncodedWebRTCVariant; when already on a transcoded tier, it steps down
+// to the next encoded tier if one exists.
+export function chooseNextLowerWebRTCVariant(
+  variants: WebRTCVariantInfo[] | undefined | null,
+  currentVariantIndex: number | null | undefined,
+): WebRTCVariantInfo | null {
+  if (!variants || variants.length === 0) return null;
+  const hasStructuredFlag = variants.some(variant => typeof variant.isPassthrough === 'boolean');
+  const isPassthroughVariant = (variant: WebRTCVariantInfo) =>
+    hasStructuredFlag
+      ? variant.isPassthrough === true
+      : /pass|copy|source/i.test(variant.name || '');
+
+  if (currentVariantIndex === null || currentVariantIndex === undefined) {
+    return chooseEncodedWebRTCVariant(variants);
+  }
+  const currentPos = variants.findIndex(variant => variant.index === currentVariantIndex);
+  if (currentPos === -1 || isPassthroughVariant(variants[currentPos])) {
+    const encoded = chooseEncodedWebRTCVariant(variants);
+    return encoded && encoded.index !== currentVariantIndex ? encoded : null;
+  }
+  for (let i = currentPos + 1; i < variants.length; i += 1) {
+    if (!isPassthroughVariant(variants[i]) && variants[i].index !== currentVariantIndex) {
+      return variants[i];
+    }
+  }
+
+  return null;
+}

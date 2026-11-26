@@ -27,3 +27,25 @@ func TestRewriteAnswerH264Level(t *testing.T) {
 		t.Fatalf("offered profile must be preserved for Firefox: %s", answer.SDP)
 	}
 }
+
+func TestRewriteAnswerH264LevelForCopyLegPreservesHigherSourceLevel(t *testing.T) {
+	cfg := models.WebRTCConfig{H264Profile: "main", H264Level: "4.2"}
+
+	// Copy leg carrying a 1440p60 Level 5.1 source raises the answer SDP level
+	// to 5.1 (0x33) even though transcoded legs are configured at Level 4.2 (0x2a).
+	copyLeg := &MediaLeg{}
+	copyLeg.SetCopySourceLevel("5.1")
+	copyAnswer := &webrtc.SessionDescription{SDP: "a=fmtp:116 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f"}
+	rewriteAnswerH264LevelForLeg(copyAnswer, cfg, copyLeg)
+	if !strings.Contains(copyAnswer.SDP, "profile-level-id=4d0033") {
+		t.Fatalf("copy leg answer did not raise level to source 5.1: %s", copyAnswer.SDP)
+	}
+
+	// Transcode leg (no copy source level) keeps the configured Level 4.2 (0x2a).
+	transcodeLeg := &MediaLeg{}
+	transcodeAnswer := &webrtc.SessionDescription{SDP: "a=fmtp:116 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f"}
+	rewriteAnswerH264LevelForLeg(transcodeAnswer, cfg, transcodeLeg)
+	if !strings.Contains(transcodeAnswer.SDP, "profile-level-id=4d002a") {
+		t.Fatalf("transcode leg answer did not honor configured 4.2: %s", transcodeAnswer.SDP)
+	}
+}

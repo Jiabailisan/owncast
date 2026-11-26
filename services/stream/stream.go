@@ -257,6 +257,12 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		webrtcCfg := s.configRepository.GetWebRTCConfig()
 		tr.SetSharedH264Profile(webrtcCfg.H264Profile)
 		tr.SetSharedH264Level(webrtcCfg.H264Level)
+		if source.Width > 0 && source.Height > 0 {
+			tr.SetSourceDetails(source.Width, source.Height, source.VideoBitrateKbps, source.FPS, source.VideoProfile, source.VideoLevel)
+		} else if broadcaster := s.GetBroadcaster(); broadcaster != nil {
+			details := broadcaster.StreamDetails
+			tr.SetSourceDetails(details.Width, details.Height, details.VideoBitrate, float64(details.VideoFramerate), details.VideoProfile, details.VideoLevel)
+		}
 		tr.SetMasterPlaylistWrittenCallback(s.handler.MasterPlaylistWritten)
 		purpose := []string{publicPipelineHLS}
 		if len(webrtc.outputs) > 0 {

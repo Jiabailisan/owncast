@@ -143,6 +143,11 @@ func (s *Service) openWebRTCLegs(
 		s.legsMu.Lock()
 		s.webRTCLegs = append(s.webRTCLegs, index)
 		s.legsMu.Unlock()
+		if decision.Copy && decision.Source.VideoLevel != "" {
+			if setter, ok := leg.(interface{ SetCopySourceLevel(string) }); ok {
+				setter.SetCopySourceLevel(decision.Source.VideoLevel)
+			}
+		}
 		legs = append(legs, leg)
 
 		outputs = append(outputs, transcoder.RTPOutput{

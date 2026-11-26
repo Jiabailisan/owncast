@@ -90,3 +90,66 @@ func TestSharedWriteMasterPlaylistInvokesCallbackAndUsesSharedLevel(t *testing.T
 		t.Fatalf("master playlist missing configured H.264 level 4.1 codec tag:\n%s", string(data))
 	}
 }
+
+func TestSharedWriteMasterPlaylistPopulatesPassthroughSourceMetadata(t *testing.T) {
+	origPath := config.HLSStoragePath
+	tmpDir := t.TempDir()
+	config.HLSStoragePath = tmpDir
+	t.Cleanup(func() { config.HLSStoragePath = origPath })
+
+	tr := &Transcoder{
+		codec:               getCodec("libx264"),
+		currentLatencyLevel: models.LatencyLevel{SecondsPerSegment: 2},
+		variants: []HLSVariant{
+			{
+				index:              0,
+				isVideoPassthrough: true,
+				isAudioPassthrough: true,
+			},
+			{
+				index:        1,
+				videoBitrate: 6000,
+				framerate:    60,
+				videoSize:    VideoSize{Width: 1920, Height: 1080},
+			},
+		},
+		rtpOutputs: []RTPOutput{
+			{
+				VariantIndex:     1,
+				VideoURL:         "rtp://127.0.0.1:5000",
+				AudioURL:         "rtp://127.0.0.1:5002",
+				VideoPayloadType: 96,
+				AudioPayloadType: 111,
+				VideoBitrateKbps: 6000 - 192,
+				GOPFrames:        120,
+				Framerate:        60,
+				Scale:            "1920:1080",
+				H264Profile:      "main",
+				OpusBitrateKbps:  128,
+			},
+		},
+	}
+	tr.SetSharedH264Profile("main")
+	tr.SetSharedH264Level("4.2")
+	tr.SetSourceDetails(2560, 1440, 12000, 60, "constrained-high", "5.1")
+
+	tr.writeMasterPlaylist()
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, "stream.m3u8"))
+	if err != nil {
+		t.Fatalf("read master playlist: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "BANDWIDTH=12128000") {
+		t.Fatalf("passthrough missing source bitrate floor in master playlist:\n%s", content)
+	}
+	if !strings.Contains(content, "RESOLUTION=2560x1440") {
+		t.Fatalf("passthrough missing probed source resolution in master playlist:\n%s", content)
+	}
+	if !strings.Contains(content, "avc1.640033") {
+		t.Fatalf("passthrough should keep source high L5.1 codec tag:\n%s", content)
+	}
+	if !strings.Contains(content, "avc1.4d002a") {
+		t.Fatalf("transcoded variant should keep main L4.2 codec tag:\n%s", content)
+	}
+}

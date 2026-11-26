@@ -3,6 +3,7 @@
 
 import {
   chooseEncodedWebRTCVariant,
+  chooseNextLowerWebRTCVariant,
   collectVideoInboundTotals,
   collectWebRTCStatsPanel,
   formatWebRTCResolution,
@@ -311,6 +312,17 @@ describe('auto WebRTC quality fallback', () => {
         { index: 1, name: 'Source Encoded' },
       ])?.index,
     ).toBe(1);
+  });
+
+  test('chooseNextLowerWebRTCVariant steps down through passthrough and lower encoded tiers', () => {
+    const ladder = [
+      { index: 0, name: 'Passthrough', isPassthrough: true },
+      { index: 1, name: '1080p60@6Mbps', isPassthrough: false },
+      { index: 2, name: '720p30@2.5Mbps', isPassthrough: false },
+    ];
+    expect(chooseNextLowerWebRTCVariant(ladder, 0)?.index).toBe(1);
+    expect(chooseNextLowerWebRTCVariant(ladder, 1)?.index).toBe(2);
+    expect(chooseNextLowerWebRTCVariant(ladder, 2)).toBeNull();
   });
 
   test('collectVideoInboundTotals aggregates inbound video counters', async () => {

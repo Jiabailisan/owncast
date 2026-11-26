@@ -32,6 +32,10 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	webrtcCfg := s.configRepository.GetWebRTCConfig()
 	hls.SetSharedH264Profile(webrtcCfg.H264Profile)
 	hls.SetSharedH264Level(webrtcCfg.H264Level)
+	if broadcaster := s.GetBroadcaster(); broadcaster != nil {
+		details := broadcaster.StreamDetails
+		hls.SetSourceDetails(details.Width, details.Height, details.VideoBitrate, float64(details.VideoFramerate), details.VideoProfile, details.VideoLevel)
+	}
 	hls.SetPurpose([]string{publicPipelineHLS})
 	hls.SetInputFormat(session.InputFormat())
 	// The HLS process needs the flag too: its var_stream_map and tee select

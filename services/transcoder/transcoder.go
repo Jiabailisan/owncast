@@ -49,6 +49,16 @@ type Transcoder struct {
 	// affects the advertised CODECS attribute of the HLS master playlist.
 	sharedH264Level string
 
+	// Source stream metadata probed at ingest, used to populate accurate
+	// RESOLUTION, FRAME-RATE, BANDWIDTH and CODECS attributes for HLS
+	// passthrough variants in the master playlist.
+	sourceWidth            int
+	sourceHeight           int
+	sourceVideoBitrateKbps int
+	sourceFPS              float64
+	sourceVideoProfile     string
+	sourceVideoLevel       string
+
 	// cfg supplies runtime values (the HLS listener port discovered at
 	// startup, the debug flag, the log directory) needed when building
 	// the ffmpeg command line.
@@ -840,6 +850,18 @@ func (v *HLSVariant) getAudioQualityString() []string {
 // CODECS attribute. "auto" (or empty) leaves the level to the encoder.
 func (t *Transcoder) SetSharedH264Level(level string) {
 	t.sharedH264Level = level
+}
+
+// SetSourceDetails records probed ingest stream metadata so HLS passthrough
+// variants can declare their actual resolution, frame rate, bitrate and H.264
+// profile/level in the master playlist.
+func (t *Transcoder) SetSourceDetails(width, height, videoBitrateKbps int, fps float64, profile, level string) {
+	t.sourceWidth = width
+	t.sourceHeight = height
+	t.sourceVideoBitrateKbps = videoBitrateKbps
+	t.sourceFPS = fps
+	t.sourceVideoProfile = profile
+	t.sourceVideoLevel = level
 }
 
 // SetMasterPlaylistWrittenCallback registers a hook invoked after the shared

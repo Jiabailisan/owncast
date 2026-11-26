@@ -2,6 +2,7 @@ package transcoder
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"strconv"
@@ -422,8 +423,12 @@ func (t *Transcoder) writeMasterPlaylist() {
 		}
 
 		if variant.isVideoPassthrough {
-			if passthroughFloorKbps > 0 {
-				peakKbps = passthroughFloorKbps + audioBitrateKbpsFor(variant)
+			effectiveFloor := passthroughFloorKbps
+			if t.sourceVideoBitrateKbps > effectiveFloor {
+				effectiveFloor = t.sourceVideoBitrateKbps
+			}
+			if effectiveFloor > 0 {
+				peakKbps = effectiveFloor + audioBitrateKbpsFor(variant)
 			}
 			averageKbps = peakKbps
 		}
@@ -433,13 +438,19 @@ func (t *Transcoder) writeMasterPlaylist() {
 			"AVERAGE-BANDWIDTH=" + strconv.Itoa(averageKbps*1000),
 		}
 		// A passthrough rendition is not scaled, so videoSize only restates the
-		// configured scaler inputs: advertising it claimed a resolution the copied
-		// segments do not have (854x480 announced while the frames were 1280x720).
-		if !variant.isVideoPassthrough && variant.videoSize.Width > 0 && variant.videoSize.Height > 0 {
+		// configured scaler inputs; emit the actual probed source resolution
+		// instead when available so HLS players (and ABR) recognize its size.
+		if variant.isVideoPassthrough {
+			if t.sourceWidth > 0 && t.sourceHeight > 0 {
+				attributes = append(attributes, fmt.Sprintf("RESOLUTION=%dx%d", t.sourceWidth, t.sourceHeight))
+			}
+		} else if variant.videoSize.Width > 0 && variant.videoSize.Height > 0 {
 			attributes = append(attributes, fmt.Sprintf("RESOLUTION=%dx%d", variant.videoSize.Width, variant.videoSize.Height))
 		}
 		if variant.framerate > 0 {
 			attributes = append(attributes, "FRAME-RATE="+strconv.Itoa(variant.framerate))
+		} else if variant.isVideoPassthrough && t.sourceFPS > 0 {
+			attributes = append(attributes, "FRAME-RATE="+strconv.Itoa(int(math.Round(t.sourceFPS))))
 		}
 		attributes = append(attributes, "CODECS=\""+t.masterPlaylistCodecs(variant)+"\"")
 		builder.WriteString("#EXT-X-STREAM-INF:" + strings.Join(attributes, ",") + "\n")
@@ -468,14 +479,28 @@ const (
 // resolution and frame rate, which is what hardware encoders pick.
 func (t *Transcoder) masterPlaylistCodecs(variant HLSVariant) string {
 	profile := strings.ToLower(strings.TrimSpace(t.sharedH264Profile))
+	if variant.isVideoPassthrough && strings.TrimSpace(t.sourceVideoProfile) != "" {
+		profile = strings.ToLower(strings.TrimSpace(t.sourceVideoProfile))
+	}
 	profileHex := h264ProfileHexMain
 	switch profile {
-	case h264ProfileBaseline:
+	case h264ProfileBaseline, "constrained-baseline":
 		profileHex = h264ProfileHexBaseline
-	case h264ProfileHigh:
+	case h264ProfileHigh, "constrained-high":
 		profileHex = h264ProfileHexHigh
 	}
-	levelHex, ok := parseSharedH264LevelHex(t.sharedH264Level)
+	var levelHex string
+	var ok bool
+	if variant.isVideoPassthrough {
+		levelHex, ok = parseSharedH264LevelHex(t.sourceVideoLevel)
+		if !ok && t.sourceWidth > 0 && t.sourceHeight > 0 && t.sourceFPS > 0 {
+			levelHex = estimatedH264LevelHex(t.sourceWidth, t.sourceHeight, int(math.Round(t.sourceFPS)))
+			ok = levelHex != ""
+		}
+	}
+	if !ok {
+		levelHex, ok = parseSharedH264LevelHex(t.sharedH264Level)
+	}
 	if !ok {
 		levelHex = estimatedH264LevelHex(variant.videoSize.Width, variant.videoSize.Height, variant.framerate)
 		if levelHex == "" {
