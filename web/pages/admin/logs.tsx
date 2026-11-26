@@ -20,12 +20,9 @@ export default function Logs() {
   };
 
   useEffect(() => {
-    let getStatusIntervalId = null;
-
-    setInterval(getInfo, FETCH_INTERVAL);
     getInfo();
 
-    getStatusIntervalId = setInterval(getInfo, FETCH_INTERVAL);
+    const getStatusIntervalId = setInterval(getInfo, FETCH_INTERVAL);
     // returned function will be called on component unmount
     return () => {
       clearInterval(getStatusIntervalId);
