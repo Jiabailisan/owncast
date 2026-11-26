@@ -91,7 +91,21 @@ func TestRequireAdminAuthRequiresCSRFHeaderWithoutOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Session cookies are strictly scoped to plugin admin iframes and must be
+	// rejected on /api/admin/* endpoints to prevent same-origin plugin/public JS
+	// from escalating to full admin API access.
 	req = httptest.NewRequest(http.MethodPost, "http://owncast.example/api/admin/config", nil)
+	req.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: token})
+	req.Header.Set(adminCSRFHeader, "1")
+	rec = httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected cookie-only /api/admin/* request to return %d, got %d", http.StatusUnauthorized, rec.Code)
+	}
+
+	// Non-API admin/plugin routes still accept the session cookie and enforce CSRF
+	// on originless mutations.
+	req = httptest.NewRequest(http.MethodPost, "http://owncast.example/plugins/demo/admin/action", nil)
 	req.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: token})
 	rec = httptest.NewRecorder()
 	handler(rec, req)
@@ -99,7 +113,7 @@ func TestRequireAdminAuthRequiresCSRFHeaderWithoutOrigin(t *testing.T) {
 		t.Fatalf("expected authenticated request without CSRF header to return %d, got %d", http.StatusForbidden, rec.Code)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "http://owncast.example/api/admin/config", nil)
+	req = httptest.NewRequest(http.MethodPost, "http://owncast.example/plugins/demo/admin/action", nil)
 	req.AddCookie(&http.Cookie{Name: adminSessionCookieName, Value: token})
 	req.Header.Set(adminCSRFHeader, "1")
 	rec = httptest.NewRecorder()

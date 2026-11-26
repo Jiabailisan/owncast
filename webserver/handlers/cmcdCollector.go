@@ -15,6 +15,11 @@ import (
 // object or an array of batched reports, keyed by CMCD key names) or as a
 // CMCD query parameter in dictionary payload syntax. Players embedded on
 // other origins beacon here, so CORS is fully enabled.
+// maxCmcdReportsPerRequest bounds batched JSON reports per POST so an
+// unauthenticated caller cannot insert hundreds of synthetic session IDs in a
+// single request.
+const maxCmcdReportsPerRequest = 16
+
 func (h *Handlers) ReportCmcd(w http.ResponseWriter, r *http.Request) {
 	middleware.EnableCors(w)
 
@@ -34,6 +39,10 @@ func (h *Handlers) ReportCmcd(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
+	}
+
+	if len(reports) > maxCmcdReportsPerRequest {
+		reports = reports[:maxCmcdReportsPerRequest]
 	}
 
 	viewerID := utils.GenerateClientIDFromRequest(r)

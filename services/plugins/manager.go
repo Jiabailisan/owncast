@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -119,6 +120,9 @@ func (l *Loaded) fireCorrupted() {
 // leak. Callers that hold p.mu may call this safely; the reload fires in a
 // goroutine after the method returns.
 func (l *Loaded) callPlugin(ctx context.Context, name string, data []byte) (uint32, []byte, error) {
+	if l == nil || l.plugin == nil {
+		return 0, nil, errors.New("plugin is not loaded")
+	}
 	rc, out, err := l.plugin.CallWithContext(ctx, name, data)
 	if err != nil && isWasmCorrupted(err) {
 		l.fireCorrupted()

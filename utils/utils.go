@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	stdhtml "html"
 	"io"
 	"math"
 	"math/rand"
@@ -173,7 +174,8 @@ func RenderSimpleMarkdown(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	var buf bytes.Buffer
 	if err := markdown.Convert([]byte(trimmed), &buf); err != nil {
-		log.Fatalln(err)
+		log.Errorf("error rendering simple markdown: %v", err)
+		return stdhtml.EscapeString(trimmed)
 	}
 
 	return strings.TrimSpace(buf.String())
@@ -202,7 +204,8 @@ func RenderPageContentMarkdown(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	var buf bytes.Buffer
 	if err := markdown.Convert([]byte(trimmed), &buf); err != nil {
-		log.Fatalln(err)
+		log.Errorf("error rendering page content markdown: %v", err)
+		return stdhtml.EscapeString(trimmed)
 	}
 
 	return strings.TrimSpace(buf.String())

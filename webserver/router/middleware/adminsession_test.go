@@ -77,8 +77,8 @@ func TestEnsureAdminSessionCookie_SetsWhenAbsent(t *testing.T) {
 	if cookie.SameSite != http.SameSiteLaxMode {
 		t.Errorf("cookie SameSite = %v want %v", cookie.SameSite, http.SameSiteLaxMode)
 	}
-	if cookie.Path != "/" {
-		t.Errorf("cookie Path = %q want %q", cookie.Path, "/")
+	if cookie.Path != "/plugins/" {
+		t.Errorf("cookie Path = %q want %q", cookie.Path, "/plugins/")
 	}
 	if !m.adminSessions.valid(cookie.Value) {
 		t.Error("minted cookie value should validate against store")

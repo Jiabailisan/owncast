@@ -39,7 +39,10 @@ func streamOutputVariantsForAdmin(variants []models.StreamOutputVariant) []model
 
 func (a *Admin) GetServerConfig(w http.ResponseWriter, r *http.Request) {
 	configRepository := a.configRepository
-	ffmpeg := utils.ValidatedFfmpegPath(configRepository.GetFfMpegPath())
+	ffmpeg, err := utils.FindFfmpegPath(configRepository.GetFfMpegPath())
+	if err != nil {
+		log.Warnln("Unable to locate ffmpeg while serving admin server config:", err)
+	}
 	usernameBlocklist := configRepository.GetForbiddenUsernameList()
 	usernameSuggestions := configRepository.GetSuggestedUsernamesList()
 

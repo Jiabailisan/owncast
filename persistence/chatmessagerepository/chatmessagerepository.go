@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/owncast/owncast/models"
@@ -14,7 +15,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const maxBacklogNumber = 50 // Return max number of messages in history request
+const (
+	maxBacklogNumber           = 50   // Return max number of messages in history request
+	maxModerationHistoryNumber = 1000 // Cap admin moderation history query size
+)
 
 type ChatMessageRepository interface {
 	SaveUserMessage(event events.UserMessageEvent)
@@ -30,7 +34,14 @@ type ChatMessageRepository interface {
 
 type SqlChatMessageRepository struct {
 	datastore    *datastore.Datastore
+	cacheMu      sync.RWMutex
 	historyCache *[]interface{}
+}
+
+func (r *SqlChatMessageRepository) invalidateHistoryCache() {
+	r.cacheMu.Lock()
+	r.historyCache = nil
+	r.cacheMu.Unlock()
 }
 
 // New will create a new instance of the ChatMessageRepository.
@@ -53,9 +64,7 @@ func (r *SqlChatMessageRepository) SaveFederatedAction(event events.FediverseEng
 
 // nolint: unparam
 func (r *SqlChatMessageRepository) SaveEvent(id string, userID *string, body string, eventType string, hidden *time.Time, timestamp time.Time, image *string, link *string, title *string, subtitle *string) {
-	defer func() {
-		r.historyCache = nil
-	}()
+	defer r.invalidateHistoryCache()
 
 	tx, err := r.datastore.DB.Begin()
 	if err != nil {
@@ -273,9 +282,13 @@ func getChat(rows *sql.Rows) ([]interface{}, error) {
 
 // GetChatModerationHistory will return all the chat messages suitable for moderation purposes.
 func (r *SqlChatMessageRepository) GetChatModerationHistory() []interface{} {
+	r.cacheMu.RLock()
 	if r.historyCache != nil {
-		return *r.historyCache
+		cached := append([]interface{}(nil), (*r.historyCache)...)
+		r.cacheMu.RUnlock()
+		return cached
 	}
+	r.cacheMu.RUnlock()
 
 	tx, err := r.datastore.DB.Begin()
 	if err != nil {
@@ -285,21 +298,21 @@ func (r *SqlChatMessageRepository) GetChatModerationHistory() []interface{} {
 
 	defer tx.Rollback() // nolint
 
-	// Get all messages regardless of visibility
-	query := "SELECT messages.id, user_id, body, title, subtitle, image, link, eventType, hidden_at, timestamp, display_name, display_color, created_at, disabled_at, previous_names, namechanged_at, authenticated_at, scopes, type FROM messages INNER JOIN users ON messages.user_id = users.id ORDER BY timestamp DESC"
+	// Get recent messages regardless of visibility, bounded so moderation queries
+	// cannot exhaust memory on long-lived instances.
+	query := "SELECT messages.id, user_id, body, title, subtitle, image, link, eventType, hidden_at, timestamp, display_name, display_color, created_at, disabled_at, previous_names, namechanged_at, authenticated_at, scopes, type FROM messages INNER JOIN users ON messages.user_id = users.id ORDER BY timestamp DESC LIMIT ?"
 	stmt, err := tx.Prepare(query)
 	if err != nil {
 		log.Errorln("error fetching chat moderation history", err)
 		return nil
 	}
+	defer stmt.Close()
 
-	rows, err := stmt.Query()
+	rows, err := stmt.Query(maxModerationHistoryNumber)
 	if err != nil {
 		log.Errorln("error fetching chat moderation history", err)
 		return nil
 	}
-
-	defer stmt.Close()
 	defer rows.Close()
 
 	result, err := getChat(rows)
@@ -309,12 +322,15 @@ func (r *SqlChatMessageRepository) GetChatModerationHistory() []interface{} {
 		return nil
 	}
 
-	r.historyCache = &result
-
 	if err = tx.Commit(); err != nil {
 		log.Errorln("error fetching chat moderation history", err)
 		return nil
 	}
+
+	r.cacheMu.Lock()
+	cached := append([]interface{}(nil), result...)
+	r.historyCache = &cached
+	r.cacheMu.Unlock()
 
 	return result
 }
@@ -392,9 +408,7 @@ func (r *SqlChatMessageRepository) GetMessagesFromUser(userID string) ([]events.
 
 // GetMessageIdsForUserID will return the chat message IDs for a specific user.
 func (r *SqlChatMessageRepository) GetMessageIdsForUserID(userID string) ([]string, error) {
-	defer func() {
-		r.historyCache = nil
-	}()
+	defer r.invalidateHistoryCache()
 
 	tx, err := r.datastore.DB.Begin()
 	if err != nil {
@@ -444,9 +458,7 @@ func (r *SqlChatMessageRepository) GetMessageIdsForUserID(userID string) ([]stri
 }
 
 func (r *SqlChatMessageRepository) SetMessageVisibilityForMessageIDs(messageIDs []string, visible bool) error {
-	defer func() {
-		r.historyCache = nil
-	}()
+	defer r.invalidateHistoryCache()
 
 	if len(messageIDs) == 0 {
 		return nil

@@ -4,10 +4,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
 )
+
+// maxAdminSessions bounds the in-memory admin session map so repeated Basic Auth
+// requests from clients that drop cookies cannot grow memory or GC cost unboundedly.
+const maxAdminSessions = 256
 
 // adminSessionCookieName is the cookie carrying an opaque admin session
 // token. It's sent on every request to the Owncast origin, so the host's
@@ -46,11 +51,39 @@ func (s *adminSessionStore) mint() (string, error) {
 	}
 	token := hex.EncodeToString(buf)
 
+	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions[token] = time.Now().Add(adminSessionTTL)
-	s.gcLocked(time.Now())
+	s.gcLocked(now)
+	if len(s.sessions) >= maxAdminSessions {
+		// Evict the oldest-expiring session to keep the store strictly bounded.
+		var oldestToken string
+		var oldestExpiry time.Time
+		for k, exp := range s.sessions {
+			if oldestToken == "" || exp.Before(oldestExpiry) {
+				oldestToken = k
+				oldestExpiry = exp
+			}
+		}
+		if oldestToken != "" {
+			delete(s.sessions, oldestToken)
+		}
+	}
+	s.sessions[token] = now.Add(adminSessionTTL)
 	return token, nil
+}
+
+// shouldPrimeAdminSessionCookie returns true on routes where the admin UI boots
+// or opens plugin admin views, avoiding per-poll session minting on /api/admin/*
+// endpoints that do not receive the /plugins/-scoped cookie.
+func shouldPrimeAdminSessionCookie(reqPath string) bool {
+	cleaned := path.Clean(reqPath)
+	return cleaned == "/admin" ||
+		strings.HasPrefix(cleaned, "/admin/") ||
+		cleaned == "/api/admin/plugins" ||
+		strings.HasPrefix(cleaned, "/api/admin/plugins/") ||
+		cleaned == "/api/admin/serverconfig" ||
+		strings.HasPrefix(cleaned, "/plugins/")
 }
 
 // valid reports whether token is a currently-active session. An unknown
@@ -128,7 +161,10 @@ func (m *Middleware) ensureAdminSessionCookie(w http.ResponseWriter, r *http.Req
 	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: see comment above
 		Name:     adminSessionCookieName,
 		Value:    token,
-		Path:     "/",
+		// Scope the session cookie strictly to /plugins/ so browsers only send
+		// it to embedded plugin admin iframes and NEVER automatically attach it
+		// to same-origin /api/admin/* calls from untrusted plugin or /public/ JS.
+		Path:     "/plugins/",
 		MaxAge:   int(adminSessionTTL.Seconds()),
 		HttpOnly: true,
 		Secure:   secure,

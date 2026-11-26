@@ -19,6 +19,8 @@ func (h *Handlers) ReportPlaybackMetrics(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+
 	var request struct {
 		Bandwidth             *float64 `json:"bandwidth"`
 		Latency               *float64 `json:"latency"`

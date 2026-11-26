@@ -71,9 +71,9 @@ func TestSameActorOrigin(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "same host different path",
+			name:     "same host different path is rejected to prevent cross-account impersonation",
 			actorIRI: "https://remote.example/federation/user/someoneelse",
-			want:     true,
+			want:     false,
 		},
 		{
 			name:     "same host case-insensitive",

@@ -18,6 +18,7 @@ import (
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/config/settings"
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/cache"
 	"github.com/owncast/owncast/static"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/router/middleware"
@@ -182,6 +183,7 @@ func (h *Handlers) handleScraperMetadataPage(w http.ResponseWriter, r *http.Requ
 	configRepository := h.configRepository
 	scheme := "http"
 	host := r.Host
+	hasConfiguredSiteURL := false
 	if siteURL := strings.TrimSpace(configRepository.GetServerURL()); siteURL != "" {
 		if parsed, err := url.Parse(siteURL); err == nil {
 			if parsed.Scheme != "" {
@@ -191,21 +193,27 @@ func (h *Handlers) handleScraperMetadataPage(w http.ResponseWriter, r *http.Requ
 			// header so spoofed bot requests cannot poison the shared metadata cache.
 			if parsed.Host != "" {
 				host = parsed.Host
+				hasConfiguredSiteURL = true
 			}
 		}
 	}
 
-	cacheKey := "bot-scraper-html:" + scheme + "://" + host
-	cacheHtmlExpiration := time.Duration(60) * time.Second
-	c := h.cache.GetOrCreate(cacheKey, cacheHtmlExpiration)
-
-	cachedHtml := c.Get(cacheKey)
-	if cachedHtml != nil {
-		middleware.SetCachingHeaders(w, r)
-		w.Header().Set("ETag", fmt.Sprintf("%x", md5.Sum(cachedHtml))) // nolint:gosec
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(cachedHtml)
-		return
+	// Only cache under a single fixed cache container when ServerURL is configured;
+	// creating per-Host caches via GetOrCreate(dynamicKey) leaks caches and
+	// goroutines indefinitely under spoofed Host headers.
+	cacheKey := scheme + "://" + host
+	var c *cache.Instance
+	if hasConfiguredSiteURL {
+		cacheHtmlExpiration := time.Duration(60) * time.Second
+		c = h.cache.GetOrCreate("bot-scraper-html", cacheHtmlExpiration)
+		cachedHtml := c.Get(cacheKey)
+		if cachedHtml != nil {
+			middleware.SetCachingHeaders(w, r)
+			w.Header().Set("ETag", fmt.Sprintf("%x", md5.Sum(cachedHtml))) // nolint:gosec
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(cachedHtml)
+			return
+		}
 	}
 
 	tmpl, err := static.GetBotMetadataTemplate()
@@ -246,7 +254,9 @@ func (h *Handlers) handleScraperMetadataPage(w http.ResponseWriter, r *http.Requ
 	if err := tmpl.Execute(&b, metadata); err != nil {
 		log.Errorln(err)
 	}
-	c.Set(cacheKey, b.Bytes())
+	if c != nil {
+		c.Set(cacheKey, b.Bytes())
+	}
 
 	// Set a cache header
 	middleware.SetCachingHeaders(w, r)

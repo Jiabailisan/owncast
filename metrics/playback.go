@@ -36,8 +36,17 @@ func (s *Service) handlePlaybackPolling() {
 // playback metrics, which suppresses server-derived observation for it —
 // the client's own measurements are richer.
 func (s *Service) RegisterSelfReportingClient(clientID string) {
+	if clientID == "" {
+		return
+	}
 	s.metrics.m.Lock()
 	defer s.metrics.m.Unlock()
+	if _, exists := s.selfReportingClients[clientID]; !exists && len(s.selfReportingClients) >= maxTrackedPlaybackClients {
+		s.pruneSelfReportingClients()
+		if len(s.selfReportingClients) >= maxTrackedPlaybackClients {
+			return
+		}
+	}
 	s.selfReportingClients[clientID] = time.Now()
 }
 
@@ -94,7 +103,7 @@ func (s *Service) RegisterUnmeasurableServerSample(clientID, viewerID, status st
 		ClientID: clientID,
 		ViewerID: viewerID,
 	})
-	if state.IsSelfReporting() {
+	if state == nil || state.IsSelfReporting() {
 		return
 	}
 	state.ServerMeasurementStatus = status
@@ -109,6 +118,9 @@ func (s *Service) RegisterPlaybackReport(report PlaybackReport) {
 	defer s.metrics.m.Unlock()
 
 	state := s.clientPlaybackState(report)
+	if state == nil {
+		return
+	}
 	if report.ClientReported {
 		state.ServerMeasurementStatus = ""
 		if report.PlayerState != "" {

@@ -2210,13 +2210,24 @@ func toHostUserPtr(u *models.User) *plugins.HostUser {
 	return &hu
 }
 
+// maxPluginUploadAssetBytes caps single public asset uploads from plugins.
+const maxPluginUploadAssetBytes = 10 << 20 // 10 MiB
+
 // uploadPluginAsset writes a plugin upload under the public files directory
 // and returns the URL it is served at. Names are flattened to their base to
-// prevent path traversal. S3-backed storage is a follow-up.
+// prevent path traversal and active web document types are rejected so uploaded
+// assets cannot execute scripts on the Owncast origin.
 func uploadPluginAsset(cfg configrepository.ConfigRepository, pluginName, name string, data []byte) (string, error) {
+	if len(data) > maxPluginUploadAssetBytes {
+		return "", fmt.Errorf("upload exceeds maximum size of %d bytes", maxPluginUploadAssetBytes)
+	}
 	safeName := filepath.Base(filepath.Clean("/" + name))
 	if safeName == "." || safeName == "/" || safeName == "" {
 		return "", fmt.Errorf("invalid upload name %q", name)
+	}
+	switch strings.ToLower(filepath.Ext(safeName)) {
+	case ".html", ".htm", ".xhtml", ".shtml", ".svg", ".svgz", ".xml", ".js", ".mjs", ".cjs", ".wasm":
+		return "", fmt.Errorf("disallowed upload file extension %q", filepath.Ext(safeName))
 	}
 	dir := filepath.Join(config.PublicFilesPath, "plugins", pluginName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

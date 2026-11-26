@@ -104,15 +104,44 @@ func iriFromRawActor(raw json.RawMessage) (string, error) {
 	return "", errors.New("unable to determine actor IRI from activity")
 }
 
-// sameActorOrigin reports whether the activity actor IRI and the verified key
-// owner share the same host. Cross-host mismatches are rejected, which is what
-// prevents one server from forging activities as another.
+// sameActorOrigin reports whether the activity actor IRI matches the verified
+// signing key owner's canonical actor IRI (scheme, host, and path). Requiring
+// exact actor binding prevents one user on a multi-user Fediverse instance from
+// forging activities or bypassing actor blocks on behalf of another user on the
+// same host.
+func canonicalPort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	default:
+		return ""
+	}
+}
+
 func sameActorOrigin(actorIRI string, keyOwner *url.URL) bool {
-	actor, err := url.Parse(actorIRI)
+	if keyOwner == nil {
+		return false
+	}
+	actor, err := url.Parse(strings.TrimSpace(actorIRI))
 	if err != nil {
 		return false
 	}
-	return actor.Hostname() != "" && strings.EqualFold(actor.Hostname(), keyOwner.Hostname())
+	if actor.Hostname() == "" || keyOwner.Hostname() == "" {
+		return false
+	}
+	if !strings.EqualFold(actor.Scheme, keyOwner.Scheme) ||
+		!strings.EqualFold(actor.Hostname(), keyOwner.Hostname()) ||
+		canonicalPort(actor) != canonicalPort(keyOwner) {
+		return false
+	}
+	actorPath := strings.TrimRight(actor.Path, "/")
+	ownerPath := strings.TrimRight(keyOwner.Path, "/")
+	return actorPath == ownerPath && actor.RawQuery == keyOwner.RawQuery
 }
 
 // maxRequestDateAge / maxRequestDateSkew bound how far an inbound request's

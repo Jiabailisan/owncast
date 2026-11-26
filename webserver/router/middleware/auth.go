@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -41,19 +42,34 @@ const (
 	developmentAdminOrigin = "http://localhost:3000"
 )
 
-// IsAdminRequest reports whether r carries valid admin credentials. The
-// Owncast admin UI sends Basic Auth on every API call; embedded contexts
-// that cannot inject a custom Authorization header (notably plugin admin
-// iframes) authenticate via the admin session cookie instead. Shared by
-// RequireAdminAuth and any caller that needs the same check without
-// rejecting the request (e.g. a handler filling an "authenticated"
-// boolean on a downstream payload).
-func (m *Middleware) IsAdminRequest(r *http.Request) bool {
+// isAdminBasicAuth checks HTTP Basic Auth credentials against the configured
+// admin password.
+func (m *Middleware) isAdminBasicAuth(r *http.Request) bool {
+	if m.configRepository == nil {
+		return false
+	}
 	if user, pass, ok := r.BasicAuth(); ok {
 		if subtle.ConstantTimeCompare([]byte(user), []byte("admin")) == 1 &&
 			utils.CompareHash(m.configRepository.GetAdminPassword(), pass) == nil {
 			return true
 		}
+	}
+	return false
+}
+
+// IsAdminRequest reports whether r carries valid admin credentials. The
+// Owncast admin UI sends Basic Auth on every API call; embedded contexts
+// that cannot inject a custom Authorization header (notably plugin admin
+// iframes under /plugins/) authenticate via the admin session cookie instead.
+func (m *Middleware) IsAdminRequest(r *http.Request) bool {
+	if m.isAdminBasicAuth(r) {
+		return true
+	}
+	// Strictly allowlist plugin routes for the iframe session cookie so
+	// same-origin plugin or /public/ scripts can never authenticate to
+	// /api/admin/* or /admin/* without Basic Auth credentials.
+	if !strings.HasPrefix(path.Clean(r.URL.Path), "/plugins/") {
+		return false
 	}
 	return m.hasValidAdminSessionCookie(r)
 }
@@ -143,11 +159,12 @@ func (m *Middleware) RequireAdminAuth(handler http.HandlerFunc) http.HandlerFunc
 			return
 		}
 
-		// Prime the admin session cookie if the request authenticated via
-		// Basic Auth and doesn't already carry a valid cookie. No-op when
-		// the cookie is already fresh, so most admin API calls don't pay
-		// for it (and don't rotate the token unnecessarily).
-		m.ensureAdminSessionCookie(w, r)
+		// Only prime the /plugins/-scoped session cookie on admin entry / plugin
+		// routes so periodic /api/admin/* status polls (which intentionally do not
+		// send the /plugins/ cookie back) do not mint a fresh session every 2s.
+		if shouldPrimeAdminSessionCookie(r.URL.Path) {
+			m.ensureAdminSessionCookie(w, r)
+		}
 
 		handler(w, r)
 	}

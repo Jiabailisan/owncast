@@ -130,9 +130,15 @@ func (s *Service) ServerObservationFor(viewerID string) ServerObservation {
 	return observation
 }
 
+// maxTrackedPlaybackClients bounds the number of concurrent playback client
+// states retained in memory between 2-minute prune passes so unauthenticated
+// CMCD/playback floods cannot exhaust memory.
+const maxTrackedPlaybackClients = 10000
+
 // clientPlaybackState returns the live state for a report's client,
 // creating it if this is the client's first measurement, and stamps it as
-// updated. Callers must hold s.metrics.m.
+// updated. Callers must hold s.metrics.m. Returns nil if the tracking table is
+// at capacity for a new unknown client.
 func (s *Service) clientPlaybackState(report PlaybackReport) *ClientPlaybackState {
 	now := time.Now()
 
@@ -142,6 +148,12 @@ func (s *Service) clientPlaybackState(report PlaybackReport) *ClientPlaybackStat
 	// new session fresh here rather than carrying the old session's
 	// counters and last known values into it.
 	if !ok || now.Sub(state.LastUpdate) >= playbackClientStaleTimeout {
+		if !ok && len(s.clientPlayback) >= maxTrackedPlaybackClients {
+			s.prunePlaybackClients()
+			if len(s.clientPlayback) >= maxTrackedPlaybackClients {
+				return nil
+			}
+		}
 		state = &ClientPlaybackState{ClientID: report.ClientID}
 		s.clientPlayback[report.ClientID] = state
 	}

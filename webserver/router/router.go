@@ -77,9 +77,18 @@ func StartWithContext(ctx context.Context, cfg *config.Config, enableVerboseLogg
 	// websocket
 	r.HandleFunc("/ws", h.HandleWebsocketConnection)
 
-	// serve files
-	fs := http.FileServer(http.Dir(config.PublicFilesPath))
-	r.Handle("/public/*", http.StripPrefix("/public/", fs))
+	// serve files under /public/ without directory listings and with hardened
+	// headers so uploaded assets can never execute scripts on this origin.
+	publicFS := http.FileServer(http.Dir(config.PublicFilesPath))
+	r.Handle("/public/*", http.StripPrefix("/public/", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "" || strings.HasSuffix(req.URL.Path, "/") {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "sandbox")
+		publicFS.ServeHTTP(w, req)
+	})))
 
 	// Return HLS video
 	r.HandleFunc("/hls/*", h.HandleHLSRequest)
