@@ -166,6 +166,9 @@ func (s *Service) transitionToOfflineVideoStreamContent() {
 	}
 
 	offlineTranscoder.SetInput(offlineFilePath)
+	offlineTranscoder.TranscoderCompleted = func(_ error) {
+		_ = os.Remove(offlineFilePath)
+	}
 	// Stop any previous offline process before starting a new one so repeated
 	// offline transitions cannot accumulate ffmpeg children.
 	s.transcoderMu.Lock()
@@ -627,6 +630,7 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 		log.Errorln(err)
 		return
 	}
+	defer func() { _ = os.Remove(offlineFilePath) }()
 
 	if s.yp != nil {
 		s.yp.Stop()

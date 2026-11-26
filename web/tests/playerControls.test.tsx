@@ -190,14 +190,15 @@ describe('PlayerControls overlay', () => {
       bufferSeconds: 3.2,
       liveLatencySeconds: 4.5,
     };
-    render(<PlayerControls {...makeProps({ statsOpen: true, stats })} />);
+    const callbacks = makeCallbacks();
+    render(<PlayerControls {...makeProps({ statsOpen: true, stats, callbacks })} />);
     expect(screen.getByRole('dialog', { name: 'Stats for nerds' })).toBeInTheDocument();
     expect(screen.getByText('hls/stream.m3u8')).toBeInTheDocument();
     expect(screen.getAllByText('1.20 Mbps').length).toBeGreaterThan(0);
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText(/bitrate chart/).length).toBe(2);
     fireEvent.click(screen.getByRole('button', { name: 'Close stats' }));
-    expect(makeProps().callbacks.onToggleStats).toBeDefined();
+    expect(callbacks.onToggleStats).toHaveBeenCalledTimes(1);
   });
 
   test('shows Collecting… before the first stats sample', () => {

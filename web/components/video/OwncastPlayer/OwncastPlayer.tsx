@@ -189,12 +189,17 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const qualitiesRef = useRef<VideoQuality[]>([]);
   // HLS quality is intentionally NOT persisted (reference behavior).
   const [selectedQuality, setSelectedQuality] = useState('auto');
+  const selectedQualityRef = useRef('auto');
   // The variant actually playing, so "Auto" can show which rendition the
   // player settled on.
   const [activeQualityName, setActiveQualityName] = useState('');
   // The stats builder runs in an effect created once per panel session, so it reads
   // this ref instead of the state and reports the rendition actually playing.
   const activeQualityNameRef = useRef('');
+
+  useEffect(() => {
+    selectedQualityRef.current = selectedQuality;
+  }, [selectedQuality]);
   const [transportErrorVisible, setTransportErrorVisible] = useState(false);
   // Seed from storage so the menu shows the saved state on the first paint,
   // exactly like the WebRTC player; the player itself applies it when ready.
@@ -291,12 +296,12 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     const player = playerRef.current;
     if (!player) return;
     if (player.muted() || player.volume() === 0) {
-      // Unmuting restores full volume; the slider is not offered on touch devices,
-      // so 100% is the only sensible default.
-      player.volume(1);
+      if (player.volume() === 0) {
+        player.volume(1);
+      }
       player.muted(false);
     } else {
-      player.volume(0);
+      player.muted(true);
     }
     handleVolume();
   };
@@ -356,13 +361,28 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   };
 
   const togglePip = () => {
-    const video =
-      (playerRef.current?.el?.() as HTMLElement | undefined)?.querySelector('video') || null;
-    if (!video || !document.pictureInPictureEnabled) return;
+    const video = ((playerRef.current?.el?.() as HTMLElement | undefined)?.querySelector('video') ||
+      null) as
+      | (HTMLVideoElement & {
+          webkitPresentationMode?: string;
+          webkitSupportsPresentationMode?: (mode: string) => boolean;
+          webkitSetPresentationMode?: (mode: string) => void;
+        })
+      | null;
+    if (!video) return;
+    if (video.webkitPresentationMode === 'picture-in-picture') {
+      video.webkitSetPresentationMode?.('inline');
+      return;
+    }
+    if (video.webkitSupportsPresentationMode?.('picture-in-picture')) {
+      video.webkitSetPresentationMode?.('picture-in-picture');
+      return;
+    }
+    if (!document.pictureInPictureEnabled) return;
     if (document.pictureInPictureElement) {
       document.exitPictureInPicture().catch(() => {});
     } else {
-      (video as HTMLVideoElement).requestPictureInPicture?.().catch(() => {});
+      video.requestPictureInPicture?.().catch(() => {});
     }
   };
 
@@ -704,7 +724,8 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
           (playingIndex !== null
             ? qualitiesRef.current.find(item => item.index === playingIndex)?.name
             : null) ??
-          qualities.find(item => String(item.index) === selectedQuality)?.name ??
+          qualitiesRef.current.find(item => String(item.index) === selectedQualityRef.current)
+            ?.name ??
           null,
       );
       const fps = measuredFps ?? playlistFps;
@@ -863,12 +884,12 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         // The rendition name only: the operator asked for the real quality, not a
         // wrapper around the word auto.
         qualityName:
-          selectedQuality === 'auto'
+          selectedQualityRef.current === 'auto'
             ? activeQualityNameRef.current
               ? 'Auto (' + activeQualityNameRef.current + ')'
               : 'Auto'
-            : qualities.find(item => String(item.index) === selectedQuality)?.name ||
-              selectedQuality,
+            : qualitiesRef.current.find(item => String(item.index) === selectedQualityRef.current)
+                ?.name || selectedQualityRef.current,
         videoBitrateKbps,
         audioBitrateKbps,
         connectionSpeedKbps,
@@ -901,7 +922,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       clearInterval(statusTimer);
       statusAbort?.abort();
     };
-  }, [statsOpen, selectedQuality, qualities, source]);
+  }, [statsOpen, source]);
 
   // Register keyboard shortcut for the space bar to toggle playback
   useHotkeys(

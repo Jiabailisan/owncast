@@ -101,7 +101,7 @@ export default function ConfigLiveStreaming() {
                 defaultText="Live Stream Status"
               />
             ),
-            children: <LiveStreamStatusSection />,
+            children: <LiveStreamStatusSection active={activeTab === 'status'} />,
           },
         ]}
       />

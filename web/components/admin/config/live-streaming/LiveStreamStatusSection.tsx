@@ -36,9 +36,14 @@ function readSavedInterval(): number {
 // cards, per-viewer table and the exact FFmpeg process/command panel. One
 // component tree renders both RTMP and SRT sessions; only the protocol badge
 // and nullable-field rendering differ.
-export const LiveStreamStatusSection: FC = () => {
+export type LiveStreamStatusSectionProps = {
+  active?: boolean;
+};
+
+export const LiveStreamStatusSection: FC<LiveStreamStatusSectionProps> = ({ active = true }) => {
   const [pollIntervalMs, setPollIntervalMs] = useState<number>(() => readSavedInterval());
   const { status, ffmpeg, error, lastUpdated, loading, refresh } = useLiveStatusPolling({
+    enabled: active,
     intervalMs: pollIntervalMs,
   });
 

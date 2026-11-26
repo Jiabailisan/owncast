@@ -88,11 +88,12 @@ export function useLiveStatusPolling(
       }
       setError((pollError as Error)?.message || 'Unable to load live stream status');
     } finally {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || controller.signal.aborted) return;
       setLoading(false);
+      const maxBackoff = Math.max(MAX_BACKOFF_MS, intervalMs);
       const delay =
         failuresRef.current > 0
-          ? Math.min(intervalMs * 2 ** failuresRef.current, MAX_BACKOFF_MS)
+          ? Math.min(intervalMs * 2 ** failuresRef.current, maxBackoff)
           : intervalMs;
       schedule(delay);
     }

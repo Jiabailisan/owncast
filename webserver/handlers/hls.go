@@ -73,33 +73,11 @@ func (h *Handlers) HandleHLSRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Force the correct content type
 		w.Header().Set("Content-Type", "application/x-mpegURL")
-
-		// Use this as an opportunity to mark this viewer as active and, when
-		// the player is fetching a variant playlist, record which quality it
-		// is currently consuming. The master playlist carries no variant, so
-		// a first request may legitimately leave the quality unknown until
-		// the player picks a variant (and ABR switches update it again).
-		viewer := models.GenerateViewerFromRequest(r)
-		if variantIndex, ok := hlsVariantIndexFromPath(relativePath); ok {
-			h.stream.SetViewerActiveWithVariant(&viewer, variantIndex)
-		} else {
-			h.stream.SetViewerActive(&viewer)
-		}
 	} else {
 		cacheTime := utils.GetCacheDurationSecondsForPath(relativePath)
 		w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(cacheTime))
 	}
 	middleware.EnableCors(w)
-
-	// Time online segment transfers as a server-side observation. Playlist
-	// requests and offline streams cannot be observed, so avoid their metrics
-	// lock acquisition on this hot path.
-	observe := !isPlaylist && h.stream.IsStreamConnected()
-	var observation metrics.ServerObservation
-	if observe {
-		observation = h.metrics.ServerObservationFor(requestClientID)
-		observe = !observation.Suppressed
-	}
 
 	file, err := os.OpenInRoot(config.HLSStoragePath, relativePath)
 	if err != nil {
@@ -112,6 +90,27 @@ func (h *Handlers) HandleHLSRequest(w http.ResponseWriter, r *http.Request) {
 	if err != nil || info.IsDir() {
 		w.WriteHeader(http.StatusNotFound)
 		return
+	}
+
+	// Only count the viewer after verifying the requested playlist actually
+	// exists on disk so 404 probes cannot inflate online viewer counts.
+	if isPlaylist {
+		viewer := models.GenerateViewerFromRequest(r)
+		if variantIndex, ok := hlsVariantIndexFromPath(relativePath); ok {
+			h.stream.SetViewerActiveWithVariant(&viewer, variantIndex)
+		} else {
+			h.stream.SetViewerActive(&viewer)
+		}
+	}
+
+	// Time online segment transfers as a server-side observation. Playlist
+	// requests and offline streams cannot be observed, so avoid their metrics
+	// lock acquisition on this hot path.
+	observe := !isPlaylist && h.stream.IsStreamConnected()
+	var observation metrics.ServerObservation
+	if observe {
+		observation = h.metrics.ServerObservationFor(requestClientID)
+		observe = !observation.Suppressed
 	}
 
 	cw := &countingResponseWriter{ResponseWriter: w}

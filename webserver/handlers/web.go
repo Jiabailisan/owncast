@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 
@@ -34,6 +35,22 @@ func embeddedBundleETag() string {
 	return staticBundleETag
 }
 
+func staticWebPathExists(urlPath string) bool {
+	cleaned := strings.TrimPrefix(path.Clean("/"+urlPath), "/")
+	if cleaned == "" {
+		cleaned = "index.html"
+	}
+	info, err := fs.Stat(staticWebFS, cleaned)
+	if err == nil {
+		if !info.IsDir() {
+			return true
+		}
+		_, err = fs.Stat(staticWebFS, path.Join(cleaned, "index.html"))
+		return err == nil
+	}
+	return false
+}
+
 // serveWeb will serve web assets.
 func serveWeb(w http.ResponseWriter, r *http.Request) {
 	// Content-hashed Next.js chunks under /_next/static/chunks/ are immutable.
@@ -41,7 +58,9 @@ func serveWeb(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}
 
-	if etag := embeddedBundleETag(); etag != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+	if etag := embeddedBundleETag(); etag != "" &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+		staticWebPathExists(r.URL.Path) {
 		w.Header().Set("ETag", etag)
 		if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, etag) {
 			w.WriteHeader(http.StatusNotModified)

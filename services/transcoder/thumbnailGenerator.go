@@ -1,6 +1,7 @@
 package transcoder
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path"
@@ -15,15 +16,18 @@ import (
 	"github.com/owncast/owncast/utils"
 )
 
+const thumbnailFFmpegTimeout = 30 * time.Second
+
 // ThumbnailGenerator periodically snapshots the most recent HLS segment
 // into thumbnail.jpg + preview.gif while a stream is online. One
 // instance per active stream, owned by the stream service.
 type ThumbnailGenerator struct {
-	// mu guards timer and done: Start runs on the stream's goroutine while Stop
-	// can be called from the lifecycle goroutine.
+	// mu guards timer, done, and cancel: Start runs on the stream's goroutine
+	// while Stop can be called from the lifecycle goroutine.
 	mu               sync.Mutex
 	timer            *time.Ticker
 	done             chan struct{}
+	cancel           context.CancelFunc
 	cfg              *config.Config
 	configRepository models.EngineConfig
 }
@@ -38,9 +42,15 @@ func (g *ThumbnailGenerator) Stop() {
 	g.mu.Lock()
 	timer := g.timer
 	done := g.done
+	cancel := g.cancel
 	g.timer = nil
 	g.done = nil
+	g.cancel = nil
 	g.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	// A ticker's Stop does not close its channel, so the generator goroutine used
 	// to block in "for range g.timer.C" forever: one goroutine and one ticker
@@ -56,14 +66,19 @@ func (g *ThumbnailGenerator) Stop() {
 
 // Start starts generating thumbnails.
 func (g *ThumbnailGenerator) Start(chunkPath string, variantIndex int, isVideoPassthrough bool) {
+	// Guard against double-Start leaking the previous ticker/goroutine.
+	g.Stop()
+
 	// Every 20 seconds create a thumbnail from the most
 	// recent video segment.
 	timer := time.NewTicker(20 * time.Second)
 	done := make(chan struct{})
+	runCtx, cancel := context.WithCancel(context.Background())
 
 	g.mu.Lock()
 	g.timer = timer
 	g.done = done
+	g.cancel = cancel
 	g.mu.Unlock()
 
 	go func() {
@@ -76,7 +91,7 @@ func (g *ThumbnailGenerator) Start(chunkPath string, variantIndex int, isVideoPa
 			case <-done:
 				return
 			case <-timer.C:
-				if err := g.fireThumbnailGenerator(chunkPath, variantIndex); err != nil {
+				if err := g.fireThumbnailGenerator(runCtx, chunkPath, variantIndex); err != nil {
 					failures++
 
 					// Report the first failure, then keep retrying quietly: a variant
@@ -101,7 +116,7 @@ func (g *ThumbnailGenerator) Start(chunkPath string, variantIndex int, isVideoPa
 	}()
 }
 
-func (g *ThumbnailGenerator) fireThumbnailGenerator(segmentPath string, variantIndex int) error {
+func (g *ThumbnailGenerator) fireThumbnailGenerator(parentCtx context.Context, segmentPath string, variantIndex int) error {
 	// JPG takes less time to encode than PNG
 	outputFile := path.Join(g.cfg.TempDir, "thumbnail.jpg")
 	previewGifFile := path.Join(g.cfg.TempDir, "preview.gif")
@@ -144,7 +159,9 @@ func (g *ThumbnailGenerator) fireThumbnailGenerator(segmentPath string, variantI
 
 	thumbnailCmdFlags := thumbnailCommandFlags(mostRecentFile, outputFileTemp, g.configRepository.GetVideoCodec())
 
-	if _, err := exec.Command(ffmpegPath, thumbnailCmdFlags...).Output(); err != nil {
+	cmdCtx, cancel := context.WithTimeout(parentCtx, thumbnailFFmpegTimeout)
+	defer cancel()
+	if _, err := exec.CommandContext(cmdCtx, ffmpegPath, thumbnailCmdFlags...).Output(); err != nil {
 		return err
 	}
 
@@ -153,7 +170,7 @@ func (g *ThumbnailGenerator) fireThumbnailGenerator(segmentPath string, variantI
 		log.Errorln(err)
 	}
 
-	g.makeAnimatedGifPreview(mostRecentFile, previewGifFile)
+	g.makeAnimatedGifPreview(parentCtx, mostRecentFile, previewGifFile)
 
 	return nil
 }
@@ -215,13 +232,15 @@ func animatedGifCommandFlags(input, output, codecName string) []string {
 	return flags
 }
 
-func (g *ThumbnailGenerator) makeAnimatedGifPreview(sourceFile string, outputFile string) {
+func (g *ThumbnailGenerator) makeAnimatedGifPreview(parentCtx context.Context, sourceFile string, outputFile string) {
 	ffmpegPath := utils.ValidatedFfmpegPath(g.configRepository.GetFfMpegPath())
 	outputFileTemp := path.Join(g.cfg.TempDir, "temppreview.gif")
 
 	animatedGifFlags := animatedGifCommandFlags(sourceFile, outputFileTemp, g.configRepository.GetVideoCodec())
 
-	if _, err := exec.Command(ffmpegPath, animatedGifFlags...).Output(); err != nil {
+	cmdCtx, cancel := context.WithTimeout(parentCtx, thumbnailFFmpegTimeout)
+	defer cancel()
+	if _, err := exec.CommandContext(cmdCtx, ffmpegPath, animatedGifFlags...).Output(); err != nil {
 		log.Errorln(err)
 		// rename temp file
 	} else if err := utils.Move(outputFileTemp, outputFile); err != nil {

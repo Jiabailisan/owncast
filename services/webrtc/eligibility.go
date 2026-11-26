@@ -511,7 +511,7 @@ func finalizeCopyDecision(decision LegDecision, cfg models.WebRTCConfig, explici
 	if sourceProfile := decision.Source.VideoProfile; sourceProfile != "" &&
 		!profileFamiliesCompatible(sourceProfile, cfg.H264Profile) {
 		decision.Warnings = append(decision.Warnings, reasonf(WarningCopyProfileMismatch,
-			"source profile %q differs from the configured %q; the answer advertises the configured profile while the copied bitstream keeps its own SPS",
+			"source profile %q differs from the configured transcode profile %q; this copy leg negotiates against the source bitstream's profile while transcoded legs use the configured profile",
 			sourceProfile, effectiveH264Profile(cfg)))
 	}
 

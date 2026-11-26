@@ -26,9 +26,17 @@ func (s *Service) appendOfflineToVariantPlaylist(index int, playlistFilePath str
 		log.Errorln("error creating tmp playlist file to write to", playlistFilePath, err)
 		return
 	}
+	tmpPath := atomicWriteTmpPlaylistFile.Name()
+	moved := false
+	defer func() {
+		if !moved {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	// Write the existing playlist contents
 	if _, err := atomicWriteTmpPlaylistFile.Write(existingPlaylistContents); err != nil {
+		_ = atomicWriteTmpPlaylistFile.Close()
 		log.Debugln("error writing existing playlist contents to tmp playlist file", err)
 		return
 	}
@@ -42,11 +50,14 @@ func (s *Service) appendOfflineToVariantPlaylist(index int, playlistFilePath str
 
 	if err := atomicWriteTmpPlaylistFile.Close(); err != nil {
 		log.Errorln(err)
+		return
 	}
 
-	if err := utils.Move(atomicWriteTmpPlaylistFile.Name(), playlistFilePath); err != nil {
+	if err := utils.Move(tmpPath, playlistFilePath); err != nil {
 		log.Errorln("error moving temp playlist to overwrite existing one", err)
+		return
 	}
+	moved = true
 }
 
 func (s *Service) makeVariantIndexOffline(index int, offlineFilePath string, offlineFilename string) {

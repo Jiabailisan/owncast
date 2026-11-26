@@ -31,7 +31,7 @@ func localCleanup(maxNumber int) error {
 		for _, file := range filesToDelete {
 			fileToDelete := filepath.Join(baseDirectory, directory, file.Name())
 			err := os.Remove(fileToDelete)
-			if err != nil {
+			if err != nil && !os.IsNotExist(err) {
 				return errors.Wrap(err, "unable to delete old video files")
 			}
 		}

@@ -47,9 +47,10 @@ jobs:
         # sw.js.map embeds the service worker's precache manifest, whose entry order is not
         # stable between two builds of the same source. The shipped sw.js itself is compared.
         run: |
-          if ! git diff --quiet -- static/web ':(exclude)static/web/sw.js.map'; then
+          status="$(git status --porcelain -- static/web ':(exclude)static/web/sw.js.map')"
+          if [ -n "$status" ]; then
             echo "static/web does not match a fresh build from this commit." >&2
             echo "Regenerate it with build/web/bundleWeb.sh and commit the result." >&2
-            git --no-pager diff --stat -- static/web ':(exclude)static/web/sw.js.map'
+            echo "$status" >&2
             exit 1
           fi
