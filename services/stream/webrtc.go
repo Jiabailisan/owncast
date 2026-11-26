@@ -382,7 +382,7 @@ func sessionCanReportSourceInfo(session ingest.Session) bool {
 // rendition copied or transcoded": the requested mode, what an inheritance
 // resolved against, the mode that was applied, the source properties the rules
 // used, the encoder plan, and every failed copy rule.
-func legStatusFromDecision(index int, variant models.StreamOutputVariant, decision webrtc.LegDecision) models.WebRTCLegStatus {
+func legStatusFromDecision(index int, variant models.StreamOutputVariant, decision webrtc.LegDecision, webrtcConfig models.WebRTCConfig) models.WebRTCLegStatus {
 	status := models.WebRTCLegStatus{
 		VariantIndex:         index,
 		Name:                 variant.GetName(),
@@ -412,6 +412,14 @@ func legStatusFromDecision(index int, variant models.StreamOutputVariant, decisi
 	}
 	if decision.Mode == "" {
 		status.Mode = models.WebRTCLegModeDisabled
+	}
+	if status.Mode != models.WebRTCLegModeDisabled {
+		status.AudioEncoder = "libopus"
+		opusKbps := webrtcConfig.OpusBitrateKbps
+		if opusKbps <= 0 {
+			opusKbps = 128
+		}
+		status.AudioBitrateKbps = opusKbps
 	}
 	if decision.Mode == models.OutputModeTranscode {
 		status.VideoBitrateKbps = decision.VideoBitrateKbps

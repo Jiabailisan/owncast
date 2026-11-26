@@ -57,12 +57,15 @@ func TestOutboundStatusTranscodedAndPassthrough(t *testing.T) {
 		StreamDetails: models.InboundStreamDetails{VideoBitrate: 5000, AudioBitrate: 160},
 	}
 
-	status := outboundStatus(broadcast, broadcaster, "libx264", true)
+	status := outboundStatus(broadcast, broadcaster, "libx264", true, map[int]float64{0: 1234.5, 1: 4980.0})
 	if len(status.Streams) != 2 {
 		t.Fatalf("streams = %+v, want 2", status.Streams)
 	}
 
 	transcoded := status.Streams[0]
+	if transcoded.HLS == nil || !transcoded.HLS.Enabled || transcoded.HLS.MeasuredBitrateKbps == nil || *transcoded.HLS.MeasuredBitrateKbps != 1234.5 {
+		t.Errorf("transcoded HLS status = %+v", transcoded.HLS)
+	}
 	if transcoded.VideoEncoder != "libx264" || transcoded.AudioEncoder != "aac" {
 		t.Errorf("transcoded encoders = %q/%q", transcoded.VideoEncoder, transcoded.AudioEncoder)
 	}
@@ -95,7 +98,7 @@ func TestOutboundStatusUnknownValuesAreNil(t *testing.T) {
 		},
 	}
 
-	status := outboundStatus(broadcast, nil, "libx264", true)
+	status := outboundStatus(broadcast, nil, "libx264", true, nil)
 	stream := status.Streams[0]
 	if stream.VideoBitrateKbps != nil || stream.AudioBitrateKbps != nil {
 		t.Errorf("unknown passthrough bitrates must be nil (N/A), got %+v", stream)
@@ -119,7 +122,7 @@ func TestOutboundStatusExplicitWebRTCMapping(t *testing.T) {
 		},
 	}
 
-	status := outboundStatus(broadcast, nil, "h264_nvenc", true)
+	status := outboundStatus(broadcast, nil, "h264_nvenc", true, nil)
 	if len(status.Streams) != 2 {
 		t.Fatalf("streams = %+v", status.Streams)
 	}
@@ -137,7 +140,7 @@ func TestOutboundStatusExplicitWebRTCMapping(t *testing.T) {
 }
 
 func TestOutboundStatusNoActiveBroadcast(t *testing.T) {
-	status := outboundStatus(nil, nil, "", true)
+	status := outboundStatus(nil, nil, "", true, nil)
 	if status.Streams == nil {
 		t.Error("Streams must be a non-nil empty slice")
 	}
@@ -151,7 +154,7 @@ func TestOutboundStatusAudioPassthroughUsesSource(t *testing.T) {
 		OutputSettings: []models.StreamOutputVariant{{VideoBitrate: 1500, AudioBitrate: 0}},
 	}
 	broadcaster := &models.Broadcaster{StreamDetails: models.InboundStreamDetails{AudioBitrate: 128}}
-	status := outboundStatus(broadcast, broadcaster, "", true)
+	status := outboundStatus(broadcast, broadcaster, "", true, nil)
 	stream := status.Streams[0]
 	if stream.AudioEncoder != "copy" {
 		t.Errorf("audio passthrough encoder = %q", stream.AudioEncoder)
@@ -169,7 +172,7 @@ func TestOutboundStatusWebRTCGloballyDisabled(t *testing.T) {
 	broadcast := &models.CurrentBroadcast{
 		OutputSettings: []models.StreamOutputVariant{{VideoBitrate: 1000}},
 	}
-	status := outboundStatus(broadcast, nil, "libx264", false)
+	status := outboundStatus(broadcast, nil, "libx264", false, nil)
 	if len(status.Streams) != 1 {
 		t.Fatalf("streams = %+v", status.Streams)
 	}

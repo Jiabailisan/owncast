@@ -121,6 +121,10 @@ export interface WebRTCLegStatus {
   // Measured at this rendition's RTP leg (average since the leg opened); null
   // while the leg is not open or has not run for a second.
   outputBitrateKbps: number | null;
+  // Planned WebRTC Opus audio output and measured RTP audio bitrate.
+  audioEncoder?: string;
+  audioBitrateKbps?: number;
+  outputAudioBitrateKbps?: number | null;
   ineligibilityReasons: string[];
   warnings: string[];
 }
@@ -164,6 +168,21 @@ export interface LiveGeoIPStatus {
   sources?: LiveGeoIPSource[];
 }
 
+export interface LiveHLSOutboundStatus {
+  enabled: boolean;
+  mode: string; // 'copy' | 'transcode' | 'disabled'
+  videoEncoder?: string;
+  videoBitrateKbps: number | null;
+  audioEncoder?: string;
+  audioBitrateKbps: number | null;
+  scaledWidth?: number;
+  scaledHeight?: number;
+  framerate?: number;
+  gopFrames?: number;
+  segmentSeconds?: number;
+  measuredBitrateKbps?: number | null;
+}
+
 // One planned outbound stream (one output variant). Bitrates are the
 // configured/planned targets, not measured throughput; null means the plan or
 // source does not provide a value and must render N/A (never 0/Unknown).
@@ -175,6 +194,7 @@ export interface LiveOutboundStream {
   audioEncoder?: string;
   audioBitrateKbps: number | null;
   protocols: string[];
+  hls?: LiveHLSOutboundStatus;
 }
 
 export interface LiveOutboundStatus {

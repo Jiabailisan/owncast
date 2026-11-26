@@ -54,7 +54,9 @@ func (s *Service) Start(_ context.Context) error {
 	// The HLS handler takes the written HLS playlists and segments and
 	// makes storage decisions. Rather simple right now but will play more
 	// useful when recordings come into play.
-	s.handler = transcoder.HLSHandler{}
+	s.handler = transcoder.HLSHandler{
+		OnSegmentWritten: s.recordHLSSegmentWritten,
+	}
 
 	if err := s.setupStorage(); err != nil {
 		log.Errorln("storage error", err)
@@ -534,6 +536,7 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 		s.processModelMu.Lock()
 		s.runningProcessModel = ""
 		s.processModelMu.Unlock()
+		s.clearHLSMeasuredBitrates()
 		s.clearCurrentSessionIfStale()
 	}()
 	_ = s.chat.SendSystemAction("The stream is ending.", true)

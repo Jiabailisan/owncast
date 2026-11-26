@@ -84,7 +84,7 @@ func (s *Service) resolveWebRTCLegs(
 
 		appendLegDiagnostics(decision, &warnings)
 
-		legStatuses = append(legStatuses, legStatusFromDecision(index, variant, decision))
+		legStatuses = append(legStatuses, legStatusFromDecision(index, variant, decision, webrtcConfig))
 		logLegDecision(legStatuses[len(legStatuses)-1])
 
 		if !decision.Enabled {

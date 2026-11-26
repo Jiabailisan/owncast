@@ -6,11 +6,15 @@ import (
 
 // HLSHandler gets told about available HLS playlists and segments.
 type HLSHandler struct {
-	Storage models.StorageProvider
+	Storage          models.StorageProvider
+	OnSegmentWritten func(localFilePath string)
 }
 
 // SegmentWritten is fired when a HLS segment is written to disk.
 func (h *HLSHandler) SegmentWritten(localFilePath string) {
+	if h.OnSegmentWritten != nil {
+		h.OnSegmentWritten(localFilePath)
+	}
 	h.Storage.SegmentWritten(localFilePath)
 }
 

@@ -122,7 +122,9 @@ type MediaLegStats struct {
 	// since it opened: what the encoder actually produced for this rendition, as
 	// opposed to the planned target. Zero until the leg has been open for a
 	// second.
-	VideoBitrateKbps   float64 `json:"videoBitrateKbps"`
+	VideoBitrateKbps float64 `json:"videoBitrateKbps"`
+	// AudioBitrateKbps is the measured Opus audio bitrate at this RTP leg.
+	AudioBitrateKbps float64 `json:"audioBitrateKbps"`
 	SPSSeen            bool    `json:"spsSeen"`
 	PPSSeen            bool    `json:"ppsSeen"`
 	LastKeyframeAgeMs  int64   `json:"lastKeyframeAgeMs"`
@@ -260,6 +262,8 @@ func (f *forwarder) handleRaw(raw []byte) {
 			f.counters.frames.Add(1)
 		}
 		f.rates.record(now, uint64(len(packet.Payload)), packet.Marker)
+	} else {
+		f.rates.record(now, uint64(len(packet.Payload)), false)
 	}
 
 	if f.reorder == nil {
@@ -560,6 +564,7 @@ func (l *MediaLeg) Stats() MediaLegStats {
 	// Reordered packets are counted across both forwarders.
 	reordered := l.videoForwarder.counters.reordered.Load() + l.audioForwarder.counters.reordered.Load()
 	measuredFPS, measuredBitrateKbps := l.videoForwarder.rates.rates(now)
+	_, measuredAudioBitrateKbps := l.audioForwarder.rates.rates(now)
 
 	return MediaLegStats{
 		Variant:               l.variant,
@@ -574,6 +579,7 @@ func (l *MediaLeg) Stats() MediaLegStats {
 		ReorderedPackets:      reordered,
 		MeasuredVideoFPS:      measuredFPS,
 		VideoBitrateKbps:      measuredBitrateKbps,
+		AudioBitrateKbps:      measuredAudioBitrateKbps,
 		SPSSeen:               len(sps) > 0,
 		PPSSeen:               len(pps) > 0,
 		LastKeyframeAgeMs:     ageMillis(now, l.videoForwarder.lastIDRAt()),

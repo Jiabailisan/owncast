@@ -179,6 +179,12 @@ type WebRTCLegStatus struct {
 	// produced. Nil while the leg is not open or has not run for a second.
 	OutputBitrateKbps *float64 `json:"outputBitrateKbps"`
 
+	// AudioEncoder / AudioBitrateKbps describe the planned WebRTC Opus audio
+	// output, and OutputAudioBitrateKbps is the measured audio RTP bitrate.
+	AudioEncoder           string   `json:"audioEncoder,omitempty"`
+	AudioBitrateKbps       int      `json:"audioBitrateKbps,omitempty"`
+	OutputAudioBitrateKbps *float64 `json:"outputAudioBitrateKbps,omitempty"`
+
 	// IneligibilityReasons lists every rule a copy request failed, prefixed
 	// with a stable code (webrtc_copy_ineligible_*).
 	IneligibilityReasons []string `json:"ineligibilityReasons"`
@@ -291,13 +297,31 @@ type LiveOutboundStatus struct {
 	Streams []LiveOutboundStream `json:"streams"`
 }
 
+// LiveHLSOutboundStatus describes the HLS output plan and measured bitrate
+// for a single variant in the unified outbound streams table.
+type LiveHLSOutboundStatus struct {
+	Enabled             bool     `json:"enabled"`
+	Mode                string   `json:"mode"` // "copy", "transcode", "disabled"
+	VideoEncoder        string   `json:"videoEncoder,omitempty"`
+	VideoBitrateKbps    *float64 `json:"videoBitrateKbps"`
+	AudioEncoder        string   `json:"audioEncoder,omitempty"`
+	AudioBitrateKbps    *float64 `json:"audioBitrateKbps"`
+	ScaledWidth         int      `json:"scaledWidth,omitempty"`
+	ScaledHeight        int      `json:"scaledHeight,omitempty"`
+	Framerate           int      `json:"framerate,omitempty"`
+	GOPFrames           int      `json:"gopFrames,omitempty"`
+	SegmentSeconds      int      `json:"segmentSeconds,omitempty"`
+	MeasuredBitrateKbps *float64 `json:"measuredBitrateKbps,omitempty"`
+}
+
 // LiveOutboundStream is one planned outbound stream (one output variant).
 type LiveOutboundStream struct {
-	VariantIndex     int      `json:"variantIndex"`
-	Name             string   `json:"name,omitempty"`
-	VideoEncoder     string   `json:"videoEncoder,omitempty"`
-	VideoBitrateKbps *float64 `json:"videoBitrateKbps"`
-	AudioEncoder     string   `json:"audioEncoder,omitempty"`
-	AudioBitrateKbps *float64 `json:"audioBitrateKbps"`
-	Protocols        []string `json:"protocols"`
+	VariantIndex     int                    `json:"variantIndex"`
+	Name             string                 `json:"name,omitempty"`
+	VideoEncoder     string                 `json:"videoEncoder,omitempty"`
+	VideoBitrateKbps *float64               `json:"videoBitrateKbps"`
+	AudioEncoder     string                 `json:"audioEncoder,omitempty"`
+	AudioBitrateKbps *float64               `json:"audioBitrateKbps"`
+	Protocols        []string               `json:"protocols"`
+	HLS              *LiveHLSOutboundStatus `json:"hls,omitempty"`
 }

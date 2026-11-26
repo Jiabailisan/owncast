@@ -39,7 +39,7 @@ func TestApplyWebRTCLegsToOutboundReconcilesDisabledAndTranscodeFallback(t *test
 		},
 	}
 
-	outbound := outboundStatus(broadcast, nil, "h264_nvenc", true)
+	outbound := outboundStatus(broadcast, nil, "h264_nvenc", true, nil)
 	measured := 4321.5
 	legs := []models.WebRTCLegStatus{
 		{

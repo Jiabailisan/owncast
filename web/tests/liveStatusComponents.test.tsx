@@ -267,6 +267,85 @@ describe('OutboundStreamsTable', () => {
     expect(container).toBeEmptyDOMElement();
     render(<OutboundStreamsTable streams={undefined as never} />);
   });
+
+  test('merges HLS status, WebRTC leg details, and audio/measured bitrates in one table', () => {
+    render(
+      <OutboundStreamsTable
+        streams={[
+          {
+            variantIndex: 0,
+            name: '1080p60@6Mbps',
+            videoEncoder: 'h264_nvenc',
+            videoBitrateKbps: 6000,
+            audioEncoder: 'copy',
+            audioBitrateKbps: 128,
+            protocols: ['hls', 'webrtc'],
+            hls: {
+              enabled: true,
+              mode: 'transcode',
+              videoEncoder: 'h264_nvenc',
+              videoBitrateKbps: 6000,
+              audioEncoder: 'copy',
+              audioBitrateKbps: 128,
+              scaledWidth: 1920,
+              scaledHeight: 1080,
+              framerate: 60,
+              gopFrames: 300,
+              segmentSeconds: 5,
+              measuredBitrateKbps: 5820,
+            },
+          },
+        ]}
+        webrtc={{
+          enabled: true,
+          capacity: { used: 1, limit: 10 },
+          warnings: [],
+          advertised: {
+            profile: 'high',
+            level: 'auto',
+            profileLevelId: '640033',
+            fmtp: 'level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640033',
+          },
+          legs: [
+            {
+              variantIndex: 0,
+              name: '1080p60@6Mbps',
+              requestedMode: 'inherit',
+              inheritedFrom: 'hls-transcode',
+              mode: 'transcode',
+              source: {
+                videoCodec: 'h264',
+                videoProfile: 'high',
+                videoLevel: '5.1',
+                hasBFrames: false,
+                width: 2560,
+                height: 1440,
+                fps: 60,
+                videoBitrateKbps: 12000,
+              },
+              videoBitrateKbps: 6000,
+              bitratePeakKbps: 8000,
+              gopFrames: 60,
+              framerate: 60,
+              h264Profile: 'high',
+              outputBitrateKbps: 5910,
+              audioEncoder: 'libopus',
+              audioBitrateKbps: 128,
+              outputAudioBitrateKbps: 124,
+              ineligibilityReasons: [],
+              warnings: [],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('webrtc-advertised')).toBeInTheDocument();
+    expect(screen.getByText('libopus')).toBeInTheDocument();
+    expect(screen.getByText('5820 kbps')).toBeInTheDocument();
+    expect(screen.getByText('5910 kbps')).toBeInTheDocument();
+    expect(screen.getByText('124 kbps')).toBeInTheDocument();
+  });
 });
 
 describe('StreamStatusCards process metrics', () => {

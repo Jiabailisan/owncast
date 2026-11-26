@@ -8,7 +8,6 @@ import { Translation } from '../../../ui/Translation/Translation';
 import { FfmpegPanel } from '../../live/FfmpegPanel';
 import { OutboundStreamsTable } from '../../live/OutboundStreamsTable';
 import { StreamStatusCards } from '../../live/StreamStatusCards';
-import { WebRTCOutputTable } from '../../live/WebRTCOutputTable';
 import styles from './live-streaming-sections.module.scss';
 
 const { Title } = Typography;
@@ -145,7 +144,7 @@ export const LiveStreamStatusSection: FC = () => {
 
       <StreamStatusCards status={status} />
 
-      {(status.outbound?.streams?.length ?? 0) > 0 && (
+      {((status.outbound?.streams?.length ?? 0) > 0 || (status.webrtc?.legs?.length ?? 0) > 0) && (
         <>
           <Title level={4} className={styles.sectionHeading}>
             <Translation
@@ -153,19 +152,7 @@ export const LiveStreamStatusSection: FC = () => {
               defaultText="Outbound streams"
             />
           </Title>
-          <OutboundStreamsTable streams={status.outbound?.streams ?? []} />
-        </>
-      )}
-
-      {(status.webrtc?.legs?.length ?? 0) > 0 && (
-        <>
-          <Title level={4} className={styles.sectionHeading}>
-            <Translation
-              translationKey={Localization.Admin.LiveStreaming.Status.webrtcSection}
-              defaultText="WebRTC outputs"
-            />
-          </Title>
-          <WebRTCOutputTable webrtc={status.webrtc} />
+          <OutboundStreamsTable streams={status.outbound?.streams ?? []} webrtc={status.webrtc} />
         </>
       )}
 

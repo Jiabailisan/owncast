@@ -188,7 +188,7 @@ func (s *Service) Status() models.LiveStatus {
 	}
 
 	status.GeoIP = geoIPStatusFromProvider(s.geoIP)
-	status.Outbound = outboundStatus(s.stream.GetCurrentBroadcast(), s.stream.GetBroadcaster(), s.config.GetVideoCodec(), s.config.GetWebRTCConfig().Enabled)
+	status.Outbound = outboundStatus(s.stream.GetCurrentBroadcast(), s.stream.GetBroadcaster(), s.config.GetVideoCodec(), s.config.GetWebRTCConfig().Enabled, s.stream.HLSMeasuredBitrates())
 	applyWebRTCLegsToOutbound(&status.Outbound, status.WebRTC.Legs, s.config.GetVideoCodec())
 	status.Warnings = append(status.Warnings, geoIPWarnings(status.GeoIP)...)
 	// WebRTC leg-planning warnings: copy fallbacks, process restarts and
@@ -279,11 +279,17 @@ func (s *Service) legStatuses() []models.WebRTCLegStatus {
 	}
 	for index := range legs {
 		stats, ok := s.webrtc.MediaLegStats(legs[index].VariantIndex)
-		if !ok || stats.VideoBitrateKbps <= 0 {
+		if !ok {
 			continue
 		}
-		bitrate := stats.VideoBitrateKbps
-		legs[index].OutputBitrateKbps = &bitrate
+		if stats.VideoBitrateKbps > 0 {
+			bitrate := stats.VideoBitrateKbps
+			legs[index].OutputBitrateKbps = &bitrate
+		}
+		if stats.AudioBitrateKbps > 0 {
+			audioBitrate := stats.AudioBitrateKbps
+			legs[index].OutputAudioBitrateKbps = &audioBitrate
+		}
 	}
 
 	return legs
@@ -635,7 +641,7 @@ func GeoIPStatusFromDatabaseMetadata(metadata geoip.DatabaseMetadata) models.Geo
 // variants) to the additive Outbound Stream Details model. Passthrough streams
 // use the inbound source bitrate when known; unknown values stay nil (N/A) and
 // are never estimated as zero.
-func outboundStatus(broadcast *models.CurrentBroadcast, broadcaster *models.Broadcaster, videoCodec string, webRTCEnabled bool) models.LiveOutboundStatus {
+func outboundStatus(broadcast *models.CurrentBroadcast, broadcaster *models.Broadcaster, videoCodec string, webRTCEnabled bool, hlsMeasuredBitrates map[int]float64) models.LiveOutboundStatus {
 	status := models.LiveOutboundStatus{Streams: []models.LiveOutboundStream{}}
 	if broadcast == nil || len(broadcast.OutputSettings) == 0 {
 		return status
@@ -653,6 +659,8 @@ func outboundStatus(broadcast *models.CurrentBroadcast, broadcaster *models.Broa
 			break
 		}
 	}
+
+	segSec := broadcast.LatencyLevel.SecondsPerSegment
 
 	for index, variant := range broadcast.OutputSettings {
 		stream := models.LiveOutboundStream{
@@ -676,6 +684,38 @@ func outboundStatus(broadcast *models.CurrentBroadcast, broadcaster *models.Broa
 			stream.AudioEncoder = "aac"
 			stream.AudioBitrateKbps = positiveBitrate(variant.AudioBitrate)
 		}
+
+		hlsEnabled := variant.HLSEnabled()
+		hlsMode := models.WebRTCLegModeDisabled
+		if hlsEnabled {
+			if variant.IsVideoPassthrough {
+				hlsMode = models.WebRTCLegModeCopy
+			} else {
+				hlsMode = models.WebRTCLegModeTranscode
+			}
+		}
+		hlsDetails := &models.LiveHLSOutboundStatus{
+			Enabled:          hlsEnabled,
+			Mode:             hlsMode,
+			VideoEncoder:     stream.VideoEncoder,
+			VideoBitrateKbps: stream.VideoBitrateKbps,
+			AudioEncoder:     stream.AudioEncoder,
+			AudioBitrateKbps: stream.AudioBitrateKbps,
+			SegmentSeconds:   segSec,
+		}
+		if hlsEnabled && !variant.IsVideoPassthrough {
+			hlsDetails.ScaledWidth = variant.ScaledWidth
+			hlsDetails.ScaledHeight = variant.ScaledHeight
+			hlsDetails.Framerate = variant.GetFramerate()
+			if segSec > 0 && hlsDetails.Framerate > 0 {
+				hlsDetails.GOPFrames = hlsDetails.Framerate * segSec
+			}
+		}
+		if measured, ok := hlsMeasuredBitrates[index]; ok && measured > 0 {
+			m := measured
+			hlsDetails.MeasuredBitrateKbps = &m
+		}
+		stream.HLS = hlsDetails
 
 		status.Streams = append(status.Streams, stream)
 	}

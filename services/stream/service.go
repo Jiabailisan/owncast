@@ -45,6 +45,11 @@ type Service struct {
 	processModelMu      sync.RWMutex
 	runningProcessModel string
 
+	// hlsBitratesMu guards hlsMeasuredBitrates, keyed by configured output
+	// variant index, updated from written HLS .ts segment sizes.
+	hlsBitratesMu       sync.RWMutex
+	hlsMeasuredBitrates map[int]float64
+
 	// tearingDown is set for the whole duration of the go-offline sequence.
 	// IsStreamConnected flips to false at the start of that sequence, while the
 	// teardown still has to close the session, the WebRTC legs and the ingest tee; a
