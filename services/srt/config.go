@@ -191,6 +191,9 @@ func BuildListenerConfig(cfg models.SRTConfig) (gosrt.Config, error) {
 
 	// Advanced.
 	listenerCfg.DriftTracer = cfg.DriftTracer
+	// Request enlarged kernel UDP buffers so high-bitrate SRT ingest is not
+	// capped at Linux's small net.core.rmem_default (typically 212 KiB).
+	listenerCfg.ListenerControl = srtSocketBufferControl
 
 	if err := listenerCfg.Validate(); err != nil {
 		return gosrt.Config{}, fmt.Errorf("invalid SRT listener config: %w", err)

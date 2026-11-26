@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	gosrt "github.com/datarhei/gosrt"
+
 	"github.com/owncast/owncast/models"
 )
 
@@ -348,4 +350,24 @@ func TestBindAddressIPv6WithQoSIsRejected(t *testing.T) {
 	if _, err := netip.ParseAddr(cfg.BindAddress); err != nil {
 		t.Fatalf("test setup: %v", err)
 	}
+}
+
+func TestBuildListenerConfigInstallsSocketBufferControl(t *testing.T) {
+	cfg := models.DefaultSRTConfig()
+	cfg.BindAddress = "127.0.0.1"
+	cfg.Port = 0
+
+	listenerCfg, err := BuildListenerConfig(cfg)
+	if err != nil {
+		t.Fatalf("BuildListenerConfig failed: %v", err)
+	}
+	if listenerCfg.ListenerControl == nil {
+		t.Fatal("expected ListenerControl to configure SO_RCVBUF/SO_SNDBUF on SRT UDP socket")
+	}
+
+	ln, err := gosrt.Listen("srt", "127.0.0.1:0", listenerCfg)
+	if err != nil {
+		t.Fatalf("gosrt.Listen with socket buffer control failed: %v", err)
+	}
+	ln.Close()
 }

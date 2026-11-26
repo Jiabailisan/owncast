@@ -160,6 +160,13 @@ func (e *engine) setupMuxes(se *webrtc.SettingEngine, loggerFactory pionlogging.
 		if err != nil {
 			return fmt.Errorf("bind webrtc udp mux %s: %w", addr, err)
 		}
+		// Enlarge the ICE UDP mux buffers (best-effort; Linux clamps to rmem_max/wmem_max)
+		// so outbound high-bitrate video bursts and inbound RTCP/NACK packets do not
+		// overflow the small default OS UDP socket buffers.
+		if udpConn, ok := conn.(*net.UDPConn); ok {
+			_ = udpConn.SetReadBuffer(4 << 20)
+			_ = udpConn.SetWriteBuffer(8 << 20)
+		}
 		se.SetICEUDPMux(webrtc.NewICEUDPMux(muxLogger, conn))
 		e.closers = append(e.closers, conn)
 	}
