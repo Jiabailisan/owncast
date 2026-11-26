@@ -8,7 +8,12 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('push', event => {
-  const data = JSON.parse(event.data.text());
+  let data = {};
+  try {
+    data = JSON.parse(event.data?.text() || '{}');
+  } catch (err) {
+    console.warn('Invalid push notification payload', err);
+  }
   const { title, body, icon, tag } = data;
   const options = {
     title: title || 'Live!',
@@ -21,5 +26,6 @@ self.addEventListener('push', event => {
 });
 
 self.addEventListener('notificationclick', event => {
-  clients.openWindow('/');
+  event.notification?.close();
+  event.waitUntil(clients.openWindow('/'));
 });
