@@ -51,11 +51,13 @@ type Transcoder struct {
 
 	// Source stream metadata probed at ingest, used to populate accurate
 	// RESOLUTION, FRAME-RATE, BANDWIDTH and CODECS attributes for HLS
-	// passthrough variants in the master playlist.
+	// passthrough variants in the master playlist, and to guard GPU-only decode
+	// pipelines against software-decoded inputs.
 	sourceWidth            int
 	sourceHeight           int
 	sourceVideoBitrateKbps int
 	sourceFPS              float64
+	sourceVideoCodec       string
 	sourceVideoProfile     string
 	sourceVideoLevel       string
 
@@ -486,6 +488,16 @@ func (t *Transcoder) getFlags() *execInfo {
 		}
 	}
 
+	// WebRTC-only configuration (all variants disabled HLS): emit only RTP legs
+	// instead of an invalid empty HLS muxer.
+	if len(t.variants) == 0 && len(t.rtpOutputs) > 0 {
+		ffmpegFlags = t.appendRTPOutputs(ffmpegFlags)
+		return &execInfo{
+			binPath: t.ffmpegPath,
+			command: ffmpegFlags,
+		}
+	}
+
 	// Shared HLS + WebRTC tee output: each transcode variant is encoded once
 	// and the same encoded stream feeds both HLS and the WebRTC RTP legs.
 	if t.sharedOutputEnabled() {
@@ -693,8 +705,14 @@ func (v *HLSVariant) getVariantString(t *Transcoder) []string {
 
 	if (v.videoSize.Width != 0 || v.videoSize.Height != 0) && !v.isVideoPassthrough {
 		// Order here matters, you must scale before changing hardware formats
+		scaleFilter := v.getScalingString(t.codec.Scaler())
+		if t.codec.Scaler() == "scale_cuda" {
+			// Ensure 10-bit NVDEC frames (p010le) convert to 8-bit nv12 on GPU
+			// before h264_nvenc, which rejects 10-bit H.264 encoding.
+			scaleFilter += ":format=nv12"
+		}
 		filters := []string{
-			v.getScalingString(t.codec.Scaler()),
+			scaleFilter,
 		}
 		if t.codec.ExtraFilters() != "" {
 			filters = append(filters, t.codec.ExtraFilters())
@@ -706,10 +724,16 @@ func (v *HLSVariant) getVariantString(t *Transcoder) []string {
 		variantEncoderCommands = append(variantEncoderCommands,
 			"-filter:v:"+strconv.Itoa(v.index), strings.Join(filters, ","),
 		)
-	} else if t.codec.ExtraFilters() != "" && !v.isVideoPassthrough {
-		variantEncoderCommands = append(variantEncoderCommands, []string{
-			"-filter:v:" + strconv.Itoa(v.index), t.codec.ExtraFilters(),
-		}...)
+	} else if !v.isVideoPassthrough {
+		if t.codec.ExtraFilters() != "" {
+			variantEncoderCommands = append(variantEncoderCommands, []string{
+				"-filter:v:" + strconv.Itoa(v.index), t.codec.ExtraFilters(),
+			}...)
+		} else if t.codec.Scaler() == "scale_cuda" {
+			variantEncoderCommands = append(variantEncoderCommands, []string{
+				"-filter:v:" + strconv.Itoa(v.index), "scale_cuda=format=nv12",
+			}...)
+		}
 	}
 
 	preset := t.codec.GetPresetForLevel(v.cpuUsageLevel)
@@ -852,6 +876,52 @@ func (t *Transcoder) SetSharedH264Level(level string) {
 	t.sharedH264Level = level
 }
 
+// normalizeSourceCodecName canonicalizes display/container codec labels
+// (e.g. "H.264", "avc1", "H.265", "hev1") into lowercase short tokens.
+func normalizeSourceCodecName(codec string) string {
+	cleaned := strings.NewReplacer(".", "", " ", "", "-", "", "_", "").Replace(strings.ToLower(strings.TrimSpace(codec)))
+	switch cleaned {
+	case "h264", "avc", "avc1":
+		return "h264"
+	case "h265", "hevc", "hev1", "hvc1":
+		return "hevc"
+	default:
+		return cleaned
+	}
+}
+
+// SetSourceCodec records the probed ingest video codec (e.g. "h264", "hevc",
+// "av1") and downgrades GPU-only CUDA frame pipelines if the input codec or
+// profile risks software-decode fallback (which cannot feed scale_cuda without
+// hwupload_cuda).
+func (t *Transcoder) SetSourceCodec(codec string) {
+	t.sourceVideoCodec = normalizeSourceCodecName(codec)
+	t.reconcileCudaScaleCompatibility()
+}
+
+func (t *Transcoder) reconcileCudaScaleCompatibility() {
+	nvenc, ok := t.codec.(*NvencCodec)
+	if !ok || !nvenc.cudaScale {
+		return
+	}
+	// Known-safe NVDEC 8/10-bit codecs stay on GPU frames (scale_cuda converts
+	// 10-bit p010le -> nv12). Non-H.264/HEVC codecs (e.g. AV1 on older GPUs,
+	// VP8/VP9) or chroma/bit-depth profiles prone to SW decode fallback cannot
+	// run -hwaccel_output_format cuda + scale_cuda safely.
+	if t.sourceVideoCodec != "" && t.sourceVideoCodec != "h264" && t.sourceVideoCodec != "hevc" {
+		t.codec = &NvencCodec{cudaScale: false}
+		return
+	}
+	prof := strings.ToLower(strings.TrimSpace(t.sourceVideoProfile))
+	if t.sourceVideoCodec == "h264" && (strings.Contains(prof, "10") || strings.Contains(prof, "422") || strings.Contains(prof, "444")) {
+		t.codec = &NvencCodec{cudaScale: false}
+		return
+	}
+	if t.sourceVideoCodec == "hevc" && (strings.Contains(prof, "422") || strings.Contains(prof, "444") || strings.Contains(prof, "rext")) {
+		t.codec = &NvencCodec{cudaScale: false}
+	}
+}
+
 // SetSourceDetails records probed ingest stream metadata so HLS passthrough
 // variants can declare their actual resolution, frame rate, bitrate and H.264
 // profile/level in the master playlist.
@@ -862,6 +932,7 @@ func (t *Transcoder) SetSourceDetails(width, height, videoBitrateKbps int, fps f
 	t.sourceFPS = fps
 	t.sourceVideoProfile = profile
 	t.sourceVideoLevel = level
+	t.reconcileCudaScaleCompatibility()
 }
 
 // SetMasterPlaylistWrittenCallback registers a hook invoked after the shared

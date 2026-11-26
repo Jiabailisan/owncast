@@ -25,6 +25,35 @@ const (
 // Ingest bytes are fanned out by an ingestTee; the WebRTC branch can never stall
 // or crash the HLS branch.
 func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.Reader, webrtc webRTCOutputs) {
+	// If every variant disabled HLS (WebRTC-only mode), do not spawn a 0-variant
+	// HLS FFmpeg process (which would immediately fail and tear down the stream).
+	if len(hlsEnabledVariants(s.configRepository.GetStreamOutputVariants())) == 0 {
+		tr := transcoder.NewTranscoder(s.cfg, s.configRepository)
+		webrtcCfg := s.configRepository.GetWebRTCConfig()
+		tr.SetSharedH264Profile(webrtcCfg.H264Profile)
+		tr.SetSharedH264Level(webrtcCfg.H264Level)
+		if broadcaster := s.GetBroadcaster(); broadcaster != nil {
+			details := broadcaster.StreamDetails
+			if details.VideoCodec != "" {
+				tr.SetSourceCodec(details.VideoCodec)
+			}
+			tr.SetSourceDetails(details.Width, details.Height, details.VideoBitrate, float64(details.VideoFramerate), details.VideoProfile, details.VideoLevel)
+		}
+		tr.SetPurpose([]string{"webrtc"})
+		tr.SetRTPOnly(true)
+		tr.SetInputFormat(session.InputFormat())
+		tr.SetRTPOutputs(webrtc.outputs)
+		tr.SetSourceVideoOnly(sessionVideoOnly(session))
+		tr.SetStdin(mediaReader)
+		tr.TranscoderCompleted = func(err error) {
+			s.streamDisconnectedFor(session, err)
+			s.clearTranscoder(tr)
+		}
+		s.setTranscoder(tr)
+		tr.Start(false)
+		return
+	}
+
 	tee := newIngestTee(mediaReader)
 	s.setIngestTee(tee)
 
@@ -34,6 +63,9 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	hls.SetSharedH264Level(webrtcCfg.H264Level)
 	if broadcaster := s.GetBroadcaster(); broadcaster != nil {
 		details := broadcaster.StreamDetails
+		if details.VideoCodec != "" {
+			hls.SetSourceCodec(details.VideoCodec)
+		}
 		hls.SetSourceDetails(details.Width, details.Height, details.VideoBitrate, float64(details.VideoFramerate), details.VideoProfile, details.VideoLevel)
 	}
 	hls.SetPurpose([]string{publicPipelineHLS})
@@ -109,6 +141,13 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 		webrtcCfg := s.configRepository.GetWebRTCConfig()
 		tr.SetSharedH264Profile(webrtcCfg.H264Profile)
 		tr.SetSharedH264Level(webrtcCfg.H264Level)
+		if broadcaster := s.GetBroadcaster(); broadcaster != nil {
+			details := broadcaster.StreamDetails
+			if details.VideoCodec != "" {
+				tr.SetSourceCodec(details.VideoCodec)
+			}
+			tr.SetSourceDetails(details.Width, details.Height, details.VideoBitrate, float64(details.VideoFramerate), details.VideoProfile, details.VideoLevel)
+		}
 		tr.SetPurpose([]string{"webrtc"})
 		tr.SetRestartCount(attempt)
 		tr.SetRTPOnly(true)

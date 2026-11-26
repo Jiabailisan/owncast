@@ -115,3 +115,17 @@ func TestServiceReservationExpiryDoesNotLeakCapacity(t *testing.T) {
 	gate.expire(now)
 	assert.Zero(t, gate.snapshot().Reserved)
 }
+
+func TestServiceJanitorSurvivesStartCtxCancel(t *testing.T) {
+	svc := New(Deps{Config: testWebRTCConfig(nil)})
+	startCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	require.NoError(t, svc.Start(startCtx))
+	cancel() // Simulates applyDeferredRestart / restartWebRTCService defer cancel().
+	t.Cleanup(func() { require.NoError(t, svc.Stop(context.Background())) })
+
+	svc.mu.RLock()
+	runCtx := svc.runCtx
+	svc.mu.RUnlock()
+	require.NotNil(t, runCtx)
+	assert.NoError(t, runCtx.Err(), "service janitor runCtx must outlive the caller startup context")
+}

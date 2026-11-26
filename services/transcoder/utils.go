@@ -116,6 +116,9 @@ func (t *Transcoder) handleTranscoderMessage(message string) {
 }
 
 func (t *Transcoder) createVariantDirectories() {
+	if t.rtpOnly || len(t.variants) == 0 {
+		return
+	}
 	// Create private hls data dirs
 	utils.CleanupDirectory(config.HLSStoragePath)
 	if len(t.configRepository.GetStreamOutputVariants()) != 0 {

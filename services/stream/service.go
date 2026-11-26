@@ -72,9 +72,12 @@ type Service struct {
 	// transcoder holds the active ffmpeg child while a stream is online.
 	// Replaced when a stream comes up, nil'd when it goes down.
 	transcoder *transcoder.Transcoder
-	// offlineTranscoder holds the always-on offline-clip process. Tracked so
-	// shutdown cannot orphan it.
+	// offlineTranscoder holds the always-on offline-clip process. Tracked under
+	// transcoderMu so shutdown cannot orphan or race with it.
 	offlineTranscoder *transcoder.Transcoder
+	// lifecycleMu guards thumbnailGen and onlineTimerCancelFunc across stream
+	// start/stop transitions.
+	lifecycleMu sync.Mutex
 
 	// yp talks to the Owncast directory.
 	yp *yp.YP

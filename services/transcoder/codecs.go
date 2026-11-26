@@ -1,10 +1,12 @@
 package transcoder
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -599,15 +601,18 @@ func ffmpegSupportsFilter(ffmpegPath, filterName string) bool {
 	if cached, ok := ffmpegFilterProbeCache.Load(cacheKey); ok {
 		return cached.(bool)
 	}
-	out, err := exec.Command(ffmpegPath, "-hide_banner", "-filters").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, ffmpegPath, "-hide_banner", "-filters").CombinedOutput()
+	if err != nil {
+		return false
+	}
 	supported := false
-	if err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 && fields[1] == filterName {
-				supported = true
-				break
-			}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == filterName {
+			supported = true
+			break
 		}
 	}
 	ffmpegFilterProbeCache.Store(cacheKey, supported)

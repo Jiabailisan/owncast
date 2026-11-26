@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -59,5 +60,35 @@ func TestDeleteObjectsUsesContentMD5(t *testing.T) {
 		}
 	default:
 		t.Fatal("DeleteObjects request was not received")
+	}
+}
+
+func TestS3DeletableSegmentsPerVariantAndSkipsOffline(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	items := []s3object{
+		{key: "hls/0/offline-v2.ts", lastModified: base.Add(-10 * time.Minute)},
+		{key: "hls/0/seg-1.ts", lastModified: base.Add(1 * time.Second)},
+		{key: "hls/0/seg-2.ts", lastModified: base.Add(2 * time.Second)},
+		{key: "hls/0/seg-3.ts", lastModified: base.Add(3 * time.Second)},
+		{key: "hls/0/seg-4.ts", lastModified: base.Add(4 * time.Second)},
+		{key: "hls/1/seg-1.ts", lastModified: base.Add(1 * time.Second)},
+		{key: "hls/1/seg-2.ts", lastModified: base.Add(2 * time.Second)},
+	}
+
+	// Keep the 2 newest segments per variant directory.
+	got := filterDeletableVideoSegments(items, 2)
+	keys := make(map[string]bool, len(got))
+	for _, obj := range got {
+		keys[obj.key] = true
+	}
+
+	if len(got) != 2 || !keys["hls/0/seg-1.ts"] || !keys["hls/0/seg-2.ts"] {
+		t.Fatalf("unexpected deletable segments: %+v", got)
+	}
+	if keys["hls/0/offline-v2.ts"] {
+		t.Fatal("offline-v2.ts must never be scheduled for deletion")
+	}
+	if keys["hls/1/seg-1.ts"] || keys["hls/1/seg-2.ts"] {
+		t.Fatal("segments in variant 1 within its own retention count must not be deleted")
 	}
 }

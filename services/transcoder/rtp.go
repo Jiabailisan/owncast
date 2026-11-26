@@ -139,14 +139,26 @@ func (t *Transcoder) rtpVideoOutputFlags(output RTPOutput) []string {
 		// stream, so emitting two silently dropped the hardware upload filters and
 		// made VAAPI/QSV legs fail to start (taking the shared HLS process with them).
 		// The HLS path joins them the same way, in the same order.
-		filters := make([]string, 0, 2)
+		filters := make([]string, 0, 3)
+		// If the process decodes into CUDA VRAM frames (-hwaccel_output_format cuda)
+		// while this RTP leg uses a CPU encoder (e.g. libx264), normalize to 8-bit
+		// nv12 on GPU (handling 10-bit HEVC p010le) before downloading to host memory.
+		if t.codec != nil && t.codec.PixelFormat() == "cuda" && legCodec.PixelFormat() != "cuda" {
+			filters = append(filters, "scale_cuda=format=nv12", "hwdownload", "format=nv12")
+		}
 		if output.Scale != "" {
 			scaler := legCodec.Scaler()
 			if scaler == "" {
 				scaler = "scale"
 			}
+			scaleExpr := scaler + "=" + output.Scale
+			if scaler == "scale_cuda" {
+				scaleExpr += ":format=nv12"
+			}
 
-			filters = append(filters, scaler+"="+output.Scale)
+			filters = append(filters, scaleExpr)
+		} else if legCodec.Scaler() == "scale_cuda" {
+			filters = append(filters, "scale_cuda=format=nv12")
 		}
 		if extra := legCodec.ExtraFilters(); extra != "" {
 			filters = append(filters, extra)

@@ -105,9 +105,23 @@ func (s *Service) Stop(_ context.Context) {
 	}
 	s.stopWebRTCProcess()
 	s.closeIngestTee()
-	if s.offlineTranscoder != nil {
-		s.offlineTranscoder.Stop()
+	s.transcoderMu.Lock()
+	offlineTr := s.offlineTranscoder
+	s.offlineTranscoder = nil
+	s.transcoderMu.Unlock()
+	if offlineTr != nil {
+		offlineTr.Stop()
 	}
+	s.lifecycleMu.Lock()
+	if s.thumbnailGen != nil {
+		s.thumbnailGen.Stop()
+		s.thumbnailGen = nil
+	}
+	if s.onlineTimerCancelFunc != nil {
+		s.onlineTimerCancelFunc()
+		s.onlineTimerCancelFunc = nil
+	}
+	s.lifecycleMu.Unlock()
 	s.StopOfflineCleanupTimer()
 	s.stopOnlineCleanupTimer()
 }
@@ -123,6 +137,22 @@ func (s *Service) createInitialOfflineState() error {
 func (s *Service) transitionToOfflineVideoStreamContent() {
 	log.Traceln("Firing transcoder with offline stream state")
 
+	// Copy the logo to be the thumbnail
+	logo := s.configRepository.GetLogoPath()
+	dst := filepath.Join(s.cfg.TempDir, "thumbnail.jpg")
+	if err := utils.Copy(filepath.Join("data", logo), dst); err != nil {
+		log.Warnln(err)
+	}
+
+	// Delete the preview Gif
+	_ = os.Remove(filepath.Join(s.cfg.TempDir, "preview.gif"))
+
+	// WebRTC-only configurations have zero HLS variants; skip spawning an empty
+	// offline HLS transcoder.
+	if len(hlsEnabledVariants(s.configRepository.GetStreamOutputVariants())) == 0 {
+		return
+	}
+
 	offlineTranscoder := transcoder.NewTranscoder(s.cfg, s.configRepository)
 	offlineTranscoder.SetSharedH264Profile(s.configRepository.GetWebRTCConfig().H264Profile)
 	offlineTranscoder.SetIdentifier("offline")
@@ -131,27 +161,21 @@ func (s *Service) transitionToOfflineVideoStreamContent() {
 
 	offlineFilePath, err := saveOfflineClipToDisk(s.cfg.TempDir, "offline-v2.ts")
 	if err != nil {
-		log.Fatalln("unable to save offline clip:", err)
+		log.Errorf("unable to save offline clip: %v", err)
+		return
 	}
 
 	offlineTranscoder.SetInput(offlineFilePath)
 	// Stop any previous offline process before starting a new one so repeated
 	// offline transitions cannot accumulate ffmpeg children.
-	if s.offlineTranscoder != nil {
-		s.offlineTranscoder.Stop()
-	}
+	s.transcoderMu.Lock()
+	prev := s.offlineTranscoder
 	s.offlineTranscoder = offlineTranscoder
-	go offlineTranscoder.Start(false)
-
-	// Copy the logo to be the thumbnail
-	logo := s.configRepository.GetLogoPath()
-	dst := filepath.Join(s.cfg.TempDir, "thumbnail.jpg")
-	if err = utils.Copy(filepath.Join("data", logo), dst); err != nil {
-		log.Warnln(err)
+	s.transcoderMu.Unlock()
+	if prev != nil {
+		prev.Stop()
 	}
-
-	// Delete the preview Gif
-	_ = os.Remove(filepath.Join(s.cfg.TempDir, "preview.gif"))
+	go offlineTranscoder.Start(false)
 }
 
 func (s *Service) resetDirectories() {
@@ -247,6 +271,23 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 
 	segmentPath := config.HLSStoragePath
 
+	hlsVariants := hlsEnabledVariants(broadcast.OutputSettings)
+	// Initialize thumbnail generator BEFORE launching the transcoder goroutine so
+	// an immediate FFmpeg exit cannot race past s.thumbnailGen assignment and
+	// leave an orphaned thumbnail ticker running while offline.
+	s.lifecycleMu.Lock()
+	if s.thumbnailGen != nil {
+		s.thumbnailGen.Stop()
+		s.thumbnailGen = nil
+	}
+	if len(hlsVariants) > 0 {
+		selectedThumbnailVideoQualityIndex, isVideoPassthrough := s.configRepository.FindHighestVideoQualityIndex(hlsVariants)
+		tg := transcoder.NewThumbnailGenerator(s.cfg, s.configRepository)
+		tg.Start(segmentPath, selectedThumbnailVideoQualityIndex, isVideoPassthrough)
+		s.thumbnailGen = tg
+	}
+	s.lifecycleMu.Unlock()
+
 	go func() {
 		if processModel == models.OutputProcessModelIsolated && len(webrtc.outputs) > 0 {
 			s.runIsolatedTranscoders(session, mediaReader, webrtc)
@@ -257,6 +298,11 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		webrtcCfg := s.configRepository.GetWebRTCConfig()
 		tr.SetSharedH264Profile(webrtcCfg.H264Profile)
 		tr.SetSharedH264Level(webrtcCfg.H264Level)
+		if source.VideoCodec != "" {
+			tr.SetSourceCodec(source.VideoCodec)
+		} else if broadcaster := s.GetBroadcaster(); broadcaster != nil && broadcaster.StreamDetails.VideoCodec != "" {
+			tr.SetSourceCodec(broadcaster.StreamDetails.VideoCodec)
+		}
 		if source.Width > 0 && source.Height > 0 {
 			tr.SetSourceDetails(source.Width, source.Height, source.VideoBitrateKbps, source.FPS, source.VideoProfile, source.VideoLevel)
 		} else if broadcaster := s.GetBroadcaster(); broadcaster != nil {
@@ -264,7 +310,10 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 			tr.SetSourceDetails(details.Width, details.Height, details.VideoBitrate, float64(details.VideoFramerate), details.VideoProfile, details.VideoLevel)
 		}
 		tr.SetMasterPlaylistWrittenCallback(s.handler.MasterPlaylistWritten)
-		purpose := []string{publicPipelineHLS}
+		var purpose []string
+		if len(hlsVariants) > 0 {
+			purpose = append(purpose, publicPipelineHLS)
+		}
 		if len(webrtc.outputs) > 0 {
 			purpose = append(purpose, "webrtc")
 		}
@@ -280,15 +329,8 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 		tr.SetRTPOutputs(webrtc.outputs)
 		tr.SetSourceVideoOnly(sessionVideoOnly(session))
 		s.setTranscoder(tr)
-		tr.Start(true)
+		tr.Start(len(hlsVariants) > 0)
 	}()
-
-	hlsVariants := hlsEnabledVariants(broadcast.OutputSettings)
-	if len(hlsVariants) > 0 {
-		selectedThumbnailVideoQualityIndex, isVideoPassthrough := s.configRepository.FindHighestVideoQualityIndex(hlsVariants)
-		s.thumbnailGen = transcoder.NewThumbnailGenerator(s.cfg, s.configRepository)
-		s.thumbnailGen.Start(segmentPath, selectedThumbnailVideoQualityIndex, isVideoPassthrough)
-	}
 
 	return nil
 }
@@ -409,14 +451,17 @@ func (s *Service) applyStreamOnline(broadcast *models.CurrentBroadcast, session 
 	s.statsMu.Unlock()
 
 	s.StopOfflineCleanupTimer()
+
+	// Initialize storage before starting the online cleanup ticker so the ticker
+	// never races against a concurrent s.storage swap.
+	if err := s.setupStorage(); err != nil {
+		log.Fatalln("failed to setup the storage", err)
+	}
+
 	s.startOnlineCleanupTimer()
 
 	if s.yp != nil {
 		go s.yp.Start()
-	}
-
-	if err := s.setupStorage(); err != nil {
-		log.Fatalln("failed to setup the storage", err)
 	}
 
 	go s.webhooks.SendStreamStatusEvent(models.StreamStarted, s.currentStreamTitle())
@@ -425,7 +470,12 @@ func (s *Service) applyStreamOnline(broadcast *models.CurrentBroadcast, session 
 	s.chat.SendAllWelcomeMessage()
 
 	// Send delayed notification messages.
+	s.lifecycleMu.Lock()
+	if s.onlineTimerCancelFunc != nil {
+		s.onlineTimerCancelFunc()
+	}
 	s.onlineTimerCancelFunc = s.startLiveStreamNotificationsTimer()
+	s.lifecycleMu.Unlock()
 
 	// Let peer Owncast servers refresh their featured-streams listing.
 	// Send one Offer immediately so a go-live propagates to followers
@@ -526,13 +576,16 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 		// Cancel the delayed live-notification timer: a stream that ends within
 		// its two-minute window would otherwise still announce "we are live" to
 		// the fediverse and to push subscribers after it has already stopped.
+		s.lifecycleMu.Lock()
 		if s.onlineTimerCancelFunc != nil {
 			s.onlineTimerCancelFunc()
 			s.onlineTimerCancelFunc = nil
 		}
 		if s.thumbnailGen != nil {
 			s.thumbnailGen.Stop()
+			s.thumbnailGen = nil
 		}
+		s.lifecycleMu.Unlock()
 		if s.sessions != nil {
 			s.sessions.DisconnectIf(session, errStreamOffline)
 		}
@@ -606,6 +659,9 @@ func (s *Service) applyStreamOffline(session ingest.Session) {
 // disconnected.
 func (s *Service) StartOfflineCleanupTimer() {
 	s.StopOfflineCleanupTimer()
+	s.statsMu.RLock()
+	epoch := s.broadcastEpoch
+	s.statsMu.RUnlock()
 	timer := time.NewTimer(5 * time.Minute)
 	done := make(chan struct{})
 	s.offlineCleanupMu.Lock()
@@ -615,9 +671,21 @@ func (s *Service) StartOfflineCleanupTimer() {
 	go func() {
 		select {
 		case <-timer.C:
+			// Serialize with applyStreamOnline/setupStorage via lifecycleMu and
+			// re-verify the broadcast epoch so an expired timer can never wipe
+			// directories belonging to a newly reconnected live stream.
+			s.lifecycleMu.Lock()
+			s.statsMu.RLock()
+			stillSameOfflineEpoch := !s.stats.StreamConnected && s.broadcastEpoch == epoch
+			s.statsMu.RUnlock()
+			if !stillSameOfflineEpoch || s.tearingDown.Load() {
+				s.lifecycleMu.Unlock()
+				return
+			}
 			// Set video to offline state
 			s.resetDirectories()
 			s.transitionToOfflineVideoStreamContent()
+			s.lifecycleMu.Unlock()
 		case <-done:
 			return
 		}
@@ -652,8 +720,13 @@ func (s *Service) startOnlineCleanupTimer() {
 		for {
 			select {
 			case <-ticker.C:
-				if err := s.storage.Cleanup(); err != nil {
-					log.Errorln(err)
+				s.lifecycleMu.Lock()
+				st := s.storage
+				s.lifecycleMu.Unlock()
+				if st != nil {
+					if err := st.Cleanup(); err != nil {
+						log.Errorln(err)
+					}
 				}
 			case <-done:
 				return

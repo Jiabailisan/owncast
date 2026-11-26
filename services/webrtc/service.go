@@ -115,7 +115,10 @@ func (s *Service) Start(ctx context.Context) error {
 		log.Infoln("webrtc: delivery disabled; WHEP endpoint will answer 503")
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
+	// Derive the janitor lifecycle context from context.Background(), NOT the
+	// caller's bounded startup ctx (which applyDeferredRestart and admin restart
+	// cancel via defer immediately after Start returns). Stop() cancels s.cancel.
+	runCtx, cancel := context.WithCancel(context.Background())
 	s.runCtx = runCtx
 	s.cancel = cancel
 	s.wg.Add(1)

@@ -33,22 +33,25 @@ func (s *Service) GetStatus() models.Status {
 	online := s.IsStreamConnected()
 
 	// The viewer map and the counters are mutated by the metrics ticker and by
-	// every playlist request, so read them under the lock.
+	// every playlist request, so copy all fields under the lock.
 	s.statsMu.RLock()
 	viewerCount := 0
 	if online {
 		viewerCount = len(s.stats.Viewers)
 	}
-	stats := s.stats
+	overallMax := s.stats.OverallMaxViewerCount
+	sessionMax := s.stats.SessionMaxViewerCount
+	lastDisconnect := s.stats.LastDisconnectTime
+	lastConnect := s.stats.LastConnectTime
 	s.statsMu.RUnlock()
 
 	status := models.Status{
 		Online:                online,
 		ViewerCount:           viewerCount,
-		OverallMaxViewerCount: stats.OverallMaxViewerCount,
-		SessionMaxViewerCount: stats.SessionMaxViewerCount,
-		LastDisconnectTime:    stats.LastDisconnectTime,
-		LastConnectTime:       stats.LastConnectTime,
+		OverallMaxViewerCount: overallMax,
+		SessionMaxViewerCount: sessionMax,
+		LastDisconnectTime:    lastDisconnect,
+		LastConnectTime:       lastConnect,
 		VersionNumber:         config.VersionNumber,
 		StreamTitle:           s.currentStreamTitle(),
 	}

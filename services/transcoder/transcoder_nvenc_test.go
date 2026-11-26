@@ -2,6 +2,7 @@ package transcoder
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/owncast/owncast/config"
@@ -47,5 +48,50 @@ func TestFFmpegNvencCommand(t *testing.T) {
 
 	if cmd != expected {
 		t.Errorf("ffmpeg command does not match expected.\nGot %s\n, want: %s", cmd, expected)
+	}
+}
+
+func TestFFmpegNvencCudaScaleFormatAndSWFallback(t *testing.T) {
+	latencyLevel := models.GetLatencyLevel(2)
+
+	tr := new(Transcoder)
+	tr.cfg = &config.Config{LogDirectory: "data/logs"}
+	tr.ffmpegPath = filepath.Join("fake", "path", "ffmpeg")
+	tr.SetInput("fakecontent.flv")
+	tr.SetOutputPath("fakeOutput")
+	tr.SetIdentifier("cudaTest")
+	tr.SetInternalHTTPPort("8123")
+	tr.codec = &NvencCodec{cudaScale: true}
+	tr.currentLatencyLevel = latencyLevel
+
+	scaled := HLSVariant{}
+	scaled.videoBitrate = 2500
+	scaled.isAudioPassthrough = true
+	scaled.SetVideoFramerate(60)
+	scaled.SetVideoScalingHeight(720)
+	tr.AddVariant(scaled)
+
+	unscaled := HLSVariant{}
+	unscaled.videoBitrate = 4000
+	unscaled.isAudioPassthrough = true
+	unscaled.SetVideoFramerate(60)
+	tr.AddVariant(unscaled)
+
+	cmd := tr.GetString()
+	if !strings.Contains(cmd, "scale_cuda=-2:720:format=nv12") {
+		t.Fatalf("expected scale_cuda with format=nv12, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "scale_cuda=format=nv12") {
+		t.Fatalf("expected unscaled CUDA transcode leg to enforce format=nv12, got: %s", cmd)
+	}
+
+	// Non-H.264/HEVC source (e.g. AV1) must downgrade cudaScale to software scale.
+	tr.SetSourceCodec("av1")
+	cmdAV1 := tr.GetString()
+	if strings.Contains(cmdAV1, "scale_cuda") {
+		t.Fatalf("expected AV1 input to disable scale_cuda, got: %s", cmdAV1)
+	}
+	if !strings.Contains(cmdAV1, "scale=-2:720") {
+		t.Fatalf("expected software scale fallback for AV1 input, got: %s", cmdAV1)
 	}
 }

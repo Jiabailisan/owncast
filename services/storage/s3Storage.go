@@ -121,7 +121,9 @@ func (s *S3Storage) SegmentWritten(localFilePath string) {
 	playlistPath := filepath.Join(filepath.Dir(localFilePath), "stream.m3u8")
 
 	if _, err := s.Save(playlistPath, 0); err != nil {
+		s.lock.Lock()
 		s.queuedPlaylistUpdates[playlistPath] = playlistPath
+		s.lock.Unlock()
 		if pErr, ok := err.(*os.PathError); ok {
 			log.Debugln(pErr.Path, "does not yet exist locally when trying to upload to S3 storage.")
 			return
@@ -133,15 +135,23 @@ func (s *S3Storage) SegmentWritten(localFilePath string) {
 func (s *S3Storage) VariantPlaylistWritten(localFilePath string) {
 	// We are uploading the variant playlist after uploading the segment
 	// to make sure we're not referring to files in a playlist that don't
-	// yet exist.  See SegmentWritten.
+	// yet exist. See SegmentWritten.
 	s.lock.Lock()
-	defer s.lock.Unlock()
-	if _, ok := s.queuedPlaylistUpdates[localFilePath]; ok {
-		if _, err := s.Save(localFilePath, 0); err != nil {
-			log.Errorln(err)
-			s.queuedPlaylistUpdates[localFilePath] = localFilePath
-		}
+	_, queued := s.queuedPlaylistUpdates[localFilePath]
+	if queued {
 		delete(s.queuedPlaylistUpdates, localFilePath)
+	}
+	s.lock.Unlock()
+
+	if !queued {
+		return
+	}
+
+	if _, err := s.Save(localFilePath, 0); err != nil {
+		log.Errorln(err)
+		s.lock.Lock()
+		s.queuedPlaylistUpdates[localFilePath] = localFilePath
+		s.lock.Unlock()
 	}
 }
 
@@ -255,16 +265,37 @@ func (s *S3Storage) createS3Client() *s3.Client {
 }
 
 func (s *S3Storage) getDeletableVideoSegmentsWithOffset(offset int) ([]s3object, error) {
-	objectsToDelete, err := s.retrieveAllVideoSegments()
+	allObjects, err := s.retrieveAllVideoSegments()
 	if err != nil {
 		return nil, err
 	}
 
-	if len(objectsToDelete) <= offset {
-		return nil, nil
+	return filterDeletableVideoSegments(allObjects, offset), nil
+}
+
+func filterDeletableVideoSegments(allObjects []s3object, offset int) []s3object {
+	// Group by variant directory so multi-variant streams retain `offset` recent
+	// segments per variant rather than deleting live segments across variants.
+	byVariant := make(map[string][]s3object)
+	for _, obj := range allObjects {
+		if strings.HasSuffix(obj.key, "/offline-v2.ts") || obj.key == "offline-v2.ts" {
+			continue
+		}
+		dir := filepath.Dir(obj.key)
+		byVariant[dir] = append(byVariant[dir], obj)
 	}
 
-	return objectsToDelete[offset:], nil
+	var deletable []s3object
+	for _, group := range byVariant {
+		sort.Slice(group, func(i, j int) bool {
+			return group[i].lastModified.After(group[j].lastModified)
+		})
+		if len(group) > offset {
+			deletable = append(deletable, group[offset:]...)
+		}
+	}
+
+	return deletable
 }
 
 // s3MaxDeleteKeys is the maximum number of keys per DeleteObjects request.
