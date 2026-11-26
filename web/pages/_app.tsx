@@ -77,7 +77,7 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
   // production workers browsers may have pinned to a dev port.
   useEffect(() => {
     if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js');
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   }, []);
 

@@ -1193,6 +1193,12 @@ class LatencyCompensator {
     this.setQualityPinned(false);
   }
 
+  // Drops any saved pre-pin rendition snapshot so a manual quality selection
+  // made by the viewer while compensating is preserved when compensation stops.
+  clearPinnedQualitySnapshot() {
+    this.pinnedQualitySnapshot = null;
+  }
+
   setQualityPinned(pinned) {
     try {
       const tech = this.player.tech({ IWillNotUseThisInPlugins: true });

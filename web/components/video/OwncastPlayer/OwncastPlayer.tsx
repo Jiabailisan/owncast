@@ -425,6 +425,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   };
 
   const selectQuality = (qualityId: string) => {
+    latencyCompensatorRef.current?.clearPinnedQualitySnapshot?.();
     setSelectedQuality(qualityId);
     applyQuality(qualityId);
   };
@@ -432,7 +433,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const startLatencyCompensator = () => {
     if (!playerRef.current) return;
     if (!latencyCompensatorRef.current) {
-      latencyCompensatorRef.current = new LatencyCompensator(playerRef.current);
+      // Pin to the current rendition (blocking upswitches only) rather than
+      // forcing the lowest tier, keeping high-quality-first Auto selection intact.
+      latencyCompensatorRef.current = new LatencyCompensator(playerRef.current, {
+        qualityPinMode: 'current',
+      });
     }
     latencyCompensatorEnabledRef.current = true;
     latencyCompensatorRef.current.setClockSkew(clockSkewRef.current);
@@ -899,10 +904,20 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   }, [statsOpen, selectedQuality, qualities, source]);
 
   // Register keyboard shortcut for the space bar to toggle playback
-  useHotkeys('space', e => {
-    e.preventDefault();
-    togglePlayback();
-  });
+  useHotkeys(
+    'space',
+    e => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest?.('button, a, input, select, textarea, [role="button"], [role="slider"]')
+      ) {
+        return;
+      }
+      e.preventDefault();
+      togglePlayback();
+    },
+    { enableOnContentEditable: false },
+  );
 
   useHotkeys('f', toggleFullScreen, { enableOnContentEditable: false });
   useHotkeys('m', toggleMute, { enableOnContentEditable: false });
@@ -917,7 +932,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     '0',
     () => {
       const player = playerRef.current;
-      if (player) player.volume(Math.min(1, player.volume() + 0.1));
+      if (player) setPlayerVolume((Number(player.volume()) || 0) + 0.1);
     },
     {
       enableOnContentEditable: false,
@@ -927,7 +942,8 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     '9',
     () => {
       const player = playerRef.current;
-      if (player) player.volume(Math.max(0, player.volume() - 0.1));
+      if (!player || player.muted()) return;
+      setPlayerVolume((Number(player.volume()) || 0) - 0.1);
     },
     {
       enableOnContentEditable: false,

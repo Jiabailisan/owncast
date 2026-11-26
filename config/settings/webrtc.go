@@ -108,12 +108,12 @@ func webrtcPersistedMetadata() []Field {
 
 		enumField("h264Profile", groupWebRTCMedia, "constrained-baseline",
 			[]string{"constrained-baseline", "baseline", "main", "high"},
-			"H.264 profile for WebRTC video legs. Browsers reliably decode Constrained Baseline, Main and High.", ApplyRestartStream),
+			"H.264 profile for transcoded WebRTC video legs (copy/passthrough legs forward the source bitstream directly). Browsers reliably decode Constrained Baseline, Main and High.", ApplyRestartStream),
 		enumField("h264Level", groupWebRTCMedia, "auto",
 			[]string{"auto", "3.0", "3.1", "4.0", "4.1", "4.2", "5.0", "5.1", "5.2", "6.0", "6.1", "6.2"},
-			"H.264 level for WebRTC video legs. auto lets the encoder choose. Levels above 4.2 cover 1440p/4K WebRTC output.", ApplyRestartStream),
+			"H.264 level for transcoded WebRTC video legs (copy/passthrough legs follow the source level). auto lets the encoder choose. Levels above 4.2 cover 1440p/4K WebRTC output.", ApplyRestartStream),
 		floatField("keyframeIntervalSeconds", groupWebRTCMedia, 1, 0.5, 10, "seconds",
-			"Fixed GOP length for WebRTC legs. Bounds viewer join time and keyframe availability.", ApplyRestartStream),
+			"Fixed GOP length for transcoded WebRTC legs (copy/passthrough legs keep the publisher's GOP). Bounds viewer join time and keyframe availability.", ApplyRestartStream),
 		intField("opusBitrateKbps", groupWebRTCMedia, 96, 16, 256, "kbps",
 			"Opus audio bitrate for WebRTC legs. Audio is always transcoded to Opus.", ApplyRestartStream),
 		{

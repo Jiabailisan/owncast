@@ -485,14 +485,14 @@ export const OutboundStreamsTable: FC<OutboundStreamsTableProps> = ({ streams, w
         <div className={styles.webrtcExplanation}>
           <Translation
             translationKey={Localization.Admin.LiveStreaming.Status.webrtcExplanation}
-            defaultText="Three H.264 profile and level values matter here. The source profile and level come from the ingest bitstream, so they describe what the publisher sent. The encoder profile is what Owncast encodes with when a WebRTC rendition is transcoded. The advertised profile-level-id is what the browser negotiates in the WHEP answer, and it can differ from both of the other values."
+            defaultText="Three H.264 profile and level values matter here. The source profile and level come from the ingest bitstream. The encoder profile is used when a WebRTC rendition is transcoded. Copy (passthrough) legs negotiate per-leg against the source bitstream, while transcoded legs advertise the configured WHEP profile-level-id."
           />
           {advertised && (
             <div className={styles.webrtcAdvertised} data-testid="webrtc-advertised">
               <Translation
                 translationKey={Localization.Admin.LiveStreaming.Status.webrtcAdvertised}
                 vars={{ profileLevelId: advertised.profileLevelId, level: advertised.level }}
-                defaultText="Advertised in the WHEP answer: {{profileLevelId}} (level {{level}})"
+                defaultText="Default transcoded WHEP answer: {{profileLevelId}} (level {{level}}; copy legs negotiate per source)"
               />
             </div>
           )}

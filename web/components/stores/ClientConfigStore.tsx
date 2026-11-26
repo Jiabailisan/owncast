@@ -273,11 +273,11 @@ export const ClientConfigStore: FC = () => {
         return;
       }
 
-      setCurrentUser({
-        ...currentUser,
+      setCurrentUser(prev => ({
+        ...prev,
         displayName: newDisplayName,
         displayColor,
-      });
+      }));
       setAccessToken(newAccessToken);
       setLocalStorage(ACCESS_TOKEN_KEY, newAccessToken);
       // The player heartbeat reports the display name along with the playback
@@ -380,7 +380,14 @@ export const ClientConfigStore: FC = () => {
     try {
       const messages = await ChatService.getChatHistory(accessToken);
       if (messages) {
-        setChatMessages(currentState => [...currentState, ...messages]);
+        setChatMessages(currentState => {
+          const seen = new Set(currentState.map(m => (m as { id?: string }).id).filter(Boolean));
+          const fresh = messages.filter(m => {
+            const id = (m as { id?: string }).id;
+            return !id || !seen.has(id);
+          });
+          return [...currentState, ...fresh];
+        });
       }
     } catch (error) {
       console.error(`ChatService -> getChatHistory() ERROR: \n${error}`);
@@ -487,7 +494,7 @@ export const ClientConfigStore: FC = () => {
     }
 
     startChat();
-  }, [hasLoadedConfig, accessToken]);
+  }, [hasLoadedConfig, accessToken, clientConfig.chatDisabled]);
 
   useEffect(() => {
     if (accessToken) {

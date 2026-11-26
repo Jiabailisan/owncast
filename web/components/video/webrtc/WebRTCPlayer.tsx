@@ -264,7 +264,10 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   }, []);
 
   useEffect(() => {
-    const onFullscreenChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    const onFullscreenChange = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element | null };
+      setFullscreen(Boolean(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
     // iOS Safari only implements webkitEnterFullscreen on the video element, which
     // fires its own events and never sets document.fullscreenElement.
     const onWebkitBegin = () => setFullscreen(true);
@@ -1010,27 +1013,37 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   );
 
   const toggleFullScreen = useCallback(() => {
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
     const container = containerRef.current;
     const video = videoRef.current;
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen().catch(() => {});
+      } else if (doc.webkitExitFullscreen) {
+        Promise.resolve(doc.webkitExitFullscreen()).catch(() => {});
+      }
       return;
     }
-    // iPhone/iPad Safari does not implement the standard Element.requestFullscreen
-    // on arbitrary elements; its video element exposes webkitEnterFullscreen.
+    // Prefer container fullscreen so PlayerControls and Stats for nerds stay
+    // visible in macOS/iPadOS Safari and desktop browsers; only fall back to
+    // native video fullscreen on iOS Safari where container fullscreen is absent.
+    const target = (container || video) as
+      (HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
+    if (target?.requestFullscreen) {
+      target.requestFullscreen().catch(() => {});
+      return;
+    }
+    if (target?.webkitRequestFullscreen) {
+      Promise.resolve(target.webkitRequestFullscreen()).catch(() => {});
+      return;
+    }
     const videoElement = video as
       (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
     if (videoElement?.webkitEnterFullscreen) {
       videoElement.webkitEnterFullscreen();
-      return;
-    }
-    const target = (container || video) as
-      (HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
-    if (!target) return;
-    if (target.requestFullscreen) {
-      target.requestFullscreen().catch(() => {});
-    } else if (target.webkitRequestFullscreen) {
-      Promise.resolve(target.webkitRequestFullscreen()).catch(() => {});
     }
   }, []);
 
@@ -1076,10 +1089,20 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     });
   }, []);
 
-  useHotkeys('space', e => {
-    e.preventDefault();
-    togglePlayback();
-  });
+  useHotkeys(
+    'space',
+    e => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest?.('button, a, input, select, textarea, [role="button"], [role="slider"]')
+      ) {
+        return;
+      }
+      e.preventDefault();
+      togglePlayback();
+    },
+    { enableOnContentEditable: false },
+  );
   useHotkeys('f', toggleFullScreen, { enableOnContentEditable: false });
   useHotkeys('m', toggleMute, { enableOnContentEditable: false });
   // Same PiP shortcut as the HLS player so the key does not depend on transport.

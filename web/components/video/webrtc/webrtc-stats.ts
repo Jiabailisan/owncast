@@ -340,8 +340,12 @@ export function collectWebRTCStatsPanel(
   let audioBitrateKbps: number | null = null;
   let connectionSpeedKbps: number | null = null;
   if (previous && elapsedSeconds > 0) {
-    videoBitrateKbps = kbps(videoBytes - previous.videoBytes, elapsedSeconds);
-    audioBitrateKbps = kbps(audioBytes - previous.audioBytes, elapsedSeconds);
+    if (inbound.video) {
+      videoBitrateKbps = kbps(videoBytes - previous.videoBytes, elapsedSeconds);
+    }
+    if (inbound.audio) {
+      audioBitrateKbps = kbps(audioBytes - previous.audioBytes, elapsedSeconds);
+    }
     if (videoBitrateKbps !== null || audioBitrateKbps !== null) {
       connectionSpeedKbps = (videoBitrateKbps || 0) + (audioBitrateKbps || 0);
     }

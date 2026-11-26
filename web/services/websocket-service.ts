@@ -51,7 +51,12 @@ export default class WebsocketService {
     const url = new URL(this.host);
     url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     url.pathname = '/ws';
-    url.port = window.location.port === '3000' ? '8080' : window.location.port;
+    if (!url.port) {
+      url.port = window.location.port;
+    }
+    if (url.port === '3000' && url.hostname === window.location.hostname) {
+      url.port = '8080';
+    }
     url.searchParams.append('accessToken', this.accessToken);
 
     const ws = new WebSocket(url.toString());
@@ -95,7 +100,11 @@ export default class WebsocketService {
 
   shutdown() {
     this.isShutdown = true;
-    this.websocket.close();
+    if (this.websocketReconnectTimer) {
+      clearTimeout(this.websocketReconnectTimer);
+      this.websocketReconnectTimer = null;
+    }
+    this.websocket?.close();
   }
 
   /*
@@ -111,25 +120,30 @@ export default class WebsocketService {
 
     // eslint-disable-next-line no-plusplus
     for (let i = 0; i < messages.length; i++) {
+      if (!messages[i]) {
+        continue;
+      }
       try {
         socketEvent = JSON.parse(messages[i]);
-        if (this.handleMessage) {
-          this.handleMessage(socketEvent);
-        }
       } catch (err) {
         console.error(err, err.data);
-        return;
+        continue;
       }
 
       if (!socketEvent.type) {
         console.error('No type provided', socketEvent);
-        return;
+        continue;
       }
 
-      // Send PONGs
+      // Send PONGs without forwarding PING to application handlers or dropping
+      // subsequent events batched in the same WebSocket frame.
       if (socketEvent.type === MessageType.PING) {
         this.sendPong();
-        return;
+        continue;
+      }
+
+      if (this.handleMessage) {
+        this.handleMessage(socketEvent);
       }
     }
   }
