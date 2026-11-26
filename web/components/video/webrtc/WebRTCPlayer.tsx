@@ -62,6 +62,16 @@ const ICE_DISCONNECT_GRACE_MS = 5000;
 // Attempt one automatic WHEP reconnect on mid-stream transport failure before
 // surfacing an error / triggering HLS fallback.
 const MAX_RUNTIME_RECONNECTS = 1;
+// Browsers ignore HTMLMediaElement.playbackRate for live WebRTC MediaStreams,
+// and jitterBufferTarget=0 only removes the artificial floor rather than
+// capping adaptive buffer growth during upstream packet-loss bursts. When the
+// browser's own receiver jitter buffer stays bloated beyond this threshold for
+// several consecutive samples, reconnecting the WHEP session cleanly flushes
+// the receiver buffer back to the live edge.
+const WEBRTC_CATCHUP_BUFFER_THRESHOLD_S = 2.0;
+const WEBRTC_CATCHUP_BUFFER_RESET_S = 1.5;
+const WEBRTC_CATCHUP_SUSTAINED_SAMPLES = 4;
+const WEBRTC_CATCHUP_COOLDOWN_MS = 30_000;
 
 export type WebRTCPlayerProps = {
   whepUrl: string;
@@ -123,6 +133,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const onFallbackRef = useRef(onFallback);
   const onReadyRef = useRef(onReady);
   const runtimeReconnectsRef = useRef(0);
+  const lastCatchUpReconnectAtRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>('idle');
   // The heartbeat keeps the viewer count accurate and reports what only the
@@ -133,6 +144,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   // Buffering is tracked the same way the HLS player tracks it, so a stalled
   // WebRTC playback shows the same spinner instead of looking frozen.
   const [buffering, setBuffering] = useState(false);
+  const [isBehindLive, setIsBehindLive] = useState(false);
 
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -758,6 +770,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
     let timer: ReturnType<typeof setInterval> | null = null;
     let lateSamples = 0;
+    let bloatedBufferSamples = 0;
     // The catch-up loop compares adjacent samples, so it keeps the previous one. The interval
     // jitter-buffer figure is a delta, and handing over no baseline made it fall back to the
     // session average, which reacts far too slowly to steer playback.
@@ -779,6 +792,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         applyReceiverLatencyTargets(sessionRef.current);
         previousSample = null;
         lateSamples = 0;
+        bloatedBufferSamples = 0;
       }
     };
 
@@ -794,6 +808,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           sampledSession = activeSession;
           previousSample = null;
           lateSamples = 0;
+          bloatedBufferSamples = 0;
+          setIsBehindLive(false);
           applyReceiverLatencyTargets(activeSession);
         }
         if (sampling) return;
@@ -806,6 +822,58 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             const { sample, bytes } = collectWebRTCStatsPanel(report, previousSample);
             previousSample = bytes;
             const liveLatency = sample.liveLatencySeconds;
+            const receiverBuffer =
+              typeof sample.jitterBufferSeconds === 'number' &&
+              Number.isFinite(sample.jitterBufferSeconds)
+                ? sample.jitterBufferSeconds
+                : null;
+
+            if (receiverBuffer !== null) {
+              if (receiverBuffer >= WEBRTC_CATCHUP_BUFFER_RESET_S) {
+                setIsBehindLive(true);
+              } else if (receiverBuffer < 1.0) {
+                setIsBehindLive(false);
+              }
+            }
+
+            if (
+              (receiverBuffer !== null && receiverBuffer > 0.35) ||
+              (liveLatency !== null && liveLatency > 0.5)
+            ) {
+              // Re-assert minimum playout targets so adaptive jitter growth
+              // or late-attached tracks keep targeting the live edge.
+              applyReceiverLatencyTargets(activeSession);
+            }
+
+            // Reconnect only when the browser's own receiver jitter buffer is
+            // genuinely bloated (immune to upstream SRT delay and clock skew).
+            if (
+              receiverBuffer !== null &&
+              receiverBuffer >= WEBRTC_CATCHUP_BUFFER_THRESHOLD_S
+            ) {
+              bloatedBufferSamples += 1;
+              const visible =
+                typeof document === 'undefined' || document.visibilityState === 'visible';
+              const nowMs = Date.now();
+              if (
+                bloatedBufferSamples >= WEBRTC_CATCHUP_SUSTAINED_SAMPLES &&
+                visible &&
+                nowMs - lastCatchUpReconnectAtRef.current >= WEBRTC_CATCHUP_COOLDOWN_MS
+              ) {
+                bloatedBufferSamples = 0;
+                lastCatchUpReconnectAtRef.current = nowMs;
+                runtimeReconnectsRef.current = 0;
+                setIsBehindLive(false);
+                setRetryToken(token => token + 1);
+                return;
+              }
+            } else if (
+              receiverBuffer !== null &&
+              receiverBuffer < WEBRTC_CATCHUP_BUFFER_RESET_S
+            ) {
+              bloatedBufferSamples = 0;
+            }
+
             if (liveLatency === null) return;
             if (liveLatency > 1.0) {
               lateSamples += 1;
@@ -834,6 +902,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       sampling = false;
       previousSample = null;
       lateSamples = 0;
+      bloatedBufferSamples = 0;
+      setIsBehindLive(false);
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
@@ -1078,7 +1148,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   }, []);
 
   const goLive = useCallback(() => {
-    // A MediaStream is always delivered live; nothing to seek back.
+    if (!sessionRef.current) return;
+    runtimeReconnectsRef.current = 0;
+    lastCatchUpReconnectAtRef.current = Date.now();
+    setIsBehindLive(false);
+    setRetryToken(token => token + 1);
   }, []);
 
   const toggleLatency = useCallback(() => {
@@ -1215,7 +1289,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           selectedQuality={selectedQuality}
           activeQualityName={activeVariantName}
           latencyEnabled={latencyEnabled}
-          liveEdge
+          liveEdge={!isBehindLive}
           // Hides the centre play button while the session is being negotiated; the
           // connecting overlay draws its own status text on top.
           loading={phase === 'connecting' || buffering}

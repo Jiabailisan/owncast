@@ -184,3 +184,26 @@ func TestAwaitSourceInfoHonorsTimeout(t *testing.T) {
 		t.Fatal("a timed out wait returned metadata")
 	}
 }
+
+func TestAwaitSourceInfoWithReasonDistinguishesTimeoutAndVerdict(t *testing.T) {
+	timeoutSession := newSourceInfoSession("srt-timeout-reason")
+	_, cancelled, reason := awaitSourceInfoWithReason(timeoutSession, nil, 25*time.Millisecond)
+	if cancelled || reason != "timeout" {
+		t.Fatalf("timeout wait = (cancelled=%v, reason=%q), want (false, timeout)", cancelled, reason)
+	}
+
+	budgetSession := newSourceInfoSession("srt-budget-reason")
+	budgetSpent := make(chan struct{})
+	close(budgetSpent)
+	_, cancelled, reason = awaitSourceInfoWithReason(budgetSession, budgetSpent, time.Second)
+	if cancelled || reason != "budget" {
+		t.Fatalf("budget wait = (cancelled=%v, reason=%q), want (false, budget)", cancelled, reason)
+	}
+
+	verdictSession := newSourceInfoSession("srt-verdict-reason")
+	verdictSession.SetBroadcaster(sourceInfoBroadcaster(models.BoolPtr(false)))
+	_, cancelled, reason = awaitSourceInfoWithReason(verdictSession, nil, time.Second)
+	if cancelled || reason != "verdict" {
+		t.Fatalf("verdict wait = (cancelled=%v, reason=%q), want (false, verdict)", cancelled, reason)
+	}
+}

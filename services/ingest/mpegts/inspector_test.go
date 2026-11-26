@@ -307,3 +307,108 @@ func TestParsePESPayloadExtractsPTS(t *testing.T) {
 		t.Errorf("continuation payload = %v pts=%d hasPTS=%v", payload, pts, hasPTS)
 	}
 }
+
+func buildTestSPSNAL(profileIDC, constraint, levelIDC uint32) []byte {
+	var bw bitWriter
+	bw.writeBits(profileIDC, 8)
+	bw.writeBits(constraint, 8)
+	bw.writeBits(levelIDC, 8)
+	bw.writeUE(0) // seq_parameter_set_id
+	if profileIDC == 100 {
+		bw.writeUE(1)  // chroma_format_idc = 4:2:0
+		bw.writeUE(0)  // bit_depth_luma_minus8
+		bw.writeUE(0)  // bit_depth_chroma_minus8
+		bw.writeBit(0) // qpprime_y_zero_transform_bypass_flag
+		bw.writeBit(0) // seq_scaling_matrix_present_flag
+	}
+	bw.writeUE(0)   // log2_max_frame_num_minus4
+	bw.writeUE(0)   // pic_order_cnt_type
+	bw.writeUE(0)   // log2_max_pic_order_cnt_lsb_minus4
+	bw.writeUE(1)   // max_num_ref_frames
+	bw.writeBit(0)  // gaps_in_frame_num_value_allowed_flag
+	bw.writeUE(119) // 1920
+	bw.writeUE(67)  // 1088
+	bw.writeBit(1)  // frame_mbs_only_flag
+	bw.writeBit(1)  // direct_8x8_inference_flag
+	bw.writeBit(1)  // frame_cropping_flag
+	bw.writeUE(0)   // crop_left
+	bw.writeUE(0)   // crop_right
+	bw.writeUE(0)   // crop_top
+	bw.writeUE(4)   // crop_bottom -> 1080
+	bw.writeBit(0)  // vui_parameters_present_flag
+
+	return append([]byte{0x67}, bw.finish()...)
+}
+
+func TestH264ProbeBaselineDecidesNoBFramesOnSPS(t *testing.T) {
+	tests := []struct {
+		name           string
+		profileIDC     uint32
+		constraint     uint32
+		wantProfile    string
+		wantDecided    bool
+		wantHasBFrames bool
+	}{
+		{
+			name:        "baseline decides immediately",
+			profileIDC:  66,
+			constraint:  0x00,
+			wantProfile: "baseline",
+			wantDecided: true,
+		},
+		{
+			name:        "constrained baseline decides immediately",
+			profileIDC:  66,
+			constraint:  0x40,
+			wantProfile: "constrained-baseline",
+			wantDecided: true,
+		},
+		{
+			name:        "main waits for slices",
+			profileIDC:  77,
+			constraint:  0x00,
+			wantProfile: "main",
+			wantDecided: false,
+		},
+		{
+			name:        "high waits for slices",
+			profileIDC:  100,
+			constraint:  0x00,
+			wantProfile: "high",
+			wantDecided: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var probe H264Probe
+			probe.FeedNAL(buildTestSPSNAL(tt.profileIDC, tt.constraint, 42))
+
+			snap := probe.Snapshot()
+			if snap.Profile != tt.wantProfile {
+				t.Fatalf("profile = %q, want %q", snap.Profile, tt.wantProfile)
+			}
+			if snap.Width != 1920 || snap.Height != 1080 {
+				t.Fatalf("size = %dx%d, want 1920x1080", snap.Width, snap.Height)
+			}
+			if probe.Decided() != tt.wantDecided || snap.BFrameChecked != tt.wantDecided {
+				t.Fatalf("decided=%v checked=%v, want %v", probe.Decided(), snap.BFrameChecked, tt.wantDecided)
+			}
+			if snap.HasBFrames != tt.wantHasBFrames {
+				t.Fatalf("HasBFrames = %v, want %v", snap.HasBFrames, tt.wantHasBFrames)
+			}
+		})
+	}
+}
+
+func TestH264ProbeBaselineSPSDoesNotOverrideObservedBFrame(t *testing.T) {
+	var probe H264Probe
+	// B-slice: first_mb_in_slice=0 ("1"), slice_type=1 ("010") -> 0b10100000 = 0xA0.
+	probe.FeedNAL([]byte{0x41, 0xA0})
+	probe.FeedNAL(buildTestSPSNAL(66, 0x40, 42))
+
+	snap := probe.Snapshot()
+	if !snap.BFrameChecked || !snap.HasBFrames {
+		t.Fatalf("observed B-frame verdict was overwritten: checked=%v hasB=%v", snap.BFrameChecked, snap.HasBFrames)
+	}
+}

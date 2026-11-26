@@ -64,7 +64,6 @@ var ignoredErrors = []string{
 var quietLogLevels = []string{"[info]", "[verbose]", "[debug]", "[trace]"}
 
 var (
-	surfacedLogLevels         = []string{"[warning] ", "[error] ", "[fatal] ", "[panic] "}
 	transcoderLogHexPtrRe     = regexp.MustCompile(`0x[0-9a-fA-F]+`)
 	transcoderLogTimestampRe  = regexp.MustCompile(`\b(dts|pts)\s*=\s*-?\d+`)
 	transcoderLogRepeatWindow = 10 * time.Second
@@ -75,17 +74,62 @@ var (
 // it as a warning (as opposed to error/fatal/panic). It returns the message with
 // its level tag removed so errorMap/ignoredErrors substring matching stays exact.
 func classifyTranscoderMessage(line string) (string, bool, bool) {
+	var c transcoderLogClassifier
+	return c.classify(line)
+}
+
+type transcoderLogLevel int
+
+const (
+	transcoderLogLevelNone transcoderLogLevel = iota
+	transcoderLogLevelQuiet
+	transcoderLogLevelWarning
+	transcoderLogLevelError
+)
+
+// transcoderLogClassifier preserves FFmpeg's log level across multi-line
+// messages whose continuation lines omit the "[warning]" / "[info]" prefix
+// (e.g. "Consider increasing the value for the 'analyzeduration'...").
+type transcoderLogClassifier struct {
+	lastLevel transcoderLogLevel
+}
+
+func (c *transcoderLogClassifier) classify(line string) (string, bool, bool) {
 	for _, level := range quietLogLevels {
 		if strings.Contains(line, level) {
+			c.lastLevel = transcoderLogLevelQuiet
 			return "", false, false
 		}
 	}
-	isWarning := strings.Contains(line, "[warning] ")
-	message := line
-	for _, level := range surfacedLogLevels {
-		message = strings.Replace(message, level, "", 1)
+	if strings.Contains(line, "[warning] ") {
+		c.lastLevel = transcoderLogLevelWarning
+		return strings.Replace(line, "[warning] ", "", 1), true, true
 	}
-	return message, isWarning, true
+	for _, level := range []string{"[error] ", "[fatal] ", "[panic] "} {
+		if strings.Contains(line, level) {
+			c.lastLevel = transcoderLogLevelError
+			return strings.Replace(line, level, "", 1), false, true
+		}
+	}
+	// Untagged continuation line: inherit the previous line's level when one was
+	// established so multi-line warnings stay warnings and multi-line info stays quiet.
+	switch c.lastLevel {
+	case transcoderLogLevelQuiet:
+		return "", false, false
+	case transcoderLogLevelWarning:
+		return line, true, true
+	default:
+		return line, false, true
+	}
+}
+
+// isEmptyInputEOFLine reports whether an FFmpeg stderr line indicates the
+// inbound stream closed before delivering any decodable video frames, rather
+// than a broken codec or incompatible FFmpeg build.
+func isEmptyInputEOFLine(line string) bool {
+	return strings.Contains(line, "Cannot determine format of input") ||
+		strings.Contains(line, "Could not open encoder before EOF") ||
+		strings.Contains(line, "Nothing was written into output file, because at least one of its streams received no packets")
 }
 
 // surfaceableTranscoderMessage reports whether a transcoder stderr line

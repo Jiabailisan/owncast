@@ -517,6 +517,13 @@ func analyzeNAL(info *SourceInfo, sliceCount *int, nal []byte) {
 				info.FPS = sps.FPS
 				info.FPSValid = true
 			}
+			// ITU-T H.264 Annex A.2.1: Baseline and Constrained Baseline
+			// (profile_idc == 66) forbid B-slices, so a valid SPS settles the
+			// no-B-frame verdict immediately without waiting for coded slices.
+			if sps.ProfileIDC == 66 && !info.BFrameChecked {
+				info.HasBFrames = false
+				info.BFrameChecked = true
+			}
 		}
 	case 1, 5: // coded slice (non-IDR / IDR)
 		if info.BFrameChecked {

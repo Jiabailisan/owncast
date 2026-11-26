@@ -183,3 +183,49 @@ func TestInspectorAcceptsAnnexBPayload(t *testing.T) {
 		t.Fatalf("Annex-B payload not inspected: checked=%t hasB=%t", info.BFrameChecked, info.HasBFrames)
 	}
 }
+
+func TestInspectorBaselineSequenceHeaderDecidesNoBFramesImmediately(t *testing.T) {
+	cases := []struct {
+		name        string
+		spsHex      string
+		wantProfile string
+	}{
+		{
+			name:        "baseline",
+			spsHex:      "6742002af402802dc8",
+			wantProfile: "baseline",
+		},
+		{
+			name:        "constrained-baseline",
+			spsHex:      "6742402af402802dc8",
+			wantProfile: "constrained-baseline",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sps := mustHex(t, tc.spsHex)
+			pps := mustHex(t, ppsHigh720p31)
+			record := []byte{1, sps[1], sps[2], sps[3], 0xFF, 0xE1}
+			record = append(record, byte(len(sps)>>8), byte(len(sps)))
+			record = append(record, sps...)
+			record = append(record, 1, byte(len(pps)>>8), byte(len(pps)))
+			record = append(record, pps...)
+
+			inspector := NewInspector()
+			inspector.FeedVideo(VideoFormatAVC, AVCPacketSequenceHeader, record, 0)
+
+			info := inspector.Snapshot()
+			if info.Profile != tc.wantProfile {
+				t.Fatalf("profile = %q, want %q", info.Profile, tc.wantProfile)
+			}
+			if info.Width != 1280 || info.Height != 720 {
+				t.Fatalf("size = %dx%d, want 1280x720", info.Width, info.Height)
+			}
+			if !inspector.Decided() || !info.BFrameChecked || info.HasBFrames {
+				t.Fatalf("expected immediate no-B-frame verdict, got decided=%t checked=%t hasB=%t",
+					inspector.Decided(), info.BFrameChecked, info.HasBFrames)
+			}
+		})
+	}
+}

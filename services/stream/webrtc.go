@@ -240,16 +240,12 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 		return session.Broadcaster(), false
 	}
 
-	broadcaster, cancelled := awaitSourceInfo(session, budgetSpent, webRTCSourceWaitTimeout)
+	broadcaster, cancelled, stopReason := awaitSourceInfoWithReason(session, budgetSpent, webRTCSourceWaitTimeout)
 	// The decision is made, whatever it turned out to be: stop buffering. The
 	// read-ahead would otherwise keep reading until its deadline and hand FFmpeg
 	// megabytes of dead weight, which is pure startup latency for nothing.
 	if prefetch != nil {
-		if cancelled {
-			prefetch.Stop("cancelled")
-		} else {
-			prefetch.Stop("verdict")
-		}
+		prefetch.Stop(stopReason)
 	}
 
 	return broadcaster, cancelled
@@ -268,8 +264,13 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 // away while the verdict was pending: that is a cancellation, not an unknown
 // source, and the caller must not publish the stream for it.
 func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeout time.Duration) (*models.Broadcaster, bool) {
+	broadcaster, cancelled, _ := awaitSourceInfoWithReason(session, budgetSpent, timeout)
+	return broadcaster, cancelled
+}
+
+func awaitSourceInfoWithReason(session ingest.Session, budgetSpent <-chan struct{}, timeout time.Duration) (*models.Broadcaster, bool, string) {
 	if broadcaster := session.Broadcaster(); broadcaster != nil && broadcaster.StreamDetails.HasBFrames != nil {
-		return broadcaster, false
+		return broadcaster, false, "verdict"
 	}
 
 	var ready <-chan struct{}
@@ -289,22 +290,22 @@ func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeou
 		select {
 		case <-ready:
 			// The verdict is published; the broadcaster carries it now.
-			return session.Broadcaster(), false
+			return session.Broadcaster(), false, "verdict"
 		case <-budgetSpent:
 			// The read-ahead window is over and no consumer drains it yet, so the
 			// inspector cannot observe another slice. Stop waiting: the verdict
 			// stays unknown and the existing rules fall back to transcode.
-			return session.Broadcaster(), false
+			return session.Broadcaster(), false, "budget"
 		case <-session.Done():
 			// The publisher went away while the verdict was still pending. This is a
 			// cancellation: there is no stream to plan for any more.
-			return session.Broadcaster(), true
+			return session.Broadcaster(), true, "cancelled"
 		case <-poll.C:
 			if broadcaster := session.Broadcaster(); sourceDecisionSettled(broadcaster) {
-				return broadcaster, false
+				return broadcaster, false, "verdict"
 			}
 		case <-timer.C:
-			return session.Broadcaster(), false
+			return session.Broadcaster(), false, "timeout"
 		}
 	}
 }

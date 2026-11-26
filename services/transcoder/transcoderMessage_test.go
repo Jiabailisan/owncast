@@ -95,3 +95,35 @@ func TestClassifyAndThrottleTranscoderMessages(t *testing.T) {
 		t.Fatalf("expected 1 warn and 1 error after throttling alternating burst, got warn=%d error=%d", warnCount, errCount)
 	}
 }
+
+func TestTranscoderLogClassifierInheritsMultiLineLevel(t *testing.T) {
+	var c transcoderLogClassifier
+
+	msg, isWarn, ok := c.classify("[in#0/flv @ 0x55e9072fbb00] [warning] Could not find codec parameters for stream 1 (Video: h264, none, 6144 kb/s): unspecified size")
+	if !ok || !isWarn || msg == "" {
+		t.Fatalf("first warning line = (%q, %v, %v)", msg, isWarn, ok)
+	}
+	cont, contWarn, contOK := c.classify("Consider increasing the value for the 'analyzeduration' (1000000) and 'probesize' (1000000) options")
+	if !contOK || !contWarn || cont == "" {
+		t.Fatalf("warning continuation = (%q, %v, %v), want surfaced warning", cont, contWarn, contOK)
+	}
+
+	// Info continuation stays quiet.
+	if _, _, ok := c.classify("[info] Input #0, flv, from 'pipe:0':"); ok {
+		t.Fatal("info line should be suppressed")
+	}
+	if _, _, ok := c.classify("  Metadata:"); ok {
+		t.Fatal("info continuation line should stay suppressed")
+	}
+
+	// Empty input EOF detector matches 0-frame disconnect errors, not codec errors.
+	if !isEmptyInputEOFLine("[vf#0:2 @ 0x1] [error] Cannot determine format of input 0:1 after EOF") {
+		t.Fatal("expected empty input EOF detection")
+	}
+	if !isEmptyInputEOFLine("[vost#0:2/h264_nvenc @ 0x1] [error] Could not open encoder before EOF") {
+		t.Fatal("expected encoder-before-EOF detection")
+	}
+	if isEmptyInputEOFLine("[error] Unknown encoder 'h264_nvenc'") {
+		t.Fatal("real codec error must not be classified as empty input EOF")
+	}
+}

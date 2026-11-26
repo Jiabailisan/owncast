@@ -19,7 +19,7 @@ __turbopack_load_page_chunks__("/", [
   "static/chunks/1vumyt731ce3p.js",
   "static/chunks/29fkq2egtahd8.js",
   "static/chunks/2ii8si9sk1wly.js",
-  "static/chunks/26ijwf3yk_fsm.js",
+  "static/chunks/11k25aympxzbt.js",
   "static/chunks/1cpxuraxw7lvy.css",
-  "static/chunks/turbopack-19-ugctgfcc1j.js"
+  "static/chunks/turbopack-3c7trhdc_46oa.js"
 ])

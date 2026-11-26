@@ -362,4 +362,72 @@ describe('WebRTC low-latency catch-up loop', () => {
     expect(receiver.jitterBufferTarget).toBeNull();
     expect(receiver.playoutDelayHint).toBeNull();
   });
+
+  test('reconnects WHEP when receiver jitter buffer stays bloated >= 2s, with 30s cooldown', async () => {
+    const getStats = jest.fn(async () => new Map());
+    const sessionFactory = jest.fn(async () => makeSession(getStats));
+    collectSpy.mockImplementation((() => ({
+      sample: { liveLatencySeconds: 2.6, jitterBufferSeconds: 2.3 },
+      bytes: bytesSample(1),
+    })) as never);
+
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats={false}
+        sessionFactory={sessionFactory}
+      />,
+    );
+    await flush();
+    expect(sessionFactory).toHaveBeenCalledTimes(1);
+
+    // 3 samples are below the 4-sample sustained threshold.
+    await tick();
+    await tick();
+    await tick();
+    expect(sessionFactory).toHaveBeenCalledTimes(1);
+
+    // 4th sustained sample triggers a clean catch-up reconnect.
+    await tick();
+    await flush();
+    expect(sessionFactory).toHaveBeenCalledTimes(2);
+
+    // Within the 30s cooldown, further sustained bloat must not reconnect-loop.
+    await tick();
+    await tick();
+    await tick();
+    await tick();
+    await flush();
+    expect(sessionFactory).toHaveBeenCalledTimes(2);
+  });
+
+  test('does not reconnect when high live latency is upstream (small receiver jitter buffer)', async () => {
+    const getStats = jest.fn(async () => new Map());
+    const sessionFactory = jest.fn(async () => makeSession(getStats));
+    collectSpy.mockImplementation((() => ({
+      sample: { liveLatencySeconds: 2.8, jitterBufferSeconds: 0.12 },
+      bytes: bytesSample(1),
+    })) as never);
+
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        enableStats={false}
+        sessionFactory={sessionFactory}
+      />,
+    );
+    await flush();
+    expect(sessionFactory).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i < 6; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await tick();
+    }
+    await flush();
+    expect(sessionFactory).toHaveBeenCalledTimes(1);
+  });
 });

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -358,13 +359,18 @@ func (t *Transcoder) Start(shouldLog bool) {
 	transcoderLog := logging.GetTranscoderLogWriter(t.cfg.LogDirectory)
 	fmt.Fprintf(transcoderLog, "ffmpeg started on %s\nCommand line:\n%s\n", time.Now().Format(time.RFC3339), command)
 
+	var sawEmptyInputEOF atomic.Bool
 	go func() {
 		defer pipeWG.Done()
+		var classifier transcoderLogClassifier
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(transcoderLog, line)
-			if message, isWarning, ok := classifyTranscoderMessage(line); ok {
+			if isEmptyInputEOFLine(line) {
+				sawEmptyInputEOF.Store(true)
+			}
+			if message, isWarning, ok := classifier.classify(line); ok {
 				t.handleTranscoderMessageWithLevel(message, isWarning)
 			}
 		}
@@ -419,9 +425,15 @@ func (t *Transcoder) Start(shouldLog bool) {
 
 	// Only report a transcoding failure when FFmpeg exited unexpectedly. An
 	// intentional Stop() sends SIGKILL and produces "signal: killed", which is
-	// not a codec or FFmpeg compatibility failure.
+	// not a codec or FFmpeg compatibility failure. Likewise, an inbound stream
+	// that disconnects before sending playable video frames causes FFmpeg to exit
+	// on empty EOF rather than indicating a missing codec.
 	if err != nil && !stopped {
-		log.Errorln("transcoding error. look at", logging.GetTranscoderLogFilePath(t.cfg.LogDirectory), "to help debug. your copy of ffmpeg may not support your selected codec of", t.codec.Name(), "https://owncast.online/docs/codecs/")
+		if sawEmptyInputEOF.Load() {
+			log.Warnln("transcoder exited without output because the inbound stream ended before delivering playable video frames; see", logging.GetTranscoderLogFilePath(t.cfg.LogDirectory))
+		} else {
+			log.Errorln("transcoding error. look at", logging.GetTranscoderLogFilePath(t.cfg.LogDirectory), "to help debug. your copy of ffmpeg may not support your selected codec of", t.codec.Name(), "https://owncast.online/docs/codecs/")
+		}
 	}
 }
 
