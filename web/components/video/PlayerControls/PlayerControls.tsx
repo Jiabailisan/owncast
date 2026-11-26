@@ -551,4 +551,3 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   );
 };
 
-export default PlayerControls;

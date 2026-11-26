@@ -150,4 +150,3 @@ export const CustomPlayerHost: FC<CustomPlayerHostProps> = ({
   );
 };
 
-export default CustomPlayerHost;

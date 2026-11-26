@@ -63,56 +63,6 @@ export interface WebRTCConfig {
   fallbackToHls: boolean;
 }
 
-export function makeEmptyWebRTCConfig(): WebRTCConfig {
-  return {
-    enabled: false,
-    domain: '',
-    publicIPs: [],
-    strictDomain: false,
-    allowedOrigins: [],
-    maxViewers: 100,
-    maxViewersPerIP: 0,
-    signalingRateLimit: 30,
-    limitExceededBehavior: 'reject',
-    sessionIdleTimeoutSeconds: 30,
-    bindAddress: '0.0.0.0',
-    udpMode: 'mux',
-    udpPort: 8189,
-    udpPortMin: 50000,
-    udpPortMax: 50100,
-    tcpEnabled: true,
-    tcpPort: 8189,
-    networkTypes: ['udp4', 'udp6', 'tcp4', 'tcp6'],
-    interfaceAllow: [],
-    interfaceDeny: [],
-    mdns: false,
-    stunServers: [],
-    turnServers: [],
-    embeddedTurn: false,
-    embeddedTurnPort: 3478,
-    embeddedTurnRealm: 'owncast',
-    iceLite: false,
-    iceDisconnectedTimeoutMs: 5000,
-    iceFailedTimeoutMs: 25000,
-    iceKeepaliveIntervalMs: 2000,
-    h264Profile: 'constrained-baseline',
-    h264Level: 'auto',
-    keyframeIntervalSeconds: 1,
-    opusBitrateKbps: 96,
-    opusFrameMs: 20,
-    opusFEC: true,
-    opusDTX: false,
-    rtpPacketSize: 1200,
-    nack: true,
-    twcc: true,
-    bandwidthEstimation: false,
-    maxBitratePerViewerKbps: 0,
-    minBitratePerViewerKbps: 0,
-    rtpReorderBufferMs: 0,
-    fallbackToHls: true,
-  };
-}
-
 // Live WebRTC service snapshot included with the config
 // (services/webrtc.StatusSnapshot).
 export interface WebRTCServiceStatus {

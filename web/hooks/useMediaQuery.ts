@@ -34,4 +34,3 @@ export function useMediaQuery(query: string, defaultValue = false): boolean {
 
 export const MOBILE_BREAKPOINT_QUERY = '(max-width: 768px)';
 
-export default useMediaQuery;

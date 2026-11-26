@@ -83,16 +83,6 @@ export function fieldErrorsToMap(errors?: FieldError[] | null): Record<string, s
   return map;
 }
 
-// Build a starting config object from metadata defaults so a form can render
-// even before the GET response arrives (and for Storybook/tests).
-export function defaultsFromMetadata(fields: FieldMeta[]): Record<string, unknown> {
-  const values: Record<string, unknown> = {};
-  fields.forEach(field => {
-    values[field.key] = field.default;
-  });
-  return values;
-}
-
 // Common field-key acronyms get their canonical spelling/units. This keeps
 // generated labels readable without the backend having to ship a short label.
 const FIELD_ACRONYMS: Record<string, string> = {

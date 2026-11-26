@@ -32,8 +32,8 @@ export function extractVariantOutputDraft(outputs?: VariantOutputs): VariantOutp
   const webrtc = outputs?.webrtc;
   return {
     webrtcEnabled: webrtc?.enabled === true,
-    webrtcMode: webrtc?.mode || 'inherit',
-    copyFallback: webrtc?.copyFallback || 'transcode',
+    webrtcMode: webrtc?.mode || DEFAULT_VARIANT_OUTPUT_DRAFT.webrtcMode,
+    copyFallback: webrtc?.copyFallback || DEFAULT_VARIANT_OUTPUT_DRAFT.copyFallback,
   };
 }
 

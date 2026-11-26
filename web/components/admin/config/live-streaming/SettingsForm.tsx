@@ -271,4 +271,3 @@ export const SettingsForm: FC<SettingsFormProps> = ({
   );
 };
 
-export default SettingsForm;

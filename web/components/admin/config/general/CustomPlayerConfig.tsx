@@ -292,4 +292,3 @@ export const CustomPlayerConfig: FC = () => {
   );
 };
 
-export default CustomPlayerConfig;

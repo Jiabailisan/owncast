@@ -20,4 +20,3 @@ export const MetricValue: FC<MetricValueProps> = ({ value, tooltip }) => {
   return tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content;
 };
 
-export default MetricValue;

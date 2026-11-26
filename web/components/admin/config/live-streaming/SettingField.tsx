@@ -466,4 +466,3 @@ export const SettingField: FC<SettingFieldProps> = ({
   );
 };
 
-export default SettingField;

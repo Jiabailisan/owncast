@@ -303,4 +303,3 @@ export const FfmpegPanel: FC<FfmpegPanelProps> = ({ panel }) => {
   );
 };
 
-export default FfmpegPanel;

@@ -280,4 +280,3 @@ export const WebRtcConfigSection: FC<WebRtcConfigSectionProps> = ({ metadata }) 
   );
 };
 
-export default WebRtcConfigSection;

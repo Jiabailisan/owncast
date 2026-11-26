@@ -172,4 +172,3 @@ export const ProcessModelCard: FC<ProcessModelCardProps> = ({ initialModel, load
   );
 };
 
-export default ProcessModelCard;

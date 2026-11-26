@@ -297,10 +297,6 @@ export interface FfmpegPanel {
   processes: FfmpegPanelProcess[];
 }
 
-export function isLiveState(state: LiveState | undefined): boolean {
-  return state === 'live' || state === 'degraded';
-}
-
 export function makeEmptyLiveStatus(): LiveStatus {
   return {
     state: 'offline',

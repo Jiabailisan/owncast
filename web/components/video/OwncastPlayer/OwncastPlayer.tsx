@@ -8,7 +8,11 @@ import { VideoJS } from '../VideoJS/VideoJS';
 import { ViewerReporter, videoResolution } from '../../../utils/viewer-report';
 import { VideoPoster } from '../VideoPoster/VideoPoster';
 import { getLocalStorage, setLocalStorage } from '../../../utils/localStorage';
-import { AutoplaySetting, autoplayModeForSetting } from '../../../utils/autoplay';
+import {
+  AutoplaySetting,
+  autoplayModeForSetting,
+  readAutoplayPreferences,
+} from '../../../utils/autoplay';
 import { Localization } from '../../../types/localization';
 import { isVideoPlayingAtom, clockSkewAtom } from '../../stores/ClientConfigStore';
 import PlaybackMetrics from '../metrics/playback';
@@ -971,10 +975,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     },
   );
 
-  const prefersReducedMotion =
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const navConnection =
     typeof navigator !== 'undefined'
       ? (
@@ -989,11 +989,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     navConnection?.effectiveType === '2g' ||
     navConnection?.effectiveType === '3g';
   const startsInaudible = initiallyMuted || startedMutedByViewer;
-  const autoplayMode = autoplayModeForSetting(autoplay, {
-    prefersReducedMotion,
-    saveData: navConnection?.saveData === true,
-    startsInaudible,
-  });
+  const autoplayMode = autoplayModeForSetting(
+    autoplay,
+    readAutoplayPreferences({ startsInaudible }),
+  );
 
   const videoJsOptions = {
     autoplay: autoplayMode,

@@ -1,5 +1,4 @@
 import {
-  defaultsFromMetadata,
   fieldErrorsToMap,
   groupSettingsFields,
   humanizeFieldKey,
@@ -29,15 +28,6 @@ describe('settings metadata helpers', () => {
     expect(humanizeFieldKey('clientIDs')).toBe('Client IDs');
     expect(humanizeFieldKey('publicURLs')).toBe('Public URLs');
     expect(humanizeFieldKey('allowedCIDRs')).toBe('Allowed CIDRs');
-  });
-
-  test('defaultsFromMetadata maps keys to their defaults', () => {
-    expect(
-      defaultsFromMetadata([
-        field({ key: 'port', default: 8890 }),
-        field({ key: 'enabled', default: false }),
-      ]),
-    ).toEqual({ port: 8890, enabled: false });
   });
 
   test('groupSettingsFields follows the declared group order and appends unknowns', () => {

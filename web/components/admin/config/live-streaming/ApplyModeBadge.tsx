@@ -86,4 +86,3 @@ export const ApplyModeBadge: FC<ApplyModeBadgeProps> = ({ applyMode, pending = f
   );
 };
 
-export default ApplyModeBadge;

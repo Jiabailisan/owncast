@@ -33,33 +33,6 @@ export interface SRTConfig {
   maxPendingHandshakes: number;
 }
 
-export function makeEmptySRTConfig(): SRTConfig {
-  return {
-    enabled: false,
-    bindAddress: '0.0.0.0',
-    port: 8890,
-    streamIdFormats: [],
-    requireStreamId: true,
-    allowedCIDRs: [],
-    deniedCIDRs: [],
-    authFailureRateLimit: 5,
-    receiverLatencyMs: 120,
-    peerLatencyMs: 120,
-    flowControlWindowPackets: 25600,
-    mss: 1500,
-    payloadSize: 1316,
-    passphraseSet: false,
-    enforcedEncryption: true,
-    peerIdleTimeoutMs: 5000,
-    ipTTL: 0,
-    ipTOS: 0,
-    logTopics: [],
-    debugStatsIntervalMs: 0,
-    driftTracer: true,
-    maxPendingHandshakes: 32,
-  };
-}
-
 // Live listener state reported alongside the config
 // (webserver/handlers/admin/liveStreamingConfig.go srtListenerState).
 export interface SRTActiveSession {

@@ -156,4 +156,3 @@ export function useLiveStatusPolling(
   return { status, ffmpeg, error, lastUpdated, loading, refresh };
 }
 
-export default useLiveStatusPolling;

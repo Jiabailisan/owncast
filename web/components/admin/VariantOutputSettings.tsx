@@ -131,4 +131,3 @@ export const VariantOutputSettings: FC<VariantOutputSettingsProps> = ({
   );
 };
 
-export default VariantOutputSettings;

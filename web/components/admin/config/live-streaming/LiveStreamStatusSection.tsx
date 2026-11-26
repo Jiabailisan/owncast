@@ -175,4 +175,3 @@ export const LiveStreamStatusSection: FC<LiveStreamStatusSectionProps> = ({ acti
   );
 };
 
-export default LiveStreamStatusSection;

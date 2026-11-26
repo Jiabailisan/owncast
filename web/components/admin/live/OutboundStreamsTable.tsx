@@ -512,4 +512,3 @@ export const OutboundStreamsTable: FC<OutboundStreamsTableProps> = ({ streams, w
   );
 };
 
-export default OutboundStreamsTable;

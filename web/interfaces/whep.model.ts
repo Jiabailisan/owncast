@@ -27,14 +27,3 @@ export interface WHEPSessionInfo {
   iceServersFromLink: WHEPIceServer[];
   retryAfterSeconds: number | null;
 }
-
-export function isWHEPFallbackCode(code: WHEPErrorCode): boolean {
-  return (
-    code === 'capacity' ||
-    code === 'forbidden' ||
-    code === 'rate_limited' ||
-    code === 'timeout' ||
-    code === 'network' ||
-    code === 'signaling'
-  );
-}

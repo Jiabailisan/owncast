@@ -126,4 +126,3 @@ export const VolumeSlider: FC<VolumeSliderProps> = ({ value, onChange, onFocusCh
   );
 };
 
-export default VolumeSlider;

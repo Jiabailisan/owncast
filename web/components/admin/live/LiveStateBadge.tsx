@@ -67,4 +67,3 @@ export const LiveStateBadge: FC<LiveStateBadgeProps> = ({ state }) => {
   );
 };
 
-export default LiveStateBadge;

@@ -643,4 +643,3 @@ export const LiveViewerTable: FC<LiveViewerTableProps> = ({ enabled }) => {
   );
 };
 
-export default LiveViewerTable;

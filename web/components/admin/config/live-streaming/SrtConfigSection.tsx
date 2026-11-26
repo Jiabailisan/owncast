@@ -161,4 +161,3 @@ export const SrtConfigSection: FC<SrtConfigSectionProps> = ({ metadata }) => {
   );
 };
 
-export default SrtConfigSection;

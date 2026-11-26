@@ -15,4 +15,3 @@ export const ProtocolBadge: FC<ProtocolBadgeProps> = ({ protocol }) => {
   return <Tag color="default">-</Tag>;
 };
 
-export default ProtocolBadge;

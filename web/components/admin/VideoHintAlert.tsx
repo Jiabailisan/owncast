@@ -32,4 +32,3 @@ export const VideoHintAlert: FC<VideoHintAlertProps> = ({
   />
 );
 
-export default VideoHintAlert;

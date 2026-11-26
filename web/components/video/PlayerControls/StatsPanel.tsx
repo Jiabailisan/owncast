@@ -121,4 +121,3 @@ export const StatsPanel: FC<StatsPanelProps> = ({ stats, sparklines, onClose }) 
   );
 };
 
-export default StatsPanel;

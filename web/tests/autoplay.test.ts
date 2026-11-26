@@ -2,7 +2,6 @@ import {
   AutoplaySetting,
   autoplayModeForSetting,
   resolveAutoplaySetting,
-  shouldAttemptAutoplay,
   readAutoplayPreferences,
 } from '../utils/autoplay';
 
@@ -88,16 +87,6 @@ describe('resolveAutoplaySetting', () => {
 });
 
 describe('WebRTC autoplay and unmute parity helpers', () => {
-  test('shouldAttemptAutoplay mirrors the video.js mapping', () => {
-    expect(shouldAttemptAutoplay(AutoplaySetting.Off)).toBe(false);
-    expect(shouldAttemptAutoplay(AutoplaySetting.Always)).toBe(true);
-    expect(shouldAttemptAutoplay(AutoplaySetting.SoundOnly)).toBe(true);
-    expect(shouldAttemptAutoplay(AutoplaySetting.Always, { prefersReducedMotion: true })).toBe(
-      false,
-    );
-    expect(shouldAttemptAutoplay(AutoplaySetting.SoundOnly, { startsInaudible: true })).toBe(false);
-  });
-
   test('readAutoplayPreferences returns overrides and browser-derived values', () => {
     const preferences = readAutoplayPreferences({ startsInaudible: true });
     expect(preferences.startsInaudible).toBe(true);

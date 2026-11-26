@@ -463,4 +463,3 @@ export const StreamStatusCards: FC<StreamStatusCardsProps> = ({ status }) => {
   );
 };
 
-export default StreamStatusCards;

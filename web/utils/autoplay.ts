@@ -85,15 +85,6 @@ export function readAutoplayPreferences(overrides: AutoplayPreferences = {}): Au
   };
 }
 
-// Whether a player should attempt to start playback on its own. Mirrors the
-// video.js mapping: 'any' and 'play' both attempt playback, false does not.
-export function shouldAttemptAutoplay(
-  setting: string,
-  preferences: AutoplayPreferences = {},
-): boolean {
-  return autoplayModeForSetting(setting, preferences) !== false;
-}
-
 // The big unmute affordance is only for playback the player muted itself (the
 // autoplay muted fallback). A viewer-initiated or restored persisted mute must
 // never show it, matching OwncastPlayer's video.js behavior.
