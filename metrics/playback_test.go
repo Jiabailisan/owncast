@@ -62,3 +62,14 @@ func TestRegisterPlaybackReport(t *testing.T) {
 		t.Error("server-observed clients must not enter the error denominator")
 	}
 }
+
+func TestHandlePlaybackPollingSkipsEmptyOfflineTicks(t *testing.T) {
+	s := newTestService()
+	s.handlePlaybackPolling()
+	if got := len(s.GetMedianLatencyOverTime()); got != 0 {
+		t.Fatalf("expected 0 latency points when offline with no samples, got %d", got)
+	}
+	if got := len(s.GetSlowestDownloadRateOverTime()); got != 0 {
+		t.Fatalf("expected 0 bandwidth points when offline with no samples, got %d", got)
+	}
+}

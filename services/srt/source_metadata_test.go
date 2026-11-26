@@ -2,6 +2,7 @@ package srt
 
 import (
 	"testing"
+	"time"
 
 	"github.com/owncast/owncast/services/ingest/mpegts"
 )
@@ -80,5 +81,29 @@ func TestPublishedVerdictIsNotReplacedByAnUndecidedSnapshot(t *testing.T) {
 	broadcaster := s.Broadcaster()
 	if broadcaster == nil || broadcaster.StreamDetails.HasBFrames == nil {
 		t.Fatal("an undecided snapshot removed the published verdict")
+	}
+}
+
+func TestSRTBroadcasterTimeStaysAnchoredToSessionStart(t *testing.T) {
+	s := newSession(nil, "key", 5, false, func(error) {})
+	startedAt := s.StartedAt()
+
+	first := inspectedSource(false)
+	first.VideoBitrateValid = true
+	first.VideoBitrateKbps = 6000
+	s.publishSourceMetadata(first)
+
+	time.Sleep(15 * time.Millisecond)
+
+	second := first
+	second.VideoBitrateKbps = 7500
+	s.publishSourceMetadata(second)
+
+	broadcaster := s.Broadcaster()
+	if broadcaster == nil {
+		t.Fatal("expected broadcaster")
+	}
+	if !broadcaster.Time.Equal(startedAt) {
+		t.Fatalf("broadcaster.Time = %v, want immutable session StartedAt %v", broadcaster.Time, startedAt)
 	}
 }

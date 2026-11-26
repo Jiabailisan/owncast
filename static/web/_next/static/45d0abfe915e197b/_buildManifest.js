@@ -69,7 +69,7 @@ self.__BUILD_MANIFEST = {
     "static/chunks/1clu9unnj5s-g.js"
   ],
   "/admin/stream-health": [
-    "static/chunks/3w1mzgoef-us6.js"
+    "static/chunks/12wacudjrzfiv.js"
   ],
   "/admin/upgrade": [
     "static/chunks/2g7rqx1ib5b-e.js"

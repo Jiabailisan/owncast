@@ -17,16 +17,29 @@ func (s *Service) handlePlaybackPolling() {
 	s.metrics.m.Lock()
 	defer s.metrics.m.Unlock()
 
+	online := s.stream != nil && s.stream.GetStatus().Online
 	// Make sure this is fired first before all the values get cleared below.
-	if s.stream.GetStatus().Online {
+	if online {
 		s.generateStreamHealthOverview()
+	} else {
+		s.metrics.streamHealthOverview = nil
 	}
 
-	s.collectPlaybackErrorCount()
-	s.collectLatencyValues()
-	s.collectSegmentDownloadDuration()
-	s.collectLowestBandwidth()
-	s.collectQualityVariantChanges()
+	hasWindowData := len(s.windowedErrorCounts) > 0 ||
+		len(s.windowedLatencies) > 0 ||
+		len(s.windowedDownloadDurations) > 0 ||
+		len(s.windowedBandwidths) > 0 ||
+		len(s.windowedQualityVariantChanges) > 0
+
+	// Only append time-series samples while live or when draining final buffered
+	// reports right after a stream ends, avoiding flat zero lines while offline.
+	if online || hasWindowData {
+		s.collectPlaybackErrorCount()
+		s.collectLatencyValues()
+		s.collectSegmentDownloadDuration()
+		s.collectLowestBandwidth()
+		s.collectQualityVariantChanges()
+	}
 
 	s.pruneSelfReportingClients()
 	s.prunePlaybackClients()
@@ -446,5 +459,8 @@ func (s *Service) GetPlaybackMetricsRepresentation() int {
 	reportedCount := len(s.windowedBandwidths)
 	s.metrics.m.Unlock()
 	representation := utils.IntPercentage(reportedCount, totalPlayerCount)
+	if representation > 100 {
+		representation = 100
+	}
 	return representation
 }

@@ -31,17 +31,34 @@ func (a *Admin) GetVideoPlaybackMetrics(w http.ResponseWriter, r *http.Request) 
 		Representation       int                        `json:"representation"`
 	}
 
+	inboundBitrate := 0
+	if broadcaster := a.stream.GetBroadcaster(); broadcaster != nil {
+		inboundBitrate = broadcaster.StreamDetails.VideoBitrate
+	}
+
 	availableBitrates := []int{}
 	var segmentLength int
 	if broadcast := a.stream.GetCurrentBroadcast(); broadcast != nil {
 		segmentLength = broadcast.LatencyLevel.SecondsPerSegment
 		for _, variants := range broadcast.OutputSettings {
-			availableBitrates = append(availableBitrates, variants.VideoBitrate)
+			bitrate := variants.VideoBitrate
+			if variants.IsVideoPassthrough && inboundBitrate > 0 {
+				bitrate = inboundBitrate
+			}
+			if bitrate > 0 {
+				availableBitrates = append(availableBitrates, bitrate)
+			}
 		}
 	} else {
 		segmentLength = a.configRepository.GetStreamLatencyLevel().SecondsPerSegment
 		for _, variants := range a.configRepository.GetStreamOutputVariants() {
-			availableBitrates = append(availableBitrates, variants.VideoBitrate)
+			bitrate := variants.VideoBitrate
+			if variants.IsVideoPassthrough && inboundBitrate > 0 {
+				bitrate = inboundBitrate
+			}
+			if bitrate > 0 {
+				availableBitrates = append(availableBitrates, bitrate)
+			}
 		}
 	}
 

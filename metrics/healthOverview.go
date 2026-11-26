@@ -41,6 +41,9 @@ func (s *Service) generateStreamHealthOverview() {
 
 	if totalPlayerCount > 0 && len(s.windowedBandwidths) > 0 {
 		representation := utils.IntPercentage(len(s.windowedBandwidths), totalPlayerCount)
+		if representation > 100 {
+			representation = 100
+		}
 		overview.Representation = representation
 	}
 
@@ -67,11 +70,23 @@ func (s *Service) networkSpeedHealthOverviewMessage() string {
 		bitrate            int
 	}
 	outputVariants := s.configRepository.GetStreamOutputVariants()
+	if len(outputVariants) == 0 {
+		return ""
+	}
+
+	inboundBitrate := 0
+	if broadcaster := s.stream.GetBroadcaster(); broadcaster != nil {
+		inboundBitrate = broadcaster.StreamDetails.VideoBitrate
+	}
 
 	streamSortVariants := make([]singleVariant, len(outputVariants))
 	for i, variant := range outputVariants {
+		bitrate := variant.VideoBitrate
+		if variant.IsVideoPassthrough && inboundBitrate > 0 {
+			bitrate = inboundBitrate
+		}
 		variantSort := singleVariant{
-			bitrate:            variant.VideoBitrate,
+			bitrate:            bitrate,
 			isVideoPassthrough: variant.IsVideoPassthrough,
 		}
 		streamSortVariants[i] = variantSort
@@ -138,7 +153,7 @@ func (s *Service) wastefulBitrateOverviewMessage() string {
 	}
 
 	currentBroadcaster := s.stream.GetBroadcaster()
-	if currentBroadcast == nil {
+	if currentBroadcaster == nil {
 		return ""
 	}
 
@@ -153,6 +168,9 @@ func (s *Service) wastefulBitrateOverviewMessage() string {
 	}
 
 	outputVariants := s.configRepository.GetStreamOutputVariants()
+	if len(outputVariants) == 0 {
+		return ""
+	}
 
 	type singleVariant struct {
 		isVideoPassthrough bool
@@ -161,6 +179,11 @@ func (s *Service) wastefulBitrateOverviewMessage() string {
 
 	streamSortVariants := make([]singleVariant, len(outputVariants))
 	for i, variant := range outputVariants {
+		if variant.IsVideoPassthrough {
+			// A passthrough variant forwards the inbound bitstream without
+			// transcoding it down, so inbound bitrate is not wasted CPU work.
+			return ""
+		}
 		variantSort := singleVariant{
 			bitrate:            variant.VideoBitrate,
 			isVideoPassthrough: variant.IsVideoPassthrough,

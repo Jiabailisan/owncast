@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/owncast/owncast/config/settings"
+	"github.com/owncast/owncast/metrics"
 	"github.com/owncast/owncast/services/webrtc"
 	"github.com/owncast/owncast/utils"
 	webutils "github.com/owncast/owncast/webserver/utils"
@@ -267,6 +268,26 @@ func (a *Admin) ReportWebRTCClientReport(w http.ResponseWriter, r *http.Request)
 	if !accepted {
 		w.WriteHeader(http.StatusNotFound)
 		return
+	}
+
+	// Bridge WebRTC playback stats into the shared playback metrics service so
+	// Stream Health and the admin health overview reflect WebRTC viewers too
+	// (previously only HLS/CMCD clients populated metrics.Service).
+	if a.metrics != nil {
+		report := metrics.PlaybackReport{
+			ClientID:       "webrtc:" + request.SessionID,
+			ViewerID:       utils.GenerateClientIDFromRequest(r),
+			HasErrorCount:  true,
+			ClientReported: true,
+			PlayerState:    "p",
+		}
+		if request.VideoBitrateKbps != nil && *request.VideoBitrateKbps > 0 {
+			report.BandwidthKbps = *request.VideoBitrateKbps
+		}
+		if request.LatencyMs != nil && *request.LatencyMs > 0 {
+			report.LatencySeconds = *request.LatencyMs / 1000.0
+		}
+		a.metrics.RegisterPlaybackReport(report)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

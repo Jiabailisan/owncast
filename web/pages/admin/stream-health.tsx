@@ -223,7 +223,8 @@ const StreamHealth = () => {
     });
   });
 
-  const currentSpeed = bitrateChart[0]?.data[bitrateChart[0].data.length - 1]?.value;
+  const lowestSpeed = bitrateChart[0]?.data[bitrateChart[0].data.length - 1]?.value;
+  const currentSpeed = medianPlayerBitrate[medianPlayerBitrate.length - 1]?.value ?? lowestSpeed;
   const currentDownloadSeconds =
     medianSegmentDownloadDurations[medianSegmentDownloadDurations.length - 1]?.value;
   const lowestVariant = availableBitrates?.length
@@ -233,9 +234,7 @@ const StreamHealth = () => {
     : 0;
 
   const latencyMedian = medianLatency[medianLatency.length - 1]?.value || 0;
-  const latencyMax = highestLatency?.[highestLatency.length - 1]?.value || 0;
-  const latencyMin = lowestLatency?.[lowestLatency.length - 1]?.value || 0;
-  const latencyStat = (Number(latencyMax) + Number(latencyMin) + Number(latencyMedian)) / 3;
+  const latencyStat = Number(latencyMedian);
 
   let recentErrorCount = 0;
   const errorValueCount = errorChart[0]?.data.length || 0;
@@ -245,12 +244,13 @@ const StreamHealth = () => {
   } else {
     recentErrorCount = errorChart[0].data.reduce((acc, curr) => acc + Number(curr.value), 0);
   }
-  const showStats = currentSpeed > 0 || currentDownloadSeconds > 0 || recentErrorCount > 0;
+  const showStats =
+    currentSpeed > 0 || currentDownloadSeconds > 0 || latencyStat > 0 || recentErrorCount > 0;
   let bitrateError = null;
   let speedError = null;
 
-  if (currentSpeed !== 0 && currentSpeed < lowestVariant) {
-    bitrateError = `One of your viewers is playing your stream at ${currentSpeed}kbps, slower than ${lowestVariant}kbps, the lowest quality you made available. Consider adding a lower quality with a lower bitrate if the errors over time warrant this.`;
+  if (lowestSpeed !== 0 && lowestSpeed < lowestVariant) {
+    bitrateError = `One of your viewers is playing your stream at ${lowestSpeed}kbps, slower than ${lowestVariant}kbps, the lowest quality you made available. Consider adding a lower quality with a lower bitrate if the errors over time warrant this.`;
   }
 
   if (currentDownloadSeconds > segmentLength) {
@@ -302,7 +302,7 @@ const StreamHealth = () => {
               </div>
             </Card>
           </Col>
-          {latencyStat && (
+          {latencyStat > 0 && (
             <Col>
               <Card type="inner">
                 <div style={statStyle}>
@@ -310,7 +310,7 @@ const StreamHealth = () => {
                     title="Viewer Latency"
                     value={latencyStat}
                     prefix={<ClockCircleOutlined style={{ marginRight: '5px' }} />}
-                    precision={0}
+                    precision={latencyStat < 1 ? 2 : 1}
                     suffix="seconds"
                   />
                 </div>

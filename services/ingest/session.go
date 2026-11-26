@@ -192,6 +192,11 @@ func (s *SessionBase) IsClosed() bool {
 	}
 }
 
+// StartedAt returns the immutable timestamp when this ingest session was created.
+func (s *SessionBase) StartedAt() time.Time {
+	return s.startedAt
+}
+
 // Age returns how long the session has existed, for status displays.
 func (s *SessionBase) Age() time.Duration {
 	return time.Since(s.startedAt)

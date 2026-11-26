@@ -365,7 +365,7 @@ func (s *session) publishSourceMetadata(info mpegts.SourceInfo) {
 
 	s.SetBroadcaster(&models.Broadcaster{
 		RemoteAddr:    remoteString(s.RemoteAddr()),
-		Time:          time.Now(),
+		Time:          s.StartedAt(),
 		StreamDetails: details,
 	})
 

@@ -37,18 +37,31 @@ func (s *Service) collectCPUUtilization() {
 }
 
 func (s *Service) collectRAMUtilization() {
+	memoryUsage, err := mem.VirtualMemory()
+	if err != nil || memoryUsage == nil {
+		if err != nil {
+			log.Errorln(err)
+		}
+		return
+	}
+
 	if len(s.metrics.RAMUtilizations) > maxCollectionValues {
 		s.metrics.RAMUtilizations = s.metrics.RAMUtilizations[1:]
 	}
 
-	memoryUsage, _ := mem.VirtualMemory()
 	metricValue := TimestampedValue{time.Now(), memoryUsage.UsedPercent}
 	s.metrics.RAMUtilizations = append(s.metrics.RAMUtilizations, metricValue)
 }
 
 func (s *Service) collectDiskUtilization() {
 	path := "./"
-	diskUse, _ := disk.Usage(path)
+	diskUse, err := disk.Usage(path)
+	if err != nil || diskUse == nil {
+		if err != nil {
+			log.Errorln(err)
+		}
+		return
+	}
 
 	if len(s.metrics.DiskUtilizations) > maxCollectionValues {
 		s.metrics.DiskUtilizations = s.metrics.DiskUtilizations[1:]
@@ -56,4 +69,10 @@ func (s *Service) collectDiskUtilization() {
 
 	metricValue := TimestampedValue{time.Now(), diskUse.UsedPercent}
 	s.metrics.DiskUtilizations = append(s.metrics.DiskUtilizations, metricValue)
+}
+
+// primeCPUBaseline triggers a throwaway non-blocking gopsutil CPU sample so the
+// first real poll reports the recent interval rather than the since-boot average.
+func primeCPUBaseline() {
+	_, _ = cpu.Percent(0, false)
 }

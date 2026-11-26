@@ -357,3 +357,37 @@ func TestWriteFLVPacketUsesStereoHeaderForAAC(t *testing.T) {
 		offset += 11 + dataSize + 4
 	}
 }
+
+// TestRTMPBroadcasterTimeStaysAnchoredToSessionStart verifies that periodic
+// bitrate/metadata refreshes never overwrite broadcaster.Time with time.Now(),
+// which previously kept the admin stream duration stuck at 00:00.
+func TestRTMPBroadcasterTimeStaysAnchoredToSessionStart(t *testing.T) {
+	sess := newTestSession(t)
+	startedAt := sess.StartedAt()
+
+	sess.inspectPacket(av.Packet{Type: av.H264DecoderConfig, Data: avcConfigRecord()})
+	sess.inspectPacket(av.Packet{Type: av.H264, Data: avccSlice([]byte{0x41, 0xA0})})
+	first := sess.Broadcaster()
+	if first == nil {
+		t.Fatal("expected broadcaster after initial probe")
+	}
+	if !first.Time.Equal(startedAt) {
+		t.Fatalf("initial broadcaster.Time = %v, want session StartedAt %v", first.Time, startedAt)
+	}
+
+	time.Sleep(15 * time.Millisecond)
+	for index := 0; index < 21; index++ {
+		sess.inspectPacket(av.Packet{
+			Type: av.H264,
+			Data: avccSlice([]byte{0x41, 0xC0}),
+			Time: timeMillis(index * 100),
+		})
+	}
+	updated := sess.Broadcaster()
+	if updated == nil {
+		t.Fatal("expected broadcaster after bitrate update")
+	}
+	if !updated.Time.Equal(startedAt) {
+		t.Fatalf("refreshed broadcaster.Time = %v, want immutable session StartedAt %v", updated.Time, startedAt)
+	}
+}

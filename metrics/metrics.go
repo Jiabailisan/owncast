@@ -178,6 +178,17 @@ func (s *Service) Start() {
 	go s.startViewerCollectionMetrics()
 
 	go func() {
+		// Prime gopsutil's CPU baseline and take an initial sample after a short
+		// warm-up so the Hardware page has real interval data immediately rather
+		// than waiting 2 minutes for the first tick or reporting boot-time average.
+		primeCPUBaseline()
+		select {
+		case <-time.After(time.Second):
+			s.handlePolling()
+		case <-s.stopCh:
+			return
+		}
+
 		ticker := time.NewTicker(hardwareMetricsPollingInterval)
 		defer ticker.Stop()
 		for {

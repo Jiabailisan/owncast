@@ -14,7 +14,6 @@ package rtmp
 import (
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/nareix/joy5/av"
 
@@ -178,7 +177,7 @@ func (s *session) setDeclaredDetails(details models.InboundStreamDetails) {
 	if !hasInspector {
 		s.SetBroadcaster(&models.Broadcaster{
 			RemoteAddr:    remoteAddrString(s),
-			Time:          time.Now(),
+			Time:          s.StartedAt(),
 			StreamDetails: details,
 		})
 	}
@@ -222,7 +221,7 @@ func (s *session) publishSourceMetadata(info flv.Info) {
 
 	s.SetBroadcaster(&models.Broadcaster{
 		RemoteAddr:    remoteAddrString(s),
-		Time:          time.Now(),
+		Time:          s.StartedAt(),
 		StreamDetails: details,
 	})
 

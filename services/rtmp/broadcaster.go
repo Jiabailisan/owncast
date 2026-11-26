@@ -15,9 +15,14 @@ func (s *Service) setCurrentBroadcasterInfo(session *session, t flvio.Tag, remot
 		log.Traceln("Unable to parse inbound broadcaster details:", err)
 	}
 
+	startedAt := time.Now()
+	if session != nil {
+		startedAt = session.StartedAt()
+	}
+
 	broadcaster := models.Broadcaster{
 		RemoteAddr: remoteAddr,
-		Time:       time.Now(),
+		Time:       startedAt,
 		StreamDetails: models.InboundStreamDetails{
 			Width:          data.Width,
 			Height:         data.Height,
