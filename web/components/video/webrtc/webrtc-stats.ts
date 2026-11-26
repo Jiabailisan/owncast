@@ -280,6 +280,7 @@ interface WebRTCBytesSample {
 export function collectWebRTCStatsPanel(
   report: RTCStatsReport,
   previous?: WebRTCBytesSample | null,
+  clockSkewMs = 0,
 ): { sample: WebRTCStatsPanelSample; bytes: WebRTCBytesSample } {
   const codecs: Record<string, string> = {};
   const inbound: { video?: Record<string, unknown>; audio?: Record<string, unknown> } = {};
@@ -388,11 +389,15 @@ export function collectWebRTCStatsPanel(
   let liveLatencySeconds: number | null = null;
   if (Number.isFinite(estimatedPlayout) && estimatedPlayout > 0) {
     // Convert NTP-epoch milliseconds (RFC / WebRTC Stats spec) to Unix ms.
+    // estimatedPlayoutTimestamp is anchored to the server's RTCP SR NTP clock,
+    // so apply clockSkewMs (serverTime - clientTime) to align Date.now() with
+    // server wall time, matching the HLS Live Latency calculation.
     const playoutUnixMs =
       estimatedPlayout > NTP_EPOCH_OFFSET_MS
         ? estimatedPlayout - NTP_EPOCH_OFFSET_MS
         : estimatedPlayout;
-    const delta = (timestamp - playoutUnixMs) / 1000;
+    const skewMs = Number.isFinite(clockSkewMs) ? clockSkewMs : 0;
+    const delta = (timestamp + skewMs - playoutUnixMs) / 1000;
     if (delta >= 0 && delta <= 30) liveLatencySeconds = delta;
   }
   if (liveLatencySeconds === null && intervalJitterBuffer !== null) {

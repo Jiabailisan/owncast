@@ -232,7 +232,9 @@ export const ClientConfigStore: FC = () => {
 
   const updateServerStatus = async () => {
     try {
+      const requestStartMs = Date.now();
       const status = await ServerStatusService.getStatus();
+      const requestMidpointMs = (requestStartMs + Date.now()) / 2;
       const transitionedOnline = lastOnlineRef.current === false && Boolean(status.online);
       lastOnlineRef.current = Boolean(status.online);
       handleStatusChange(status);
@@ -240,7 +242,7 @@ export const ClientConfigStore: FC = () => {
 
       const { serverTime } = status;
 
-      const clockSkew = new Date(serverTime).getTime() - Date.now();
+      const clockSkew = new Date(serverTime).getTime() - requestMidpointMs;
       setClockSkew(clockSkew);
 
       setGlobalFatalErrorMessage(null);

@@ -1,9 +1,11 @@
 import { CSSProperties, FC, useCallback, useEffect, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import classNames from 'classnames';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useTranslation } from 'next-export-i18n';
 import MutedFilled from '@ant-design/icons/MutedFilled';
 
+import { clockSkewAtom } from '../../stores/ClientConfigStore';
 import { autoplayModeForSetting } from '../../../utils/autoplay';
 import { getLocalStorage, setLocalStorage } from '../../../utils/localStorage';
 import { Localization } from '../../../types/localization';
@@ -134,6 +136,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const onReadyRef = useRef(onReady);
   const runtimeReconnectsRef = useRef(0);
   const lastCatchUpReconnectAtRef = useRef(0);
+  const clockSkew = useAtomValue(clockSkewAtom);
+  const clockSkewRef = useRef<number>(Number(clockSkew) || 0);
+  useEffect(() => {
+    clockSkewRef.current = Number(clockSkew) || 0;
+  }, [clockSkew]);
 
   const [phase, setPhase] = useState<Phase>('idle');
   // The heartbeat keeps the viewer count accurate and reports what only the
@@ -819,7 +826,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           .then(report => {
             sampling = false;
             if (cancelled || sessionRef.current !== activeSession) return;
-            const { sample, bytes } = collectWebRTCStatsPanel(report, previousSample);
+            const { sample, bytes } = collectWebRTCStatsPanel(
+              report,
+              previousSample,
+              clockSkewRef.current,
+            );
             previousSample = bytes;
             const liveLatency = sample.liveLatencySeconds;
             const receiverBuffer =
@@ -927,7 +938,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       try {
         const report = await session.pc.getStats();
         if (cancelled) return;
-        const { sample: panelSample, bytes } = collectWebRTCStatsPanel(report, previousBytes);
+        const { sample: panelSample, bytes } = collectWebRTCStatsPanel(
+          report,
+          previousBytes,
+          clockSkewRef.current,
+        );
         previousBytes = bytes;
         const video = videoRef.current;
         const volumeInfo = formatVolume(video?.volume ?? 1, Boolean(video?.muted));

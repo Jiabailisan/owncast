@@ -420,6 +420,47 @@ describe('WebRTC stats panel selected ICE pair, NTP epoch, and monotonic FPS win
     expect(sample.jitterBufferSeconds).toBeCloseTo(0.06, 3);
   });
 
+  test('applies server clockSkewMs to estimatedPlayoutTimestamp and falls back when skew overshoots', () => {
+    const clientNowMs = 1_750_000_000_000;
+    const ntpOffsetMs = 2_208_988_800_000;
+    // Server clock lags client by 1.7s (clockSkewMs = server - client = -1700ms).
+    // Real playout latency is 150ms behind server time.
+    const serverNowMs = clientNowMs - 1700;
+    jest.spyOn(Date, 'now').mockReturnValue(clientNowMs);
+
+    const { sample: skewed } = collectWebRTCStatsPanel(
+      report([
+        videoStats({
+          estimatedPlayoutTimestamp: serverNowMs + ntpOffsetMs - 150,
+          jitterBufferDelay: 0.1,
+          jitterBufferEmittedCount: 1,
+        }),
+        ...iceEntries('udp'),
+      ]),
+      null,
+      -1700,
+    );
+    expect(skewed.liveLatencySeconds).toBeCloseTo(0.15, 2);
+
+    // If clockSkewMs slightly overshoots so delta < 0, fall back to receiver
+    // jitter buffer + processing + RTT/2 instead of reporting negative latency.
+    const { sample: fallback } = collectWebRTCStatsPanel(
+      report([
+        videoStats({
+          estimatedPlayoutTimestamp: serverNowMs + ntpOffsetMs + 50,
+          jitterBufferDelay: 0.1,
+          jitterBufferEmittedCount: 1,
+        }),
+        ...iceEntries('udp'),
+      ]),
+      null,
+      -1700,
+    );
+    jest.restoreAllMocks();
+    expect(fallback.liveLatencySeconds).toBeGreaterThanOrEqual(0.1);
+    expect(fallback.liveLatencySeconds).toBeLessThan(0.2);
+  });
+
   test('uses monotonic RTCStats video.timestamp and accepts >=0.8s windows for FPS', () => {
     const first = collectWebRTCStatsPanel(
       report([
