@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nareix/joy5/av"
 	"github.com/nareix/joy5/format/flv"
 	"github.com/nareix/joy5/format/flv/flvio"
 	"github.com/nareix/joy5/format/rtmp"
@@ -202,7 +203,7 @@ func (s *Service) handleConn(c *rtmp.Conn, nc net.Conn) {
 			return
 		}
 
-		if err := w.WritePacket(pkt); err != nil {
+		if err := writeFLVPacket(w, pkt); err != nil {
 			log.Errorln("unable to write rtmp packet", err)
 			s.handleDisconnect(session)
 			return
@@ -256,4 +257,40 @@ func (s *Service) CurrentSession() ingest.Session {
 		return nil
 	}
 	return session
+}
+
+// writeFLVPacket serializes an RTMP packet to the FLV pipe. joy5's ReadPacket
+// leaves pkt.AAC nil, which makes flv.Muxer.WritePacket emit SoundType=0
+// (mono, 0xAE) instead of the FLV-spec SoundType=1 (stereo, 0xAF) required for
+// AAC. When a late-joining FLV branch starts with a spec-compliant 0xAF
+// ContainerPrefix followed by 0xAE live tags, FFmpeg's flvdec sees a 2->1
+// channel transition and attaches AV_PKT_DATA_PARAM_CHANGE side data that
+// FFmpeg's native AAC decoder rejects. Emitting 0xAF consistently for all AAC
+// tags satisfies the FLV spec and prevents spurious PARAM_CHANGE errors.
+func writeFLVPacket(w *flv.Muxer, pkt av.Packet) error {
+	switch pkt.Type {
+	case av.AACDecoderConfig:
+		return w.WriteTag(flvio.Tag{
+			Type:          flvio.TAG_AUDIO,
+			SoundFormat:   flvio.SOUND_AAC,
+			SoundRate:     flvio.SOUND_44Khz,
+			SoundSize:     flvio.SOUND_16BIT,
+			SoundType:     flvio.SOUND_STEREO,
+			AACPacketType: flvio.AAC_SEQHDR,
+			Data:          pkt.Data,
+		})
+	case av.AAC:
+		return w.WriteTag(flvio.Tag{
+			Type:          flvio.TAG_AUDIO,
+			SoundFormat:   flvio.SOUND_AAC,
+			SoundRate:     flvio.SOUND_44Khz,
+			SoundSize:     flvio.SOUND_16BIT,
+			SoundType:     flvio.SOUND_STEREO,
+			AACPacketType: flvio.AAC_RAW,
+			Time:          uint32(flvio.TimeToTs(pkt.Time)),
+			Data:          pkt.Data,
+		})
+	default:
+		return w.WritePacket(pkt)
+	}
 }

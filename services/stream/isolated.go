@@ -87,15 +87,13 @@ func (s *Service) runIsolatedTranscoders(session ingest.Session, mediaReader io.
 	// a supervisor left over from the previous stream can no longer write to it.
 	s.claimWebRTCProcessSession(session)
 
-	// Register the first WebRTC branch before the pump starts. The stream head
-	// (PAT/PMT and the H.264 parameter sets) passes within the first tens of
-	// milliseconds; a branch added after the pump began never sees it, and its
-	// FFmpeg probe fails with "non-existing PPS 0" / "unspecified size".
-	// Give Attempt 0 extra byte budget matching any prefetched head bytes so
-	// replaying a >4 MiB read-ahead buffer while FFmpeg spawns cannot trigger a
-	// spurious overflow before Attempt 0 begins reading stdin.
+	// Register the first WebRTC branch before the pump starts. Because it sees
+	// the stream from byte 0 (identical to HLS), it needs no mid-stream aligner
+	// or synthetic ContainerPrefix — only extra byte budget matching any
+	// prefetched head bytes so replaying a >4 MiB read-ahead buffer while FFmpeg
+	// spawns cannot trigger a spurious overflow before Attempt 0 begins reading.
 	headBudget := int64(bufferedPrefetchBytes(mediaReader))
-	webrtcBranch := tee.AddLateBranchWithBudget(webRTCBranchName, false, nil, session.InputFormat().Name, containerPrefix(session), headBudget)
+	webrtcBranch := tee.AddBranchWithBudget(webRTCBranchName, false, nil, headBudget)
 	if webrtcBranch == nil {
 		// Registration does not fail in practice, but if it ever did, the HLS
 		// path must still start: the pump only needs the critical branch. The

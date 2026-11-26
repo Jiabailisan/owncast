@@ -301,6 +301,14 @@ func (t *ingestTee) AddBranch(name string, critical bool, onOverflow func()) *io
 	return t.addBranch(name, critical, onOverflow, nil, 0)
 }
 
+// AddBranchWithBudget creates a new FFmpeg stdin pipe registered before Start()
+// with an optional extra byte budget (capped at webRTCReadAheadMaxBytes) so
+// Attempt 0 can absorb a prefetched stream head while FFmpeg spawns without
+// running a mid-stream container aligner or injecting duplicate sequence headers.
+func (t *ingestTee) AddBranchWithBudget(name string, critical bool, onOverflow func(), extraByteBudget int64) *io.PipeReader {
+	return t.addBranch(name, critical, onOverflow, nil, extraByteBudget)
+}
+
 // Branch returns the registered branch with the given name, or nil. A caller
 // that registered a branch before binding its overflow callback uses this.
 func (t *ingestTee) Branch(name string) *teeBranch {

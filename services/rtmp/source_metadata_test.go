@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nareix/joy5/av"
+	joy5flv "github.com/nareix/joy5/format/flv"
 	"github.com/nareix/joy5/format/flv/flvio"
 
 	"github.com/owncast/owncast/models"
@@ -305,5 +306,54 @@ func TestRTMPContainerPrefixVideoOnlySetsVideoFlagOnly(t *testing.T) {
 	videoAndAudio := sess.ContainerPrefix()
 	if videoAndAudio[4] != 0x05 {
 		t.Fatalf("video+audio FLV type flags = 0x%02x, want 0x05", videoAndAudio[4])
+	}
+}
+
+// TestWriteFLVPacketUsesStereoHeaderForAAC guards against joy5 emitting 0xAE
+// (mono) when pkt.AAC is nil, which mismatches ContainerPrefix()'s 0xAF and
+// triggers FFmpeg PARAM_CHANGE errors on the native AAC decoder.
+func TestWriteFLVPacketUsesStereoHeaderForAAC(t *testing.T) {
+	var buf bytes.Buffer
+	muxer := joy5flv.NewMuxer(&buf)
+
+	if err := writeFLVPacket(muxer, av.Packet{
+		Type: av.AACDecoderConfig,
+		Data: []byte{0x11, 0x90},
+	}); err != nil {
+		t.Fatalf("writeFLVPacket(AACDecoderConfig) failed: %v", err)
+	}
+	if err := writeFLVPacket(muxer, av.Packet{
+		Type: av.AAC,
+		Time: 21 * time.Millisecond,
+		Data: []byte{0x21, 0x10, 0x04, 0x60},
+	}); err != nil {
+		t.Fatalf("writeFLVPacket(AAC) failed: %v", err)
+	}
+
+	raw := buf.Bytes()
+	if len(raw) < 13 || string(raw[:3]) != "FLV" {
+		t.Fatalf("output missing FLV header: %x", raw)
+	}
+
+	offset := 13
+	for i, wantPacketType := range []byte{0x00, 0x01} {
+		if offset+11 > len(raw) {
+			t.Fatalf("tag %d truncated at offset %d", i, offset)
+		}
+		if raw[offset] != 8 {
+			t.Fatalf("tag %d type = %d, want 8 (audio)", i, raw[offset])
+		}
+		dataSize := int(raw[offset+1])<<16 | int(raw[offset+2])<<8 | int(raw[offset+3])
+		body := raw[offset+11 : offset+11+dataSize]
+		if len(body) < 2 {
+			t.Fatalf("tag %d audio body too short: %d", i, len(body))
+		}
+		if body[0] != 0xAF {
+			t.Fatalf("tag %d FLV audio header byte = 0x%02x, want 0xAF (AAC stereo per FLV spec)", i, body[0])
+		}
+		if body[1] != wantPacketType {
+			t.Fatalf("tag %d AAC packet type = 0x%02x, want 0x%02x", i, body[1], wantPacketType)
+		}
+		offset += 11 + dataSize + 4
 	}
 }

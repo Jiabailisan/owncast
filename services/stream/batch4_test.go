@@ -64,6 +64,25 @@ func TestIngestTeePendingLedgerStaysZeroAfterFLVAlignerAndEndChAligns(t *testing
 	}
 }
 
+func TestAddBranchWithBudgetPreservesRawFLVStreamHeadWithoutDuplicatePrefix(t *testing.T) {
+	seqHdr := buildValidFLVTag(8, []byte{0xAF, 0x00, 0x11, 0x90})
+	audioTag := buildValidFLVTag(8, []byte{0xAF, 0x01, 0x21, 0x10})
+	header := []byte{'F', 'L', 'V', 0x01, 0x05, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00}
+	payload := append(append(append([]byte{}, header...), seqHdr...), audioTag...)
+
+	tee := newIngestTee(bytes.NewReader(payload))
+	reader := tee.AddBranchWithBudget("webrtc", false, nil, 1<<20)
+	tee.Start()
+
+	got, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("Attempt 0 branch altered raw FLV stream head: got %d bytes, want %d bytes", len(got), len(payload))
+	}
+}
+
 type stubConfigureWebRTCProvider struct {
 	enabled         bool
 	setVariantsErr  error
