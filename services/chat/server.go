@@ -191,7 +191,10 @@ func (s *Service) Addclient(conn *websocket.Conn, user *models.User, accessToken
 
 	// Asynchronously, optionally, fetch GeoIP data.
 	go func(client *Client) {
-		client.Geo = s.geoipClient.GetGeoFromIP(ipAddress)
+		if s.geoipClient == nil {
+			return
+		}
+		client.SetGeo(s.geoipClient.GetGeoFromIP(ipAddress))
 	}(client)
 
 	return client
@@ -467,7 +470,7 @@ func (s *Service) SendConnectedClientInfoToUser(userID string) error {
 
 	for _, client := range clients {
 		// Update the client's reference to its user.
-		client.User = user
+		client.SetUser(user)
 		// Send the update to the client.
 		client.sendConnectedClientInfo()
 	}
@@ -492,11 +495,11 @@ func (s *Service) SendActionToUser(userID string, text string) error {
 
 func (s *Service) eventReceived(event chatClientEvent) {
 	c := event.client
-	u := c.User
+	u := c.GetUser()
 
 	// If established chat user only mode is enabled and the user is not old
 	// enough then reject this event and send them an informative message.
-	if u != nil && s.configRepository.GetChatEstbalishedUsersOnlyMode() && time.Since(event.client.User.CreatedAt) < config.GetDefaults().ChatEstablishedUserModeTimeDuration && !u.IsModerator() {
+	if u != nil && s.configRepository.GetChatEstbalishedUsersOnlyMode() && time.Since(u.CreatedAt) < config.GetDefaults().ChatEstablishedUserModeTimeDuration && !u.IsModerator() {
 		s.sendActionToClient(c, "You have not been an established chat participant long enough to take part in chat. Please enjoy the stream and try again later.")
 		return
 	}

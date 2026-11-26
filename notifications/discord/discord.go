@@ -3,7 +3,10 @@ package discord
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -50,12 +53,19 @@ func (t *Discord) Send(content string) error {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "error executing discord webhook")
 	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("discord webhook returned unexpected status %s", resp.Status)
+	}
 
-	return resp.Body.Close()
+	return nil
 }

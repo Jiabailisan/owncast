@@ -5,7 +5,11 @@ import (
 )
 
 func (s *ServerInterfaceImpl) SetAdminPassword(w http.ResponseWriter, r *http.Request) {
-	s.h.middleware.RequireAdminAuth(s.h.admin.SetAdminPassword)(w, r)
+	s.h.middleware.RequireAdminAuth(func(w http.ResponseWriter, r *http.Request) {
+		if s.h.admin.SetAdminPasswordChecked(w, r) {
+			s.h.middleware.InvalidateAdminSessions()
+		}
+	})(w, r)
 }
 
 func (s *ServerInterfaceImpl) SetAdminPasswordOptions(w http.ResponseWriter, r *http.Request) {

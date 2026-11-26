@@ -475,13 +475,6 @@ func (r *SqlChatMessageRepository) SetMessageVisibilityForMessageIDs(messageIDs 
 	// leaked transaction blocks all later queries until the process restarts.
 	defer func() { _ = tx.Rollback() }()
 
-	// nolint:gosec
-	stmt, err := tx.Prepare("UPDATE messages SET hidden_at=? WHERE id IN (?" + strings.Repeat(",?", len(messageIDs)-1) + ")")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
 	var hiddenAt *time.Time
 	if !visible {
 		now := time.Now()
@@ -490,14 +483,31 @@ func (r *SqlChatMessageRepository) SetMessageVisibilityForMessageIDs(messageIDs 
 		hiddenAt = nil
 	}
 
-	args := make([]interface{}, len(messageIDs)+1)
-	args[0] = hiddenAt
-	for i, id := range messageIDs {
-		args[i+1] = id
-	}
+	const maxVisibilityBatch = 500
+	for start := 0; start < len(messageIDs); start += maxVisibilityBatch {
+		end := start + maxVisibilityBatch
+		if end > len(messageIDs) {
+			end = len(messageIDs)
+		}
+		batch := messageIDs[start:end]
 
-	if _, err = stmt.Exec(args...); err != nil {
-		return err
+		// nolint:gosec
+		stmt, err := tx.Prepare("UPDATE messages SET hidden_at=? WHERE id IN (?" + strings.Repeat(",?", len(batch)-1) + ")")
+		if err != nil {
+			return err
+		}
+
+		args := make([]interface{}, len(batch)+1)
+		args[0] = hiddenAt
+		for i, id := range batch {
+			args[i+1] = id
+		}
+
+		_, execErr := stmt.Exec(args...)
+		_ = stmt.Close()
+		if execErr != nil {
+			return execErr
+		}
 	}
 
 	if err = tx.Commit(); err != nil {
@@ -509,17 +519,9 @@ func (r *SqlChatMessageRepository) SetMessageVisibilityForMessageIDs(messageIDs 
 
 // GetMessagesCount will return the number of messages in the database.
 func (r *SqlChatMessageRepository) GetMessagesCount() int64 {
-	query := `SELECT COUNT(*) FROM messages`
-	rows, err := r.datastore.DB.Query(query)
-	if err != nil || rows.Err() != nil {
-		return 0
-	}
-	defer rows.Close()
 	var count int64
-	for rows.Next() {
-		if err := rows.Scan(&count); err != nil {
-			return 0
-		}
+	if err := r.datastore.DB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count); err != nil {
+		return 0
 	}
 	return count
 }

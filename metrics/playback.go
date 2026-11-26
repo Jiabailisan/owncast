@@ -234,24 +234,41 @@ func (s *Service) collectSegmentDownloadDuration() {
 	}
 }
 
+func copyTimestampedValues(src []TimestampedValue) []TimestampedValue {
+	if len(src) == 0 {
+		return []TimestampedValue{}
+	}
+	out := make([]TimestampedValue, len(src))
+	copy(out, src)
+	return out
+}
+
 // GetMedianDownloadDurationsOverTime will return a window of durations errors over time.
 func (s *Service) GetMedianDownloadDurationsOverTime() []TimestampedValue {
-	return s.metrics.medianSegmentDownloadSeconds
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.medianSegmentDownloadSeconds)
 }
 
 // GetMaximumDownloadDurationsOverTime will return a maximum durations errors over time.
 func (s *Service) GetMaximumDownloadDurationsOverTime() []TimestampedValue {
-	return s.metrics.maximumSegmentDownloadSeconds
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.maximumSegmentDownloadSeconds)
 }
 
 // GetMinimumDownloadDurationsOverTime will return a maximum durations errors over time.
 func (s *Service) GetMinimumDownloadDurationsOverTime() []TimestampedValue {
-	return s.metrics.minimumSegmentDownloadSeconds
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.minimumSegmentDownloadSeconds)
 }
 
 // GetPlaybackErrorCountOverTime will return a window of playback errors over time.
 func (s *Service) GetPlaybackErrorCountOverTime() []TimestampedValue {
-	return s.metrics.errorCount
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.errorCount)
 }
 
 func (s *Service) collectLatencyValues() {
@@ -298,29 +315,23 @@ func (s *Service) collectLatencyValues() {
 
 // GetMedianLatencyOverTime will return the median latency values over time.
 func (s *Service) GetMedianLatencyOverTime() []TimestampedValue {
-	if len(s.metrics.medianLatency) == 0 {
-		return []TimestampedValue{}
-	}
-
-	return s.metrics.medianLatency
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.medianLatency)
 }
 
 // GetMinimumLatencyOverTime will return the min latency values over time.
 func (s *Service) GetMinimumLatencyOverTime() []TimestampedValue {
-	if len(s.metrics.minimumLatency) == 0 {
-		return []TimestampedValue{}
-	}
-
-	return s.metrics.minimumLatency
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.minimumLatency)
 }
 
 // GetMaximumLatencyOverTime will return the max latency values over time.
 func (s *Service) GetMaximumLatencyOverTime() []TimestampedValue {
-	if len(s.metrics.maximumLatency) == 0 {
-		return []TimestampedValue{}
-	}
-
-	return s.metrics.maximumLatency
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.maximumLatency)
 }
 
 // collectLowestBandwidth will collect the bandwidth currently collected
@@ -372,43 +383,37 @@ func (s *Service) collectLowestBandwidth() {
 // GetSlowestDownloadRateOverTime will return the collected lowest bandwidth values
 // over time.
 func (s *Service) GetSlowestDownloadRateOverTime() []TimestampedValue {
-	if len(s.metrics.lowestBitrate) == 0 {
-		return []TimestampedValue{}
-	}
-
-	return s.metrics.lowestBitrate
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.lowestBitrate)
 }
 
 // GetMedianDownloadRateOverTime will return the collected median bandwidth values.
 func (s *Service) GetMedianDownloadRateOverTime() []TimestampedValue {
-	if len(s.metrics.medianBitrate) == 0 {
-		return []TimestampedValue{}
-	}
-	return s.metrics.medianBitrate
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.medianBitrate)
 }
 
 // GetMaximumDownloadRateOverTime will return the collected maximum bandwidth values.
 func (s *Service) GetMaximumDownloadRateOverTime() []TimestampedValue {
-	if len(s.metrics.maximumLatency) == 0 {
-		return []TimestampedValue{}
-	}
-	return s.metrics.maximumLatency
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.highestBitrate)
 }
 
 // GetMinimumDownloadRateOverTime will return the collected minimum bandwidth values.
 func (s *Service) GetMinimumDownloadRateOverTime() []TimestampedValue {
-	if len(s.metrics.minimumLatency) == 0 {
-		return []TimestampedValue{}
-	}
-	return s.metrics.minimumLatency
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.lowestBitrate)
 }
 
 // GetMaxDownloadRateOverTime will return the collected highest bandwidth values.
 func (s *Service) GetMaxDownloadRateOverTime() []TimestampedValue {
-	if len(s.metrics.highestBitrate) == 0 {
-		return []TimestampedValue{}
-	}
-	return s.metrics.highestBitrate
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.highestBitrate)
 }
 
 func (s *Service) collectQualityVariantChanges() {
@@ -420,18 +425,26 @@ func (s *Service) collectQualityVariantChanges() {
 		Time:  time.Now(),
 		Value: count,
 	})
+	if len(s.metrics.qualityVariantChanges) > maxCollectionValues {
+		s.metrics.qualityVariantChanges = s.metrics.qualityVariantChanges[1:]
+	}
 }
 
 // GetQualityVariantChangesOverTime will return the collected quality variant
 // changes.
 func (s *Service) GetQualityVariantChangesOverTime() []TimestampedValue {
-	return s.metrics.qualityVariantChanges
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return copyTimestampedValues(s.metrics.qualityVariantChanges)
 }
 
 // GetPlaybackMetricsRepresentation returns what percentage of all known players
 // the metrics represent.
 func (s *Service) GetPlaybackMetricsRepresentation() int {
 	totalPlayerCount := len(s.stream.GetActiveViewers())
-	representation := utils.IntPercentage(len(s.windowedBandwidths), totalPlayerCount)
+	s.metrics.m.Lock()
+	reportedCount := len(s.windowedBandwidths)
+	s.metrics.m.Unlock()
+	representation := utils.IntPercentage(reportedCount, totalPlayerCount)
 	return representation
 }

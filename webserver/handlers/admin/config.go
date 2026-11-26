@@ -253,27 +253,38 @@ func (a *Admin) SetExtraPageContent(w http.ResponseWriter, r *http.Request) {
 
 // SetAdminPassword will handle the web config request to set the server admin password.
 func (a *Admin) SetAdminPassword(w http.ResponseWriter, r *http.Request) {
+	_ = a.SetAdminPasswordChecked(w, r)
+}
+
+// SetAdminPasswordChecked updates the admin password and reports whether the
+// change was persisted so callers can revoke active admin sessions only on success.
+func (a *Admin) SetAdminPasswordChecked(w http.ResponseWriter, r *http.Request) bool {
 	if !requirePOST(w, r) {
-		return
+		return false
 	}
 
 	configValue, success := getValueFromRequest(w, r)
 	if !success {
-		return
+		return false
 	}
 
 	configRepository := a.configRepository
 	typedValue, valueOK := valueAsStringOK(configValue.Value)
 	if !valueOK {
 		webutils.BadRequestHandler(w, errors.New("value must be a string"))
-		return
+		return false
+	}
+	if strings.TrimSpace(typedValue) == "" {
+		webutils.BadRequestHandler(w, errors.New("admin password cannot be empty"))
+		return false
 	}
 	if err := configRepository.SetAdminPassword(typedValue); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
-		return
+		return false
 	}
 
 	webutils.WriteSimpleResponse(w, true, "changed")
+	return true
 }
 
 // SetLogo will handle a new logo image file being uploaded.

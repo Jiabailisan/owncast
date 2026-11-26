@@ -648,6 +648,7 @@ func writePluginHTTPResponse(w http.ResponseWriter, out []byte, injectStyles boo
 	// slice for any plugin that didn't, which is the common case).
 	stripSetCookie(w.Header(), SessionCookieName)
 	stripSetCookie(w.Header(), "owncast_admin_session")
+	stripSetCookie(w.Header(), "owncast_chat_token")
 	for _, c := range sessionCookies {
 		http.SetCookie(w, c)
 	}
@@ -686,11 +687,12 @@ func stripSetCookie(h http.Header, name string) {
 		return
 	}
 	kept := existing[:0:0]
-	prefix := name + "="
 	for _, v := range existing {
-		if !strings.HasPrefix(v, prefix) {
-			kept = append(kept, v)
+		cookieName, _, ok := strings.Cut(v, "=")
+		if ok && strings.EqualFold(strings.TrimSpace(cookieName), name) {
+			continue
 		}
+		kept = append(kept, v)
 	}
 	h.Del("Set-Cookie")
 	for _, v := range kept {

@@ -285,17 +285,18 @@ func (s *Service) ResolveLocation(client *Client) *geoip.GeoDetails {
 		return nil
 	}
 
-	if client.Geo != nil {
-		return client.Geo
+	if geo := client.GetGeo(); geo != nil {
+		return geo
 	}
 
 	if s.geoipClient == nil || client.IPAddress == "" {
 		return nil
 	}
 
-	client.Geo = s.geoipClient.GetGeoFromIP(client.IPAddress)
+	geo := s.geoipClient.GetGeoFromIP(client.IPAddress)
+	client.SetGeo(geo)
 
-	return client.Geo
+	return geo
 }
 
 func (s *Service) DisplayNameForToken(accessToken string) string {
@@ -304,18 +305,20 @@ func (s *Service) DisplayNameForToken(accessToken string) string {
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	for _, client := range s.clients {
-		if client.User == nil || client.accessToken != accessToken {
+		if client.accessToken != accessToken {
 			continue
 		}
-
-		return client.User.DisplayName
+		if u := client.GetUser(); u != nil {
+			name := u.DisplayName
+			s.mu.RUnlock()
+			return name
+		}
 	}
+	s.mu.RUnlock()
 
-	// Fall back to the stored user: a viewer keeps watching while its chat
-	// websocket reconnects, and the name must not disappear in that window.
+	// Fall back to the stored user outside s.mu: a viewer keeps watching while
+	// its chat websocket reconnects, and DB I/O must not hold the chat lock.
 	if s.userRepository != nil {
 		if user := s.userRepository.GetUserByToken(accessToken); user != nil {
 			return user.DisplayName
@@ -340,12 +343,11 @@ func (s *Service) DisplayNamesForTokens(accessTokens []string) map[string]string
 
 	s.mu.RLock()
 	for _, client := range s.clients {
-		if client.User == nil {
+		if _, ok := wanted[client.accessToken]; !ok {
 			continue
 		}
-
-		if _, ok := wanted[client.accessToken]; ok {
-			resolved[client.accessToken] = client.User.DisplayName
+		if u := client.GetUser(); u != nil {
+			resolved[client.accessToken] = u.DisplayName
 		}
 	}
 	s.mu.RUnlock()

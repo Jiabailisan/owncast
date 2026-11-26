@@ -77,40 +77,90 @@ func Backup(db *sql.DB, backupFile string) {
 		}
 	}
 
-	// Dump the entire database as plain text sql
-	var b bytes.Buffer
-	out := bufio.NewWriter(&b)
-	if err := sqlite3dump.DumpDB(db, out); err != nil {
-		handleError(err)
-		return
-	}
-	_ = out.Flush()
-
-	// Create a new backup file
-	f, err := os.OpenFile(backupFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // nolint
+	// Stage 1: Dump SQL to a temporary file so the SQLite connection is released
+	// immediately before running CPU-intensive gzip compression.
+	tmpSQL, err := os.CreateTemp(backupDirectory, ".owncastdb-*.sql.tmp")
 	if err != nil {
 		handleError(err)
 		return
 	}
-	defer f.Close()
+	tmpSQLPath := tmpSQL.Name()
+	defer func() { _ = os.Remove(tmpSQLPath) }()
+	if err := tmpSQL.Chmod(0o600); err != nil {
+		_ = tmpSQL.Close()
+		handleError(err)
+		return
+	}
+	sqlOut := bufio.NewWriter(tmpSQL)
+	if err := sqlite3dump.DumpDB(db, sqlOut); err != nil {
+		_ = tmpSQL.Close()
+		handleError(err)
+		return
+	}
+	if err := sqlOut.Flush(); err != nil {
+		_ = tmpSQL.Close()
+		handleError(err)
+		return
+	}
+	if _, err := tmpSQL.Seek(0, io.SeekStart); err != nil {
+		_ = tmpSQL.Close()
+		handleError(err)
+		return
+	}
 
-	// Create a gzip compression writer
-	w, err := gzip.NewWriterLevel(f, gzip.BestCompression)
+	// Stage 2: Stream-compress the staged SQL file into an atomic backup file
+	// without holding the DB connection or buffering the dump in memory.
+	tmpFile, err := os.CreateTemp(backupDirectory, ".owncastdb-*.bak.tmp")
 	if err != nil {
+		_ = tmpSQL.Close()
+		handleError(err)
+		return
+	}
+	tmpPath := tmpFile.Name()
+	cleanupTmp := true
+	defer func() {
+		if cleanupTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := tmpFile.Chmod(0o600); err != nil {
+		_ = tmpSQL.Close()
+		_ = tmpFile.Close()
 		handleError(err)
 		return
 	}
 
-	// Write compressed data
-	if _, err := w.Write(b.Bytes()); err != nil {
+	gz, err := gzip.NewWriterLevel(tmpFile, gzip.BestCompression)
+	if err != nil {
+		_ = tmpSQL.Close()
+		_ = tmpFile.Close()
 		handleError(err)
 		return
 	}
 
-	if err := w.Close(); err != nil {
+	if _, err := io.Copy(gz, tmpSQL); err != nil {
+		_ = tmpSQL.Close()
+		_ = gz.Close()
+		_ = tmpFile.Close()
 		handleError(err)
 		return
 	}
+	_ = tmpSQL.Close()
+	if err := gz.Close(); err != nil {
+		_ = tmpFile.Close()
+		handleError(err)
+		return
+	}
+	if err := tmpFile.Close(); err != nil {
+		handleError(err)
+		return
+	}
+	if err := os.Rename(tmpPath, backupFile); err != nil {
+		handleError(err)
+		return
+	}
+	cleanupTmp = false
 }
 
 func handleError(err error) {

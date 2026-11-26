@@ -106,6 +106,21 @@ func (s *adminSessionStore) valid(token string) bool {
 	return true
 }
 
+// InvalidateAll revokes every active admin session token (for example after an
+// admin password change).
+func (s *adminSessionStore) InvalidateAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions = make(map[string]time.Time)
+}
+
+// InvalidateAdminSessions revokes all active plugin-iframe admin session cookies.
+func (m *Middleware) InvalidateAdminSessions() {
+	if m != nil && m.adminSessions != nil {
+		m.adminSessions.InvalidateAll()
+	}
+}
+
 // gcLocked drops any sessions whose expiry has passed. Called under mu
 // from mint() so the cost is amortized over new sessions; the map size
 // is bounded by concurrent admins, which is small.

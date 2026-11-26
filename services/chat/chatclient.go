@@ -88,7 +88,7 @@ func (c *Client) sendConnectedClientInfo() {
 		Event: events.Event{
 			Type: events.ConnectedUserInfo,
 		},
-		User: c.User,
+		User: c.GetUser(),
 	}
 
 	payload.SetDefaults()
@@ -133,7 +133,11 @@ func (c *Client) readPump() {
 
 		// Guard against floods.
 		if !c.passesRateLimit() {
-			log.Warnln("Client", c.Id, c.User.DisplayName, "has exceeded the messaging rate limiting thresholds and messages are being rejected temporarily.")
+			displayName := ""
+			if u := c.GetUser(); u != nil {
+				displayName = u.DisplayName
+			}
+			log.Warnln("Client", c.Id, displayName, "has exceeded the messaging rate limiting thresholds and messages are being rejected temporarily.")
 			c.startChatRejectionTimeout()
 
 			continue
@@ -151,16 +155,46 @@ func (c *Client) readPump() {
 	}
 }
 
+func (c *Client) GetUser() *models.User {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.User
+}
+
+func (c *Client) SetUser(u *models.User) {
+	c.mu.Lock()
+	c.User = u
+	c.mu.Unlock()
+}
+
+func (c *Client) GetGeo() *geoip.GeoDetails {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Geo
+}
+
+func (c *Client) SetGeo(g *geoip.GeoDetails) {
+	c.mu.Lock()
+	c.Geo = g
+	c.mu.Unlock()
+}
+
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
+	c.mu.RLock()
+	sendCh := c.send
+	c.mu.RUnlock()
 	defer func() {
 		ticker.Stop()
 		_ = c.conn.Close()
 	}()
+	if sendCh == nil {
+		return
+	}
 
 	for {
 		select {
-		case message, ok := <-c.send:
+		case message, ok := <-sendCh:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// The server closed the channel.
@@ -177,14 +211,21 @@ func (c *Client) writePump() {
 			}
 
 			// Optimization: Send multiple events in a single websocket message.
-			// Add queued chat messages to the current websocket message.
-			c.mu.RLock()
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				_, _ = w.Write(newline)
-				_, _ = w.Write(<-c.send)
+			// Drain already-queued payloads using the local channel reference so
+			// concurrent c.close() setting c.send = nil never races with reads.
+		drain:
+			for i := 0; i < 64; i++ {
+				select {
+				case nextMsg, more := <-sendCh:
+					if !more {
+						break drain
+					}
+					_, _ = w.Write(newline)
+					_, _ = w.Write(nextMsg)
+				default:
+					break drain
+				}
 			}
-			c.mu.RUnlock()
 
 			if err := w.Close(); err != nil {
 				return
@@ -204,8 +245,8 @@ func (c *Client) handleEvent(data []byte) {
 
 func (c *Client) close() {
 	var displayName string
-	if c.User != nil {
-		displayName = c.User.DisplayName
+	if u := c.GetUser(); u != nil {
+		displayName = u.DisplayName
 	}
 	log.Traceln("client closed:", displayName, c.Id, c.IPAddress)
 
@@ -242,7 +283,8 @@ func (c *Client) isInTimeout() bool {
 func (c *Client) passesRateLimit() bool {
 	// If spam rate limiting is disabled, or the user is a moderator, always
 	// allow the message.
-	if !c.server.configRepository.GetChatSpamProtectionEnabled() || c.User.IsModerator() {
+	u := c.GetUser()
+	if !c.server.configRepository.GetChatSpamProtectionEnabled() || (u != nil && u.IsModerator()) {
 		return true
 	}
 

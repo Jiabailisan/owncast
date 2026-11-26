@@ -180,6 +180,11 @@ func main() {
 	// cycles get the SetGetStatus pattern, not a fresh shim.
 
 	// Stage 1: repositories.
+	defer func() {
+		if err := dataStore.Close(); err != nil {
+			log.Errorln("datastore close:", err)
+		}
+	}()
 	configRepository := configrepository.New(dataStore)
 	authRepository := authrepository.New(dataStore)
 	followersRepository := followersrepository.New(dataStore)
@@ -373,7 +378,11 @@ func main() {
 	if err := streamSvc.Start(ctx); err != nil {
 		log.Fatalln("failed to start the stream service", err)
 	}
-	defer streamSvc.Stop(ctx)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		streamSvc.Stop(shutdownCtx)
+	}()
 
 	// Start WebRTC delivery after the stream service so a startup failure
 	// degrades to HLS-only instead of aborting the server.
@@ -411,6 +420,7 @@ func main() {
 		UserRepository:        userRepository,
 	})
 	go metricsSvc.Start()
+	defer metricsSvc.Stop()
 
 	// Plugin host. Optional infrastructure: a failure here disables plugins
 	// but must not abort startup. Constructs the WASM plugin runtime, wires
@@ -442,7 +452,11 @@ func main() {
 		// The gate's access policy can disable directory listing, so YP has
 		// to consult it before pinging or answering /api/yp.
 		ypSvc.SetDirectoryAvailable(pluginHostInstance.DirectoryAvailable)
-		defer pluginHostInstance.Stop(ctx)
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			pluginHostInstance.Stop(shutdownCtx)
+		}()
 	}
 
 	// Stage 9: HTTP handler set. *Handlers is the dispatcher the router

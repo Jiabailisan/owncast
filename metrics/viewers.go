@@ -7,18 +7,49 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func (s *Service) getStorage() tstorage.Storage {
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+	return s.storage
+}
+
 func (s *Service) startViewerCollectionMetrics() {
-	s.storage, _ = tstorage.NewStorage(
+	st, err := tstorage.NewStorage(
 		tstorage.WithTimestampPrecision(tstorage.Seconds),
 		tstorage.WithDataPath("./data/metrics"),
 	)
-	defer s.storage.Close()
+	if err != nil {
+		log.Errorln("unable to open metrics time-series storage:", err)
+		return
+	}
+
+	s.storageMu.Lock()
+	s.storage = st
+	s.storageMu.Unlock()
+
+	defer func() {
+		s.storageMu.Lock()
+		if s.storage == st {
+			s.storage = nil
+			s.storageMu.Unlock()
+			_ = st.Close()
+		} else {
+			s.storageMu.Unlock()
+		}
+	}()
 
 	s.collectViewerCount()
 
-	for range time.Tick(viewerMetricsPollingInterval) {
-		s.collectViewerCount()
-		s.collectChatClientCount()
+	ticker := time.NewTicker(viewerMetricsPollingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.collectViewerCount()
+			s.collectChatClientCount()
+		case <-s.stopCh:
+			return
+		}
 	}
 }
 
@@ -35,8 +66,12 @@ func (s *Service) collectViewerCount() {
 	// Save active viewer count to our Prometheus collector.
 	s.activeViewerCount.Set(float64(count))
 
+	st := s.getStorage()
+	if st == nil {
+		return
+	}
 	// Insert active viewer count into our on-disk time series storage.
-	if err := s.storage.InsertRows([]tstorage.Row{
+	if err := st.InsertRows([]tstorage.Row{
 		{
 			Metric:    activeViewerCountKey,
 			DataPoint: tstorage.DataPoint{Timestamp: time.Now().Unix(), Value: float64(count)},
@@ -60,8 +95,12 @@ func (s *Service) collectChatClientCount() {
 	// Insert user count into Prometheus collector.
 	s.chatUserCount.Set(float64(uc))
 
+	st := s.getStorage()
+	if st == nil {
+		return
+	}
 	// Insert active chat user count into our on-disk time series storage.
-	if err := s.storage.InsertRows([]tstorage.Row{
+	if err := st.InsertRows([]tstorage.Row{
 		{
 			Metric:    activeChatClientCountKey,
 			DataPoint: tstorage.DataPoint{Timestamp: time.Now().Unix(), Value: float64(count)},
@@ -73,7 +112,11 @@ func (s *Service) collectChatClientCount() {
 
 // GetViewersOverTime will return a window of viewer counts over time.
 func (s *Service) GetViewersOverTime(start, end time.Time) []TimestampedValue {
-	p, err := s.storage.Select(activeViewerCountKey, nil, start.Unix(), end.Unix())
+	st := s.getStorage()
+	if st == nil {
+		return []TimestampedValue{}
+	}
+	p, err := st.Select(activeViewerCountKey, nil, start.Unix(), end.Unix())
 	if err != nil && err != tstorage.ErrNoDataPoints {
 		log.Errorln(err)
 	}
@@ -84,7 +127,11 @@ func (s *Service) GetViewersOverTime(start, end time.Time) []TimestampedValue {
 
 // GetChatClientCountOverTime will return a window of connected chat clients over time.
 func (s *Service) GetChatClientCountOverTime(start, end time.Time) []TimestampedValue {
-	p, err := s.storage.Select(activeChatClientCountKey, nil, start.Unix(), end.Unix())
+	st := s.getStorage()
+	if st == nil {
+		return []TimestampedValue{}
+	}
+	p, err := st.Select(activeChatClientCountKey, nil, start.Unix(), end.Unix())
 	if err != nil && err != tstorage.ErrNoDataPoints {
 		log.Errorln(err)
 	}

@@ -204,7 +204,7 @@ func (h *Handlers) getConfigResponse(r *http.Request) webConfigResponse {
 		StreamTitle:                configRepository.GetStreamTitle(),
 		SocialHandles:              socialHandles,
 		ChatDisabled:               configRepository.GetChatDisabled(),
-		ChatSpamProtectionDisabled: configRepository.GetChatSpamProtectionEnabled(),
+		ChatSpamProtectionDisabled: !configRepository.GetChatSpamProtectionEnabled(),
 		ChatRequireAuthentication:  configRepository.GetChatRequireAuthentication(),
 		ExternalActions:            mergePluginActions(configRepository.GetExternalActions(), h.pluginActions),
 		PluginTabs:                 pluginTabsOrEmpty(r, h.pluginTabs),

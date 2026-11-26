@@ -39,11 +39,11 @@ func SetupPersistence(file, backupDirectory string) (*Datastore, error) {
 		}
 		db = inMemoryDb
 	} else {
-		// Create empty DB file if it doesn't exist.
+		// Create empty DB file if it doesn't exist with owner-only permissions.
 		if !utils.DoesFileExists(file) {
 			log.Traceln("Creating new database at", file)
 
-			createdFile, err := os.Create(file) //nolint:gosec
+			createdFile, err := os.OpenFile(file, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec
 			if err != nil {
 				log.Fatal(err.Error())
 			}
@@ -52,7 +52,7 @@ func SetupPersistence(file, backupDirectory string) (*Datastore, error) {
 			}
 		}
 
-		onDiskDb, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_cache_size=10000&cache=shared&_journal_mode=WAL", file))
+		onDiskDb, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_cache_size=10000&_busy_timeout=5000&_txlock=immediate&_journal_mode=WAL", file))
 		if err != nil {
 			return nil, err
 		}
@@ -76,10 +76,18 @@ func SetupPersistence(file, backupDirectory string) (*Datastore, error) {
 	dataStore := &Datastore{}
 	dataStore.Setup(db)
 
+	stopBackup := make(chan struct{})
+	dataStore.stopBackup = stopBackup
 	dbBackupTicker := time.NewTicker(time.Hour)
 	go func() {
-		for backupTime := range dbBackupTicker.C {
-			backupDatabaseAt(db, backupDirectory, backupTime)
+		defer dbBackupTicker.Stop()
+		for {
+			select {
+			case backupTime := <-dbBackupTicker.C:
+				backupDatabaseAt(db, backupDirectory, backupTime)
+			case <-stopBackup:
+				return
+			}
 		}
 	}()
 

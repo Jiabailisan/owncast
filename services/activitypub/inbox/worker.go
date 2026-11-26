@@ -167,8 +167,7 @@ func requestDateWithinTolerance(request *http.Request) error {
 
 	sent, err := http.ParseTime(dateHeader)
 	if err != nil {
-		log.Debugln("inbound request has an unparseable Date header, skipping freshness check:", dateHeader)
-		return nil
+		return fmt.Errorf("request Date header is unparseable: %s", dateHeader)
 	}
 
 	now := time.Now()
@@ -251,6 +250,12 @@ func (s *Service) Verify(request *http.Request, body []byte) (*url.URL, error) {
 	// Force federation only via servers using https.
 	if pubKeyID.Scheme != "https" {
 		return nil, errors.New("federated servers must use https: " + pubKeyID.String())
+	}
+
+	// Reject blocked domains before performing outbound key resolution (prevents
+	// blocked hosts from triggering outbound SSRF/fetches).
+	if s.isBlockedDomain(pubKeyID.Hostname()) {
+		return nil, errors.New("federated domain is blocked: " + pubKeyID.Hostname())
 	}
 
 	signature := request.Header.Get("signature")
@@ -356,10 +361,21 @@ func (s *Service) Verify(request *http.Request, body []byte) (*url.URL, error) {
 }
 
 func (s *Service) isBlockedDomain(domain string) bool {
+	if s.configRepository == nil {
+		return false
+	}
+	normalized := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	if normalized == "" {
+		return false
+	}
 	blockedDomains := s.configRepository.GetBlockedFederatedDomains()
 
 	for _, blockedDomain := range blockedDomains {
-		if strings.Contains(domain, blockedDomain) {
+		blocked := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(blockedDomain)), ".")
+		if blocked == "" {
+			continue
+		}
+		if normalized == blocked || strings.HasSuffix(normalized, "."+blocked) {
 			return true
 		}
 	}

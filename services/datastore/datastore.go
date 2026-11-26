@@ -16,10 +16,26 @@ import (
 
 // Datastore is the global key/value store for configuration values.
 type Datastore struct {
-	DB        *sql.DB
-	cache     map[string][]byte
-	cacheLock sync.Mutex
-	DbLock    *sync.Mutex
+	DB         *sql.DB
+	cache      map[string][]byte
+	cacheLock  sync.Mutex
+	DbLock     *sync.Mutex
+	stopBackup chan struct{}
+	closeOnce  sync.Once
+}
+
+// Close stops the periodic backup goroutine and closes the SQLite handle.
+func (ds *Datastore) Close() error {
+	var err error
+	ds.closeOnce.Do(func() {
+		if ds.stopBackup != nil {
+			close(ds.stopBackup)
+		}
+		if ds.DB != nil {
+			err = ds.DB.Close()
+		}
+	})
+	return err
 }
 
 // WarmCache pre-caches all configuration values in memory.
@@ -34,14 +50,22 @@ func (ds *Datastore) WarmCache() {
 	}
 	defer res.Close()
 
+	loaded := make(map[string][]byte)
 	for res.Next() {
 		var rowKey string
 		var rowValue []byte
 		if err := res.Scan(&rowKey, &rowValue); err != nil {
 			log.Errorln("error pre-caching config row", err)
+			continue
 		}
-		ds.cache[rowKey] = rowValue
+		loaded[rowKey] = rowValue
 	}
+
+	ds.cacheLock.Lock()
+	for k, v := range loaded {
+		ds.cache[k] = v
+	}
+	ds.cacheLock.Unlock()
 }
 
 // GetQueries will return the shared instance of the SQL query generator.
@@ -136,6 +160,11 @@ func (ds *Datastore) Setup(db *sql.DB) {
 
 // Reset will delete all config entries in the datastore and start over.
 func (ds *Datastore) Reset() {
+	if ds.DbLock != nil {
+		ds.DbLock.Lock()
+		defer ds.DbLock.Unlock()
+	}
+
 	sql := "DELETE FROM datastore"
 	stmt, err := ds.DB.Prepare(sql)
 	if err != nil {
@@ -147,6 +176,10 @@ func (ds *Datastore) Reset() {
 	if _, err = stmt.Exec(); err != nil {
 		log.Fatalln(err)
 	}
+
+	ds.cacheLock.Lock()
+	ds.cache = make(map[string][]byte)
+	ds.cacheLock.Unlock()
 }
 
 // MustExec will execute a SQL statement on a provided database instance.

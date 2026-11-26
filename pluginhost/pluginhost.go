@@ -2229,11 +2229,27 @@ func uploadPluginAsset(cfg configrepository.ConfigRepository, pluginName, name s
 	case ".html", ".htm", ".xhtml", ".shtml", ".svg", ".svgz", ".xml", ".js", ".mjs", ".cjs", ".wasm":
 		return "", fmt.Errorf("disallowed upload file extension %q", filepath.Ext(safeName))
 	}
+	const maxPluginStorageQuotaBytes int64 = 50 * 1024 * 1024 // 50 MiB total per plugin
 	dir := filepath.Join(config.PublicFilesPath, "plugins", pluginName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dir, safeName), data, 0o600); err != nil {
+	targetPath := filepath.Join(dir, safeName)
+	var existingTotal int64
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || entry.Name() == safeName {
+				continue
+			}
+			if info, err := entry.Info(); err == nil {
+				existingTotal += info.Size()
+			}
+		}
+	}
+	if existingTotal+int64(len(data)) > maxPluginStorageQuotaBytes {
+		return "", fmt.Errorf("plugin storage quota exceeded (%d bytes max)", maxPluginStorageQuotaBytes)
+	}
+	if err := os.WriteFile(targetPath, data, 0o600); err != nil {
 		return "", err
 	}
 	url := strings.TrimSuffix(cfg.GetServerURL(), "/") + "/public/plugins/" + pluginName + "/" + safeName

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/owncast/owncast/services/activitypub/webfinger"
@@ -16,6 +17,7 @@ func (h *Handlers) RemoteFollow(w http.ResponseWriter, r *http.Request) {
 		RedirectURL string `json:"redirectUrl"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var request generated.RemoteFollowJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&request); err != nil {
@@ -48,7 +50,12 @@ func (h *Handlers) RemoteFollow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURL := strings.Replace(template, "{uri}", localActorPath.String(), 1)
+	redirectURL := strings.Replace(template, "{uri}", url.QueryEscape(localActorPath.String()), 1)
+	parsedRedirect, err := url.Parse(redirectURL)
+	if err != nil || (parsedRedirect.Scheme != "https" && parsedRedirect.Scheme != "http") || parsedRedirect.Host == "" {
+		webutils.WriteSimpleResponse(w, false, "remote follow target returned an invalid redirect URL")
+		return
+	}
 	response := followResponse{
 		RedirectURL: redirectURL,
 	}

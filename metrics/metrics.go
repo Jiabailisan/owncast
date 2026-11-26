@@ -124,6 +124,17 @@ type Service struct {
 	inCPUAlertingState  bool
 	inRAMAlertingState  bool
 	inDiskAlertingState bool
+
+	storageMu sync.Mutex
+	stopCh    chan struct{}
+	stopOnce  sync.Once
+}
+
+// HardwareStatsSnapshot is a race-free snapshot of hardware utilization series.
+type HardwareStatsSnapshot struct {
+	CPU    []TimestampedValue `json:"cpu"`
+	Memory []TimestampedValue `json:"memory"`
+	Disk   []TimestampedValue `json:"disk"`
 }
 
 // New constructs an idle metrics Service. Call Start to launch the
@@ -135,6 +146,7 @@ func New(deps Deps) *Service {
 		configRepository:              deps.ConfigRepository,
 		chatMessageRepository:         deps.ChatMessageRepository,
 		userRepository:                deps.UserRepository,
+		metrics:                       new(CollectedMetrics),
 		windowedErrorCounts:           map[string]float64{},
 		windowedQualityVariantChanges: map[string]float64{},
 		windowedBandwidths:            map[string]float64{},
@@ -143,6 +155,7 @@ func New(deps Deps) *Service {
 		selfReportingClients:          map[string]time.Time{},
 		clientPlayback:                map[string]*ClientPlaybackState{},
 		viewerPlaybackClients:         map[string]string{},
+		stopCh:                        make(chan struct{}),
 	}
 }
 
@@ -159,20 +172,52 @@ func (s *Service) Start() {
 
 	s.setupPrometheusCollectors()
 
-	s.metrics = new(CollectedMetrics)
+	if s.metrics == nil {
+		s.metrics = new(CollectedMetrics)
+	}
 	go s.startViewerCollectionMetrics()
 
 	go func() {
-		for range time.Tick(hardwareMetricsPollingInterval) {
-			s.handlePolling()
+		ticker := time.NewTicker(hardwareMetricsPollingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.handlePolling()
+			case <-s.stopCh:
+				return
+			}
 		}
 	}()
 
 	go func() {
-		for range time.Tick(playbackMetricsPollingInterval) {
-			s.handlePlaybackPolling()
+		ticker := time.NewTicker(playbackMetricsPollingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.handlePlaybackPolling()
+			case <-s.stopCh:
+				return
+			}
 		}
 	}()
+}
+
+// Stop halts background polling tickers and closes the time-series store.
+func (s *Service) Stop() {
+	s.stopOnce.Do(func() {
+		if s.stopCh != nil {
+			close(s.stopCh)
+		}
+		s.storageMu.Lock()
+		st := s.storage
+		s.storage = nil
+		s.storageMu.Unlock()
+		if st != nil {
+			_ = st.Close()
+		}
+	})
 }
 
 func (s *Service) handlePolling() {
@@ -191,4 +236,19 @@ func (s *Service) handlePolling() {
 // GetMetrics will return the collected metrics.
 func (s *Service) GetMetrics() *CollectedMetrics {
 	return s.metrics
+}
+
+// GetHardwareStatsSnapshot returns a lock-protected copy of hardware utilization
+// series safe for concurrent JSON marshaling.
+func (s *Service) GetHardwareStatsSnapshot() HardwareStatsSnapshot {
+	if s.metrics == nil {
+		return HardwareStatsSnapshot{}
+	}
+	s.metrics.m.Lock()
+	defer s.metrics.m.Unlock()
+	return HardwareStatsSnapshot{
+		CPU:    append([]TimestampedValue(nil), s.metrics.CPUUtilizations...),
+		Memory: append([]TimestampedValue(nil), s.metrics.RAMUtilizations...),
+		Disk:   append([]TimestampedValue(nil), s.metrics.DiskUtilizations...),
+	}
 }

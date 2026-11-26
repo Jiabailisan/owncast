@@ -86,22 +86,26 @@ func (s *Service) userNameChanged(eventData chatClientEvent) {
 	}
 
 	// Save the new name
-	if err := s.userRepository.ChangeUsername(eventData.client.User.ID, proposedUsername); err != nil {
+	u := eventData.client.GetUser()
+	if u == nil {
+		return
+	}
+	if err := s.userRepository.ChangeUsername(u.ID, proposedUsername); err != nil {
 		log.Errorln("error changing username", err)
 	}
 
-	// Update the connected clients associated user with the new name
+	// Prepare updated user copy before publishing to the client pointer so
+	// concurrent readers never observe a half-mutated User struct.
 	now := time.Now()
-	eventData.client.User = savedUser
-	eventData.client.User.NameChangedAt = &now
-
-	// Send chat event letting everyone about about the name change
-	savedUser.DisplayName = proposedUsername
+	updatedUser := *savedUser
+	updatedUser.DisplayName = proposedUsername
+	updatedUser.NameChangedAt = &now
+	eventData.client.SetUser(&updatedUser)
 
 	broadcastEvent := events.NameChangeBroadcast{
 		Oldname: oldName,
 	}
-	broadcastEvent.User = savedUser
+	broadcastEvent.User = &updatedUser
 	broadcastEvent.SetDefaults()
 	payload := broadcastEvent.GetBroadcastPayload()
 	if err := s.Broadcast(payload); err != nil {
@@ -110,7 +114,7 @@ func (s *Service) userNameChanged(eventData chatClientEvent) {
 	}
 
 	// Send chat user name changed webhook
-	receivedEvent.User = savedUser
+	receivedEvent.User = &updatedUser
 	receivedEvent.ClientID = eventData.client.Id
 	s.webhooks.SendChatEventUsernameChanged(receivedEvent)
 
@@ -131,13 +135,19 @@ func (s *Service) userColorChanged(eventData chatClientEvent) {
 		return
 	}
 
+	u := eventData.client.GetUser()
+	if u == nil {
+		return
+	}
 	// Save the new color
-	if err := s.userRepository.ChangeUserColor(eventData.client.User.ID, receivedEvent.NewColor); err != nil {
+	if err := s.userRepository.ChangeUserColor(u.ID, receivedEvent.NewColor); err != nil {
 		log.Errorln("error changing user display color", err)
 	}
 
-	// Resend client's user info with new color, otherwise the name change dialog would still show the old color
-	eventData.client.User.DisplayColor = receivedEvent.NewColor
+	// Resend client's user info with new color, publishing an immutable copy.
+	updatedUser := *u
+	updatedUser.DisplayColor = receivedEvent.NewColor
+	eventData.client.SetUser(&updatedUser)
 	eventData.client.sendConnectedClientInfo()
 }
 

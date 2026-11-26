@@ -93,11 +93,17 @@ func (a *Admin) UpdateOutputConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// restart-stream: the change applies at the next stream start. While a
-	// stream is live the running stream keeps the previous model, so report it
-	// as pending rather than implying a live apply.
+	// stream is live, compare against the actual running stream's process model
+	// so switching back to the running model clears the pending restart state.
 	pendingFields := []string{}
-	if a.stream != nil && a.stream.GetStatus().Online && previous != request.ProcessModel {
-		pendingFields = []string{fieldNameProcessModel}
+	if a.stream != nil && a.stream.GetStatus().Online {
+		running := a.stream.RunningProcessModel()
+		if running == "" {
+			running = previous
+		}
+		if running != request.ProcessModel {
+			pendingFields = []string{fieldNameProcessModel}
+		}
 	}
 
 	state := newOutputConfigState(request.ProcessModel, pendingFields)

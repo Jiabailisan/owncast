@@ -98,6 +98,7 @@ func (h *Handlers) RegisterAnonymousChatUser(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	decoder := json.NewDecoder(r.Body)
 	var request generated.RegisterAnonymousChatUserJSONBody // registerAnonymousUserRequest
 	if err := decoder.Decode(&request); err != nil {        //nolint
