@@ -91,13 +91,17 @@ type Transcoder struct {
 	// transcoder is running. Set in Start, killed in Stop.
 	commandExec *exec.Cmd
 
-	// logMu guards lastLogMessage. Held briefly while
+	// logMu guards lastLogMessage and lastLogAt. Held briefly while
 	// handleTranscoderMessage decides whether to emit a deduped log line
 	// from the stderr-scanner goroutine.
 	logMu sync.RWMutex
 	// lastLogMessage is the most recent stderr line surfaced to the
 	// logger; used to suppress immediate repeats.
 	lastLogMessage string
+	// lastLogAt throttles alternating repetitive FFmpeg diagnostics (e.g.
+	// Packet corrupt / H.264 DPB errors during SRT packet loss) per normalized
+	// message signature so high packet loss cannot flood owncast.log.
+	lastLogAt map[string]time.Time
 
 	TranscoderCompleted     func(error)
 	onMasterPlaylistWritten func(localFilePath string)
@@ -360,8 +364,8 @@ func (t *Transcoder) Start(shouldLog bool) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(transcoderLog, line)
-			if message, ok := surfaceableTranscoderMessage(line); ok {
-				t.handleTranscoderMessage(message)
+			if message, isWarning, ok := classifyTranscoderMessage(line); ok {
+				t.handleTranscoderMessageWithLevel(message, isWarning)
 			}
 		}
 	}()
@@ -399,6 +403,7 @@ func (t *Transcoder) Start(shouldLog bool) {
 	// Retire the reference under the lock that guards signalling: from here on Stop
 	// sees either no process or a reaped one and does not signal it.
 	t.commandExecMu.Lock()
+	stopped := t.stopRequested
 	t.processReaped = true
 	if t.commandExec == cmd {
 		t.commandExec = nil
@@ -412,7 +417,10 @@ func (t *Transcoder) Start(shouldLog bool) {
 		t.TranscoderCompleted(err)
 	}
 
-	if err != nil {
+	// Only report a transcoding failure when FFmpeg exited unexpectedly. An
+	// intentional Stop() sends SIGKILL and produces "signal: killed", which is
+	// not a codec or FFmpeg compatibility failure.
+	if err != nil && !stopped {
 		log.Errorln("transcoding error. look at", logging.GetTranscoderLogFilePath(t.cfg.LogDirectory), "to help debug. your copy of ffmpeg may not support your selected codec of", t.codec.Name(), "https://owncast.online/docs/codecs/")
 	}
 }

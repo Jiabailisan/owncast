@@ -3,8 +3,10 @@ package transcoder
 import (
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -61,42 +63,69 @@ var ignoredErrors = []string{
 // output only, not problems to surface to the owncast log.
 var quietLogLevels = []string{"[info]", "[verbose]", "[debug]", "[trace]"}
 
-var surfacedLogLevels = []string{"[warning] ", "[error] ", "[fatal] ", "[panic] "}
+var (
+	surfacedLogLevels         = []string{"[warning] ", "[error] ", "[fatal] ", "[panic] "}
+	transcoderLogHexPtrRe     = regexp.MustCompile(`0x[0-9a-fA-F]+`)
+	transcoderLogTimestampRe  = regexp.MustCompile(`\b(dts|pts)\s*=\s*-?\d+`)
+	transcoderLogRepeatWindow = 10 * time.Second
+)
 
-// surfaceableTranscoderMessage reports whether a transcoder stderr line
-// represents a problem worth surfacing to the owncast log. It returns the
-// message with its level tag removed so it matches the message shapes
-// errorMap and ignoredErrors expect. Untagged lines are surfaced as-is.
-func surfaceableTranscoderMessage(line string) (string, bool) {
+// classifyTranscoderMessage reports whether a transcoder stderr line represents
+// a problem worth surfacing to the owncast log, along with whether FFmpeg tagged
+// it as a warning (as opposed to error/fatal/panic). It returns the message with
+// its level tag removed so errorMap/ignoredErrors substring matching stays exact.
+func classifyTranscoderMessage(line string) (string, bool, bool) {
 	for _, level := range quietLogLevels {
 		if strings.Contains(line, level) {
-			return "", false
+			return "", false, false
 		}
 	}
+	isWarning := strings.Contains(line, "[warning] ")
 	message := line
 	for _, level := range surfacedLogLevels {
 		message = strings.Replace(message, level, "", 1)
 	}
-	return message, true
+	return message, isWarning, true
+}
+
+// surfaceableTranscoderMessage reports whether a transcoder stderr line
+// represents a problem worth surfacing to the owncast log.
+func surfaceableTranscoderMessage(line string) (string, bool) {
+	message, _, ok := classifyTranscoderMessage(line)
+	return message, ok
+}
+
+// normalizeTranscoderLogKey strips per-instance pointer addresses and packet
+// DTS/PTS numbers so alternating packet-loss messages deduplicate reliably.
+func normalizeTranscoderLogKey(message string) string {
+	key := transcoderLogHexPtrRe.ReplaceAllString(message, "0x*")
+	key = transcoderLogTimestampRe.ReplaceAllString(key, "$1=*")
+	return key
 }
 
 func (t *Transcoder) handleTranscoderMessage(message string) {
+	t.handleTranscoderMessageWithLevel(message, false)
+}
+
+func (t *Transcoder) handleTranscoderMessageWithLevel(message string, isWarning bool) {
 	log.Debugln(message)
 
 	t.logMu.Lock()
 	defer t.logMu.Unlock()
 
 	// Ignore certain messages that we don't care about.
-	for _, error := range ignoredErrors {
-		if strings.Contains(message, error) {
+	for _, ignored := range ignoredErrors {
+		if strings.Contains(message, ignored) {
 			return
 		}
 	}
 
 	// Convert specific transcoding messages to human-readable messages.
-	for error, displayMessage := range errorMap {
-		if strings.Contains(message, error) {
+	matchedErrorMap := false
+	for errPattern, displayMessage := range errorMap {
+		if strings.Contains(message, errPattern) {
 			message = displayMessage
+			matchedErrorMap = true
 			break
 		}
 	}
@@ -105,12 +134,33 @@ func (t *Transcoder) handleTranscoderMessage(message string) {
 		return
 	}
 
-	// No good comes from a flood of repeated messages.
+	// No good comes from a flood of repeated or alternating messages (e.g.
+	// Packet corrupt / H.264 DPB warnings on every lost SRT packet).
 	if message == t.lastLogMessage {
 		return
 	}
+	now := time.Now()
+	sig := normalizeTranscoderLogKey(message)
+	if t.lastLogAt == nil {
+		t.lastLogAt = make(map[string]time.Time)
+	}
+	if prev, ok := t.lastLogAt[sig]; ok && now.Sub(prev) < transcoderLogRepeatWindow {
+		return
+	}
+	if len(t.lastLogAt) >= 128 {
+		for k, ts := range t.lastLogAt {
+			if now.Sub(ts) >= transcoderLogRepeatWindow {
+				delete(t.lastLogAt, k)
+			}
+		}
+	}
+	t.lastLogAt[sig] = now
 
-	log.Error(message)
+	if isWarning && !matchedErrorMap {
+		log.Warn(message)
+	} else {
+		log.Error(message)
+	}
 
 	t.lastLogMessage = message
 }

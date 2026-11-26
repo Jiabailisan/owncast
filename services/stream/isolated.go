@@ -17,6 +17,10 @@ const (
 	webRTCProcessMaxRestarts = 2
 	// webRTCProcessBackoff is the first restart delay; it doubles per attempt.
 	webRTCProcessBackoff = 1 * time.Second
+	// webRTCProcessEOFGrace gives the isolated WebRTC FFmpeg process a short
+	// window to exit cleanly on stdin EOF when the publisher disconnects before
+	// Stop() sends SIGKILL.
+	webRTCProcessEOFGrace = 1 * time.Second
 )
 
 // runIsolatedTranscoders starts the isolated process model: one FFmpeg process
@@ -223,7 +227,11 @@ func (s *Service) superviseWebRTCProcess(tee *ingestTee, session ingest.Session,
 			}
 			backoff *= 2
 		case <-session.Done():
-			tr.Stop()
+			select {
+			case <-completed:
+			case <-time.After(webRTCProcessEOFGrace):
+				tr.Stop()
+			}
 			s.clearWebRTCTranscoder(tr)
 			s.releaseWebRTCProcessSession(session)
 			tee.RemoveBranch(webRTCBranchName)

@@ -1,6 +1,11 @@
 package transcoder
 
-import "testing"
+import (
+	"testing"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
+)
 
 // TestSurfaceableTranscoderMessage proves the stderr classification contract
 // under ffmpeg's `-loglevel level+info`: diagnostic levels are suppressed,
@@ -53,5 +58,40 @@ func TestSurfaceableTranscoderMessage(t *testing.T) {
 				t.Errorf("surfaceableTranscoderMessage(%q) = (%q, %v), want (%q, %v)", tc.line, got, ok, tc.want, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestClassifyAndThrottleTranscoderMessages(t *testing.T) {
+	msg, isWarn, ok := classifyTranscoderMessage("[in#0/mpegts @ 0x562f715e1540] [warning] Packet corrupt (stream = 0, dts = 634920).")
+	if !ok || !isWarn || msg != "[in#0/mpegts @ 0x562f715e1540] Packet corrupt (stream = 0, dts = 634920)." {
+		t.Fatalf("classify warning = (%q, %v, %v)", msg, isWarn, ok)
+	}
+
+	msgErr, isWarnErr, okErr := classifyTranscoderMessage("[h264 @ 0x562f72261380] [error] illegal short term buffer state detected")
+	if !okErr || isWarnErr || msgErr != "[h264 @ 0x562f72261380] illegal short term buffer state detected" {
+		t.Fatalf("classify error = (%q, %v, %v)", msgErr, isWarnErr, okErr)
+	}
+
+	hook := test.NewGlobal()
+	t.Cleanup(hook.Reset)
+
+	tr := &Transcoder{}
+	tr.handleTranscoderMessageWithLevel("[in#0/mpegts @ 0x562f715e1540] Packet corrupt (stream = 0, dts = 634920).", true)
+	tr.handleTranscoderMessageWithLevel("[h264 @ 0x562f72261380] illegal short term buffer state detected", false)
+	// Second burst with different hex pointer and DTS within cooldown window should be throttled.
+	tr.handleTranscoderMessageWithLevel("[in#0/mpegts @ 0x55b7925df740] Packet corrupt (stream = 0, dts = 700000).", true)
+	tr.handleTranscoderMessageWithLevel("[h264 @ 0x55b79378b6c0] illegal short term buffer state detected", false)
+
+	var warnCount, errCount int
+	for _, entry := range hook.AllEntries() {
+		switch entry.Level {
+		case log.WarnLevel:
+			warnCount++
+		case log.ErrorLevel:
+			errCount++
+		}
+	}
+	if warnCount != 1 || errCount != 1 {
+		t.Fatalf("expected 1 warn and 1 error after throttling alternating burst, got warn=%d error=%d", warnCount, errCount)
 	}
 }
