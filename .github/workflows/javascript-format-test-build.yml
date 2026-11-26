@@ -103,7 +103,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint and fix
         if: steps.changed-files-yaml.outputs.src_any_changed == 'true' && github.event_name != 'pull_request'
@@ -114,12 +114,12 @@ jobs:
         run: npx eslint ${{ steps.changed-files-yaml.outputs.src_all_changed_files }}
 
       - name: Prettier formatting
-        if: steps.changed-files-yaml.outputs.src_any_changed == 'true' && github.event_name == 'pull_request'
+        if: steps.changed-files-yaml.outputs.src_any_changed == 'true' && github.event_name != 'pull_request'
         run: npx prettier --write ${{ steps.changed-files-yaml.outputs.src_all_changed_files }}
 
       - name: Prettier check
-        if: steps.changed-files-yaml.outputs.src_any_changed == 'true' && github.event_name != 'pull_request'
-        run: npx prettier ${{ steps.changed-files-yaml.outputs.src_all_changed_files }}
+        if: steps.changed-files-yaml.outputs.src_any_changed == 'true' && github.event_name == 'pull_request'
+        run: npx prettier --check ${{ steps.changed-files-yaml.outputs.src_all_changed_files }}
 
       - name: Debug changed files output
         run: 'pwd && echo "Changed files: ${{ steps.changed-files-yaml.outputs.src_all_changed_files }}"'
@@ -187,7 +187,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Check for unused JS code and dependencies
         run: npx knip --include dependencies,files,exports
@@ -241,7 +241,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
       # tsc checks the whole project, so no changed-files gating: the
       # workflow's trigger paths already restrict runs to web/ changes.
@@ -255,7 +255,7 @@ jobs:
     name: Build and bundle web project
     runs-on: ubuntu-latest
     if: github.repository == 'owncast/owncast' && !cancelled()
-    needs: [formatting, unused-code]
+    needs: [formatting, unused-code, typecheck]
     steps:
       - id: skip_check
         uses: fkirc/skip-duplicate-actions@v5

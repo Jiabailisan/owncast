@@ -81,6 +81,7 @@ export const SettingsForm: FC<SettingsFormProps> = ({
 }) => {
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [resetKeys, setResetKeys] = useState<string[]>([]);
+  const [resetNonce, setResetNonce] = useState(0);
   const [saving, setSaving] = useState(false);
 
   const sections = useMemo(() => groupSettingsFields(fields, groups), [fields, groups]);
@@ -131,8 +132,10 @@ export const SettingsForm: FC<SettingsFormProps> = ({
     resetKeys.forEach(key => {
       const meta = fields.find(field => field.key === key);
       if (!meta) return;
-      // Resetting a secret to its default means clearing the stored value.
-      patch[key] = meta.secret ? '' : defaults[key];
+      // Only scalar secret fields clear via empty string; structured fields
+      // such as turnServerList (whose rows contain secrets) reset to their
+      // typed default (e.g. []).
+      patch[key] = meta.type === 'secret' ? '' : defaults[key];
       resets.push(key);
     });
 
@@ -141,6 +144,7 @@ export const SettingsForm: FC<SettingsFormProps> = ({
       await onSave(patch, resets);
       setDraft({});
       setResetKeys([]);
+      setResetNonce(current => current + 1);
     } catch {
       // The parent surfaces the APIError (including field errors); keep the
       // operator's draft so a partial failure never discards their edits.
@@ -197,22 +201,33 @@ export const SettingsForm: FC<SettingsFormProps> = ({
       {sections.map(section => (
         <section key={section.group.id} className={styles.section}>
           {section.group.label && <Title level={4}>{section.group.label}</Title>}
-          {section.fields.map(meta => (
-            <SettingField
-              key={meta.key}
-              meta={meta}
-              value={displayValue(meta)}
-              defaultValue={defaults[meta.key]}
-              modified={isModified(meta.key)}
-              disabled={Boolean(disabledReason)}
-              disabledReason={disabledReason}
-              error={fieldErrors[meta.key]}
-              secretSet={Boolean(values[meta.key + 'Set'] ?? values.passphraseSet ?? false)}
-              pendingRestart={Boolean(pendingRestart?.fields?.includes(meta.key))}
-              onChange={handleChange}
-              onReset={handleReset}
-            />
-          ))}
+          {section.fields.map(meta => {
+            const currentValue = displayValue(meta);
+            const fieldSecretSet = Boolean(values[meta.key + 'Set'] ?? false);
+            const fieldCanReset =
+              isModified(meta.key) ||
+              (meta.type === 'secret'
+                ? fieldSecretSet
+                : !valuesEqual(currentValue, defaults[meta.key]));
+            return (
+              <SettingField
+                key={meta.key}
+                meta={meta}
+                value={currentValue}
+                defaultValue={defaults[meta.key]}
+                modified={isModified(meta.key)}
+                canReset={fieldCanReset}
+                resetNonce={resetNonce}
+                disabled={Boolean(disabledReason)}
+                disabledReason={disabledReason}
+                error={fieldErrors[meta.key]}
+                secretSet={fieldSecretSet}
+                pendingRestart={Boolean(pendingRestart?.fields?.includes(meta.key))}
+                onChange={handleChange}
+                onReset={handleReset}
+              />
+            );
+          })}
         </section>
       ))}
 
@@ -234,6 +249,7 @@ export const SettingsForm: FC<SettingsFormProps> = ({
             onClick={() => {
               setDraft({});
               setResetKeys([]);
+              setResetNonce(current => current + 1);
             }}
           >
             <Translation

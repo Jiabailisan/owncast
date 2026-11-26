@@ -430,11 +430,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   };
 
   const startLatencyCompensator = () => {
-    if (latencyCompensatorRef.current) {
-      latencyCompensatorRef.current.disable();
+    if (!playerRef.current) return;
+    if (!latencyCompensatorRef.current) {
+      latencyCompensatorRef.current = new LatencyCompensator(playerRef.current);
     }
     latencyCompensatorEnabledRef.current = true;
-    latencyCompensatorRef.current = new LatencyCompensator(playerRef.current);
     latencyCompensatorRef.current.setClockSkew(clockSkewRef.current);
     latencyCompensatorRef.current.enable();
     setLocalStorage(LATENCY_COMPENSATION_ENABLED, true);

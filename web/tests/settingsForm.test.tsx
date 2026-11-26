@@ -136,4 +136,52 @@ describe('SettingsForm', () => {
     fireEvent.click(screen.getByText('Retry'));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  test('resetting a turnServerList sends an array default instead of an empty string and Cancel clears secret drafts', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const turnFields: FieldMeta[] = [
+      ...fields,
+      {
+        key: 'turnServers',
+        group: 'srt.listener',
+        type: 'turnServerList',
+        default: [],
+        description: 'TURN servers.',
+        secret: true,
+        applyMode: 'restart-service',
+        readOnly: false,
+      },
+    ];
+    renderForm(
+      {
+        fields: turnFields,
+        values: {
+          ...values,
+          port: 9001,
+          turnServers: [{ url: 'turn:example.com:3478', username: 'u', credentialSet: true }],
+        },
+        defaults: { ...defaults, turnServers: [] },
+      },
+      onSave,
+    );
+
+    // Non-default saved field (port=9001 vs default 8890) enables Reset immediately.
+    const portRow = document.querySelector('[data-field-key="port"]') as HTMLElement;
+    expect(within(portRow).getByRole('button', { name: 'Reset' })).not.toBeDisabled();
+
+    // Typing a secret then clicking Cancel clears the draft input.
+    const secretInput = screen.getByLabelText('Passphrase') as HTMLInputElement;
+    fireEvent.change(secretInput, { target: { value: 'draft-secret' } });
+    expect(secretInput.value).toBe('draft-secret');
+    fireEvent.click(screen.getByText('Cancel changes'));
+    expect(secretInput.value).toBe('');
+
+    // Resetting turnServers (secret: true, type: turnServerList) sends [] not "".
+    const turnRow = document.querySelector('[data-field-key="turnServers"]') as HTMLElement;
+    fireEvent.click(within(turnRow).getByRole('button', { name: 'Reset' }));
+    fireEvent.click(screen.getByText('Save changes'));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual({ turnServers: [] });
+  });
 });

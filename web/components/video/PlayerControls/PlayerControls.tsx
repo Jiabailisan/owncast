@@ -87,11 +87,17 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   callbacks,
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const controlBarRef = useRef<HTMLDivElement | null>(null);
   const pointerInsideRef = useRef(false);
+  const visibleRef = useRef(true);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visible, setVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(initialMenu === 'settings');
   const [transportOpen, setTransportOpen] = useState(initialMenu === 'transport');
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   // The volume slider is part of the bar now, and the Stats for nerds overlay
   // is a floating HUD rather than a dropdown menu, so neither should pin the
@@ -155,25 +161,64 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
     };
   }, [playing, anyMenuOpen, scheduleHide]);
 
-  // One positional tracker drives every piece of control state: the bar is
-  // visible while the pointer is over the player, and the volume popover is
-  // expanded exactly while the pointer is over the volume control. Deriving both
-  // from the pointer position removes the enter/leave/click state machine that
-  // could get stuck.
+  // Reveal the bar on mouse movement over the player and only pin it open while
+  // a mouse pointer is hovering the bottom control bar itself (not the entire
+  // video frame). Touch/pen pointers never pin pointerInsideRef so controls
+  // always auto-hide after inactivity and tapping the video toggles visibility.
   useEffect(() => {
+    const isPointInElement = (x: number, y: number, el: HTMLElement | null) => {
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    };
+
     const handleMove = (event: PointerEvent) => {
       const root = rootRef.current;
       if (!root) return;
 
-      const rect = root.getBoundingClientRect();
-      const insidePlayer =
-        event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom;
-      pointerInsideRef.current = insidePlayer;
+      const insidePlayer = isPointInElement(event.clientX, event.clientY, root);
+      if (event.pointerType === 'mouse') {
+        pointerInsideRef.current =
+          insidePlayer && isPointInElement(event.clientX, event.clientY, controlBarRef.current);
+        if (insidePlayer) reveal();
+      } else {
+        pointerInsideRef.current = false;
+      }
+    };
 
-      if (insidePlayer) reveal();
+    const handleDown = (event: PointerEvent) => {
+      const root = rootRef.current;
+      if (!root) return;
+
+      const insidePlayer = isPointInElement(event.clientX, event.clientY, root);
+      if (!insidePlayer) {
+        pointerInsideRef.current = false;
+        return;
+      }
+
+      const insideControls = isPointInElement(event.clientX, event.clientY, controlBarRef.current);
+      if (event.pointerType === 'mouse') {
+        pointerInsideRef.current = insideControls;
+        reveal();
+        return;
+      }
+
+      pointerInsideRef.current = false;
+      const target = event.target as HTMLElement | null;
+      const tappedInteractiveControl = Boolean(
+        insideControls || target?.closest?.('button, [role="slider"]'),
+      );
+      if (tappedInteractiveControl || anyMenuOpen || !playing) {
+        reveal();
+        return;
+      }
+
+      if (visibleRef.current) {
+        if (idleTimer.current) clearTimeout(idleTimer.current);
+        setVisible(false);
+      } else {
+        reveal();
+      }
     };
 
     const handleKey = () => {
@@ -183,15 +228,15 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
     // A tap produces pointerdown, not pointermove, so touch devices need this
     // listener or the hidden bar could never be brought back.
     document.addEventListener('pointermove', handleMove, { passive: true });
-    document.addEventListener('pointerdown', handleMove, { passive: true });
+    document.addEventListener('pointerdown', handleDown, { passive: true });
     window.addEventListener('keydown', handleKey, { passive: true });
     return () => {
       document.removeEventListener('pointermove', handleMove);
-      document.removeEventListener('pointerdown', handleMove);
+      document.removeEventListener('pointerdown', handleDown);
       window.removeEventListener('keydown', handleKey);
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
-  }, [reveal]);
+  }, [reveal, playing, anyMenuOpen]);
 
   // Escape closes an open menu first, or closes the Stats for nerds panel when
   // no menu is open, even when focus left the overlay root.
@@ -254,6 +299,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
         }}
         onPointerEnter={reveal}
         onPointerLeave={() => {
+          pointerInsideRef.current = false;
           // The bar fades out without a mouseleave on the volume group, which
           // used to leave the slider expanded after the controls disappeared.
           if (playing && !anyMenuOpen) scheduleHide();
@@ -300,7 +346,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
           </button>
         )}
 
-        <div className={styles.controlBar} data-player-control="true">
+        <div ref={controlBarRef} className={styles.controlBar} data-player-control="true">
           <button
             type="button"
             className={styles.iconButton}

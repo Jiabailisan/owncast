@@ -460,6 +460,7 @@ class LatencyCompensator {
     this.timeoutEndingAt = 0;
     this.checkTimer = 0;
     this.bufferingTimer = 0;
+    this.jumpIgnoreTimer = 0;
     this.speedAdjustmentTimer = 0;
     this.playbackRate = 1.0;
     this.targetPlaybackRate = 1.0;
@@ -499,19 +500,48 @@ class LatencyCompensator {
     // Restored from sessionStorage so a reload keeps learned caution.
     this.rebufferEvents = loadPersistedRebufferEvents();
 
-    this.player.on('playing', this.handlePlaying.bind(this));
-    this.player.on('pause', this.handlePause.bind(this));
-    this.player.on('error', this.handleError.bind(this));
-    this.player.on('waiting', this.handleBuffering.bind(this));
-    this.player.on('stalled', this.handleBuffering.bind(this));
-    this.player.on('ended', this.handleEnded.bind(this));
-    this.player.on('canplaythrough', this.handlePlaying.bind(this));
-    this.player.on('canplay', this.handlePlaying.bind(this));
+    this.onPlaying = this.handlePlaying.bind(this);
+    this.onPause = this.handlePause.bind(this);
+    this.onError = this.handleError.bind(this);
+    this.onBuffering = this.handleBuffering.bind(this);
+    this.onEnded = this.handleEnded.bind(this);
+    this.listenersAttached = false;
+    this.attachListeners();
 
     this.onStats = null;
 
     this.check = this.check.bind(this);
     this.smoothSpeedAdjustment = this.smoothSpeedAdjustment.bind(this);
+  }
+
+  attachListeners() {
+    if (this.listenersAttached || !this.player || typeof this.player.on !== 'function') {
+      return;
+    }
+    this.player.on('playing', this.onPlaying);
+    this.player.on('pause', this.onPause);
+    this.player.on('error', this.onError);
+    this.player.on('waiting', this.onBuffering);
+    this.player.on('stalled', this.onBuffering);
+    this.player.on('ended', this.onEnded);
+    this.player.on('canplaythrough', this.onPlaying);
+    this.player.on('canplay', this.onPlaying);
+    this.listenersAttached = true;
+  }
+
+  detachListeners() {
+    if (!this.listenersAttached || !this.player || typeof this.player.off !== 'function') {
+      return;
+    }
+    this.player.off('playing', this.onPlaying);
+    this.player.off('pause', this.onPause);
+    this.player.off('error', this.onError);
+    this.player.off('waiting', this.onBuffering);
+    this.player.off('stalled', this.onBuffering);
+    this.player.off('ended', this.onEnded);
+    this.player.off('canplaythrough', this.onPlaying);
+    this.player.off('canplay', this.onPlaying);
+    this.listenersAttached = false;
   }
 
   // To keep our client clock in sync with the server clock to determine
@@ -564,6 +594,7 @@ class LatencyCompensator {
   }
 
   enable() {
+    this.attachListeners();
     this.enabled = true;
     clearInterval(this.checkTimer);
     clearTimeout(this.bufferingTimer);
@@ -576,14 +607,21 @@ class LatencyCompensator {
   // Disable means we're done for good and should no longer compensate.
   disable() {
     clearInterval(this.checkTimer);
+    this.checkTimer = 0;
     clearInterval(this.speedAdjustmentTimer);
     this.speedAdjustmentTimer = 0;
     clearTimeout(this.timeoutTimer);
+    this.timeoutTimer = 0;
     clearTimeout(this.bufferingTimer);
+    this.bufferingTimer = 0;
+    clearTimeout(this.jumpIgnoreTimer);
+    this.jumpIgnoreTimer = 0;
+    this.jumpingToLiveIgnoreBuffer = false;
     this.inTimeout = false;
     this.stop();
     this.resetPlaybackRate();
     this.enabled = false;
+    this.detachListeners();
   }
 
   // Runs on a timer: gather player state, ask decide() what to do, act on it.
@@ -957,8 +995,10 @@ class LatencyCompensator {
     console.info('jumping from', this.player.currentTime(), 'to', seekPosition);
     this.player.currentTime(seekPosition);
 
-    setTimeout(() => {
+    clearTimeout(this.jumpIgnoreTimer);
+    this.jumpIgnoreTimer = setTimeout(() => {
       this.jumpingToLiveIgnoreBuffer = false;
+      this.jumpIgnoreTimer = 0;
     }, JUMP_IGNORE_BUFFER_DURATION);
   }
 
@@ -1063,8 +1103,10 @@ class LatencyCompensator {
       console.info('seeking near live edge:', target);
       this.player.currentTime(target);
 
-      setTimeout(() => {
+      clearTimeout(this.jumpIgnoreTimer);
+      this.jumpIgnoreTimer = setTimeout(() => {
         this.jumpingToLiveIgnoreBuffer = false;
+        this.jumpIgnoreTimer = 0;
       }, JUMP_IGNORE_BUFFER_DURATION);
     } catch (err) {
       console.trace(err);
@@ -1093,6 +1135,10 @@ class LatencyCompensator {
   }
 
   handleBuffering() {
+    if (!this.enabled) {
+      return;
+    }
+
     if (Date.now() - this.startupTime < STARTUP_WAIT_TIME) {
       return;
     }

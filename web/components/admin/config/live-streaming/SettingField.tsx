@@ -1,4 +1,4 @@
-import { FC, useState } from 'react';
+import { FC, useEffect, useState } from 'react';
 import { Alert, Button, Input, InputNumber, Select, Switch, Tag, Tooltip, Typography } from 'antd';
 import { useTranslation } from 'next-export-i18n';
 import { Translation } from '../../../ui/Translation/Translation';
@@ -15,6 +15,8 @@ export type SettingFieldProps = {
   value: unknown;
   defaultValue: unknown;
   modified: boolean;
+  canReset?: boolean;
+  resetNonce?: number;
   disabled?: boolean;
   disabledReason?: string;
   error?: string;
@@ -86,6 +88,8 @@ export const SettingField: FC<SettingFieldProps> = ({
   value,
   defaultValue,
   modified,
+  canReset,
+  resetNonce = 0,
   disabled = false,
   disabledReason,
   error,
@@ -97,6 +101,11 @@ export const SettingField: FC<SettingFieldProps> = ({
   const { t } = useTranslation();
   const [secretDraft, setSecretDraft] = useState<string>('');
   const [turnDraft, setTurnDraft] = useState<TURNServerDraft[] | null>(null);
+
+  useEffect(() => {
+    setSecretDraft('');
+    setTurnDraft(null);
+  }, [resetNonce]);
   const label = meta.label || humanizeFieldKey(meta.key);
   const localize = (key: string, fallback: string): string => {
     const translated = t(key);
@@ -436,7 +445,7 @@ export const SettingField: FC<SettingFieldProps> = ({
             <Button
               size="small"
               type="link"
-              disabled={readOnly || !modified}
+              disabled={readOnly || !(canReset ?? modified)}
               onClick={handleResetClick}
             >
               <Translation
