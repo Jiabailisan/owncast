@@ -20,7 +20,7 @@ export const TEXTFIELD_TYPE_URL = 'url';
 export type TextFieldWithSubmitProps = TextFieldProps & {
   apiPath: string;
   configPath?: string;
-  initialValue?: string;
+  initialValue?: string | number;
   hasComplexityRequirements?: boolean;
 };
 

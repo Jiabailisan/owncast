@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/owncast/owncast/webserver/handlers/generated"
 	"github.com/owncast/owncast/webserver/router/middleware"
 )
@@ -29,7 +31,14 @@ func New(h *Handlers) *ServerInterfaceImpl {
 }
 
 func (s *ServerInterfaceImpl) Handler() http.Handler {
+	r := chi.NewRouter()
+	r.Options("/admin/config/rtmpsserverport", s.h.middleware.RequireAdminAuth(s.h.admin.SetRTMPSServerPort))
+	r.Post("/admin/config/rtmpsserverport", s.h.middleware.RequireAdminAuth(s.h.admin.SetRTMPSServerPort))
+	r.Options("/admin/config/rtmpscertpath", s.h.middleware.RequireAdminAuth(s.h.admin.SetRTMPSCertPath))
+	r.Post("/admin/config/rtmpscertpath", s.h.middleware.RequireAdminAuth(s.h.admin.SetRTMPSCertPath))
+
 	return generated.HandlerWithOptions(s, generated.ChiServerOptions{
+		BaseRouter:       r,
 		ErrorHandlerFunc: writeParameterError,
 	})
 }

@@ -483,6 +483,7 @@ func main() {
 	adminHandlers := admin.New(admin.Deps{
 		Stream:                  streamSvc,
 		Sessions:                sessions,
+		Rtmp:                    rtmpSvc,
 		Srt:                     srtSvc,
 		WebRTC:                  webRTCSvc,
 		LiveStatus:              liveStatusSvc,

@@ -12,6 +12,8 @@ import { AlertMessageContext } from '../../utils/alert-message-context';
 import {
   TEXTFIELD_PROPS_FFMPEG,
   TEXTFIELD_PROPS_RTMP_PORT,
+  TEXTFIELD_PROPS_RTMPS_PORT,
+  TEXTFIELD_PROPS_RTMPS_CERT_PATH,
   TEXTFIELD_PROPS_SOCKET_HOST_OVERRIDE,
   TEXTFIELD_PROPS_ADMIN_PASSWORD,
   TEXTFIELD_PROPS_WEB_PORT,
@@ -34,6 +36,8 @@ export default function EditInstanceDetails() {
   const {
     ffmpegPath,
     rtmpServerPort,
+    rtmpsServerPort,
+    rtmpsCertPath,
     webServerPort,
     yp,
     socketHostOverride,
@@ -41,10 +45,15 @@ export default function EditInstanceDetails() {
     rtmpServerAddress,
   } = serverConfig;
 
+  const initialRtmpsPort = Number(rtmpsServerPort) > 0 ? Number(rtmpsServerPort) : '';
+  const initialRtmpsCertPath = rtmpsCertPath || '';
+
   useEffect(() => {
     setFormDataValues({
       ffmpegPath,
       rtmpServerPort,
+      rtmpsServerPort: initialRtmpsPort,
+      rtmpsCertPath: initialRtmpsCertPath,
       webServerPort,
       socketHostOverride,
       videoServingEndpoint,
@@ -118,6 +127,22 @@ export default function EditInstanceDetails() {
         type={TEXTFIELD_TYPE_NUMBER}
         onChange={handleFieldChange}
         onSubmit={showConfigurationRestartMessage}
+      />
+      <TextFieldWithSubmit
+        fieldName="rtmpsServerPort"
+        {...TEXTFIELD_PROPS_RTMPS_PORT}
+        value={formDataValues.rtmpsServerPort}
+        initialValue={initialRtmpsPort}
+        type={TEXTFIELD_TYPE_NUMBER}
+        onChange={handleFieldChange}
+      />
+      <TextFieldWithSubmit
+        fieldName="rtmpsCertPath"
+        {...TEXTFIELD_PROPS_RTMPS_CERT_PATH}
+        value={formDataValues.rtmpsCertPath}
+        initialValue={initialRtmpsCertPath}
+        type={TEXTFIELD_TYPE_TEXT}
+        onChange={handleFieldChange}
       />
       <TextFieldWithSubmit
         fieldName="rtmpServerAddress"

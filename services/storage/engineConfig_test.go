@@ -16,6 +16,8 @@ type fakeEngineConfig struct {
 }
 
 func (f fakeEngineConfig) GetRTMPPortNumber() int     { return 1935 }
+func (f fakeEngineConfig) GetRTMPSPortNumber() int    { return 0 }
+func (f fakeEngineConfig) GetRTMPSCertPath() string   { return "" }
 func (f fakeEngineConfig) GetRTMPBindAddress() string { return "0.0.0.0" }
 func (f fakeEngineConfig) GetFfMpegPath() string      { return "ffmpeg" }
 func (f fakeEngineConfig) GetVideoCodec() string      { return "libx264" }

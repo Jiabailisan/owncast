@@ -29,6 +29,8 @@ const API_LOGO = '/logo';
 const API_FAVICON = '/favicon';
 const API_NSFW_SWITCH = '/nsfw';
 const API_RTMP_PORT = '/rtmpserverport';
+const API_RTMPS_PORT = '/rtmpsserverport';
+const API_RTMPS_CERT_PATH = '/rtmpscertpath';
 const API_RTMP_ADDRESS = '/rtmpserverbindaddress';
 const API_SERVER_SUMMARY = '/serversummary';
 const API_SERVER_WELCOME_MESSAGE = '/welcomemessage';
@@ -178,6 +180,27 @@ export const TEXTFIELD_PROPS_RTMP_PORT = {
   tip: 'What port should accept inbound broadcasts? Default is 1935',
   required: true,
   hasComplexityRequirements: false,
+};
+export const TEXTFIELD_PROPS_RTMPS_PORT = {
+  apiPath: API_RTMPS_PORT,
+  configPath: '',
+  maxLength: 6,
+  placeholder: '1936',
+  label: 'RTMPS port',
+  tip: 'Optional TLS port for encrypted RTMPS broadcasts. Leave empty to disable RTMPS.',
+  required: false,
+  hasComplexityRequirements: false,
+};
+export const TEXTFIELD_PROPS_RTMPS_CERT_PATH = {
+  apiPath: API_RTMPS_CERT_PATH,
+  configPath: '',
+  maxLength: 512,
+  placeholder: '/path/to/certs/ or /path/to/fullchain.pem',
+  label: 'RTMPS certificate path',
+  tip: 'Path to TLS certificate directory, combined PEM file, or certificate file with matching key alongside it. Leave empty to disable RTMPS.',
+  required: false,
+  hasComplexityRequirements: false,
+  useTrim: true,
 };
 export const TEXTFIELD_PROPS_RTMP_ADDRESS = {
   apiPath: API_RTMP_ADDRESS,

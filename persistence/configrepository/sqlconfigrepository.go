@@ -271,6 +271,35 @@ func (r *SqlConfigRepository) SetRTMPPortNumber(port float64) error {
 	return r.datastore.SetNumber(rtmpPortNumberKey, port)
 }
 
+// GetRTMPSPortNumber returns the configured RTMPS TLS port, or 0 when disabled.
+func (r *SqlConfigRepository) GetRTMPSPortNumber() int {
+	port, err := r.datastore.GetNumber(rtmpsPortNumberKey)
+	if err != nil || port <= 0 {
+		return 0
+	}
+	return int(port)
+}
+
+// SetRTMPSPortNumber stores the configured RTMPS TLS port (0 disables RTMPS).
+func (r *SqlConfigRepository) SetRTMPSPortNumber(port float64) error {
+	return r.datastore.SetNumber(rtmpsPortNumberKey, port)
+}
+
+// GetRTMPSCertPath returns the configured RTMPS certificate path (directory,
+// combined PEM, or certificate file), or empty when disabled.
+func (r *SqlConfigRepository) GetRTMPSCertPath() string {
+	certPath, err := r.datastore.GetString(rtmpsCertPathKey)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(certPath)
+}
+
+// SetRTMPSCertPath stores the configured RTMPS certificate path.
+func (r *SqlConfigRepository) SetRTMPSCertPath(certPath string) error {
+	return r.datastore.SetString(rtmpsCertPathKey, strings.TrimSpace(certPath))
+}
+
 // GetRTMPBindAddress will return the server RTMP bind address.
 func (r *SqlConfigRepository) GetRTMPBindAddress() string {
 	address, err := r.datastore.GetString(rtmpBindAddressKey)

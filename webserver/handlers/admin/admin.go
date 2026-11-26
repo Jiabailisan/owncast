@@ -18,6 +18,7 @@ import (
 	"github.com/owncast/owncast/services/chat"
 	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/livestatus"
+	"github.com/owncast/owncast/services/rtmp"
 	"github.com/owncast/owncast/services/srt"
 	"github.com/owncast/owncast/services/stream"
 	"github.com/owncast/owncast/services/webhooks"
@@ -35,6 +36,7 @@ import (
 type Admin struct {
 	stream   *stream.Service
 	sessions *ingest.Arbiter
+	rtmp     *rtmp.Service
 	srt      *srt.Service
 	webrtc   *webrtc.Service
 	// webrtcApplier is the configuration-update view of the WebRTC service. Tests set it
@@ -79,6 +81,7 @@ type Admin struct {
 type Deps struct {
 	Stream                *stream.Service
 	Sessions              *ingest.Arbiter
+	Rtmp                  *rtmp.Service
 	Srt                   *srt.Service
 	WebRTC                *webrtc.Service
 	LiveStatus            *livestatus.Service
@@ -107,6 +110,7 @@ func New(deps Deps) *Admin {
 	return &Admin{
 		stream:                  deps.Stream,
 		sessions:                deps.Sessions,
+		rtmp:                    deps.Rtmp,
 		srt:                     deps.Srt,
 		webrtc:                  deps.WebRTC,
 		liveStatus:              deps.LiveStatus,

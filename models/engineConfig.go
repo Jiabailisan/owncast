@@ -11,6 +11,8 @@ package models
 // re-couples the engine to core internals.
 type EngineConfig interface {
 	GetRTMPPortNumber() int
+	GetRTMPSPortNumber() int
+	GetRTMPSCertPath() string
 	GetRTMPBindAddress() string
 	GetFfMpegPath() string
 	GetVideoCodec() string

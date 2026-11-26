@@ -42,7 +42,12 @@ func (s *Service) Start(setStreamAsConnected func(ingest.Session), setBroadcaste
 
 	s.listenerMu.Lock()
 	s.listener = lis
+	s.rtmpServer = srv
 	s.listenerMu.Unlock()
+
+	if err := s.ReconfigureRTMPS(); err != nil {
+		log.Errorf("RTMPS listener failed to start (plain RTMP on port %d continues): %v", port, err)
+	}
 
 	log.Tracef("RTMP server is listening for incoming stream on port: %d", port)
 
@@ -59,16 +64,21 @@ func (s *Service) Start(setStreamAsConnected func(ingest.Session), setBroadcaste
 	}
 }
 
-// Stop closes the RTMP listener, ending the accept loop. The current session is
-// force-disconnected separately via Disconnect.
+// Stop closes the RTMP and optional RTMPS listeners, ending their accept loops.
+// The current session is force-disconnected separately via Disconnect.
 func (s *Service) Stop() {
 	s.listenerMu.Lock()
 	listener := s.listener
 	s.listener = nil
+	rtmpsListener := s.rtmpsListener
+	s.rtmpsListener = nil
 	s.listenerMu.Unlock()
 
 	if listener != nil {
 		_ = listener.Close()
+	}
+	if rtmpsListener != nil {
+		_ = rtmpsListener.Close()
 	}
 }
 

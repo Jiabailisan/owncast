@@ -36,6 +36,8 @@ const initialServerConfigState: ConfigDetails = {
   },
   ffmpegPath: '',
   rtmpServerPort: '',
+  rtmpsServerPort: '',
+  rtmpsCertPath: '',
   rtmpServerAddress: '',
   webServerPort: '',
   socketHostOverride: null,

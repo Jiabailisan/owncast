@@ -6,82 +6,82 @@ self.__BUILD_MANIFEST = {
     "static/chunks/29a_jpa_bvh0a.js"
   ],
   "/admin": [
-    "static/chunks/12151q27pox1g.js"
+    "static/chunks/2ctuwtvi7bd0k.js"
   ],
   "/admin/access-tokens": [
-    "static/chunks/3pz9khrpprdk4.js"
+    "static/chunks/0-_tmkf-q7ru2.js"
   ],
   "/admin/actions": [
-    "static/chunks/1e0gkw7vbp73w.js"
+    "static/chunks/3bu902-iqmcni.js"
   ],
   "/admin/chat/emojis": [
-    "static/chunks/1zwjm1acharjm.js"
+    "static/chunks/09fcu6xem2_t8.js"
   ],
   "/admin/chat/messages": [
-    "static/chunks/3-5_lfhyrfvra.js"
+    "static/chunks/1ysm8hv-eu2rs.js"
   ],
   "/admin/config-chat": [
-    "static/chunks/3vo8wlpo4dg09.js"
+    "static/chunks/1lz2-g8x4yj2h.js"
   ],
   "/admin/config-featured": [
-    "static/chunks/3r3ch-9dhm5ov.js"
+    "static/chunks/2faed-ivp3620.js"
   ],
   "/admin/config-federation": [
-    "static/chunks/37ag-ebc6nrl-.js"
+    "static/chunks/2-7_8tm5_s1uo.js"
   ],
   "/admin/config-notify": [
-    "static/chunks/0cji6se2zlw05.js"
+    "static/chunks/2155chzpue-6e.js"
   ],
   "/admin/config-social-items": [
-    "static/chunks/3wmlwxaa83jn4.js"
+    "static/chunks/31-kosa0a0lnm.js"
   ],
   "/admin/config-video": [
-    "static/chunks/3-1dh4oaf90rj.js"
+    "static/chunks/2s-rhbp16q-cf.js"
   ],
   "/admin/config/general": [
-    "static/chunks/2z0gxn7jsf_-f.js"
+    "static/chunks/0t9vlx53c6me3.js"
   ],
   "/admin/config/live-streaming": [
-    "static/chunks/1-my9s40rmz72.js"
+    "static/chunks/2s67ivsdxexjg.js"
   ],
   "/admin/config/server": [
-    "static/chunks/43866b_l8fbsw.js"
+    "static/chunks/0_b1bj34e5aeb.js"
   ],
   "/admin/federation/actions": [
-    "static/chunks/1z973joi5eib4.js"
+    "static/chunks/1lw26l0-lf2fg.js"
   ],
   "/admin/federation/followers": [
-    "static/chunks/3u4lr0b4tstug.js"
+    "static/chunks/3ooz37lux1fap.js"
   ],
   "/admin/hardware-info": [
-    "static/chunks/0lr83ji3-zo6d.js"
+    "static/chunks/29lzm2jaz4azu.js"
   ],
   "/admin/help": [
-    "static/chunks/16him2-4o3ibh.js"
+    "static/chunks/3_h6tn63gbqor.js"
   ],
   "/admin/logs": [
-    "static/chunks/3mf3v8bk4-ffy.js"
+    "static/chunks/2eky7tef6mrcz.js"
   ],
   "/admin/plugins": [
-    "static/chunks/0vkk5_d212ddg.js"
+    "static/chunks/3743o4rdwv10e.js"
   ],
   "/admin/plugins/configure": [
-    "static/chunks/1clu9unnj5s-g.js"
+    "static/chunks/2be3-cz-3bsl5.js"
   ],
   "/admin/stream-health": [
-    "static/chunks/12wacudjrzfiv.js"
+    "static/chunks/314la5cpvnuy1.js"
   ],
   "/admin/upgrade": [
-    "static/chunks/2g7rqx1ib5b-e.js"
+    "static/chunks/3b0evau3ih6wi.js"
   ],
   "/admin/users": [
-    "static/chunks/37bmj9mopbg2i.js"
+    "static/chunks/10iha3rx506ow.js"
   ],
   "/admin/viewer-info": [
-    "static/chunks/07i9d95ytb6sl.js"
+    "static/chunks/1fvx7ohc0w8l7.js"
   ],
   "/admin/webhooks": [
-    "static/chunks/0ler9a8om0n4y.js"
+    "static/chunks/3h8sn5fuskmt0.js"
   ],
   "/embed/chat/readonly": [
     "static/chunks/2ojehn_ysi_uz.js"

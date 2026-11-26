@@ -9,6 +9,8 @@ import (
 	"net"
 	"sync"
 
+	joy5rtmp "github.com/nareix/joy5/format/rtmp"
+
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/services/ingest"
@@ -50,10 +52,14 @@ type Service struct {
 	// currentSession is the live inbound session, if any.
 	currentSession *session
 
-	// listenerMu guards listener, the bound RTMP TCP listener.
+	// listenerMu guards listener, rtmpsListener, and rtmpServer.
 	listenerMu sync.Mutex
-	// listener is closed by Stop to end the accept loop.
+	// listener is closed by Stop to end the plain RTMP accept loop.
 	listener net.Listener
+	// rtmpsListener is the optional TLS RTMP listener (nil when disabled).
+	rtmpsListener net.Listener
+	// rtmpServer is shared by the plain RTMP and optional RTMPS accept loops.
+	rtmpServer *joy5rtmp.Server
 }
 
 // Deps is the explicit dependency contract for the RTMP service.

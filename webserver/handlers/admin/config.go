@@ -11,12 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/teris-io/shortid"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/services/rtmp"
 	"github.com/owncast/owncast/utils"
 	"github.com/owncast/owncast/webserver/handlers/generated"
 	webutils "github.com/owncast/owncast/webserver/utils"
@@ -617,7 +619,9 @@ func (a *Admin) SetRTMPServerPort(w http.ResponseWriter, r *http.Request) {
 	}
 	// A port the process cannot bind kills it at startup, so refuse the ports the
 	// other listeners already own instead of persisting an unbootable value.
+	rtmpsPort := configRepository.GetRTMPSPortNumber()
 	if typedValue == float64(configRepository.GetHTTPPortNumber()) ||
+		(rtmpsPort > 0 && typedValue == float64(rtmpsPort)) ||
 		typedValue == float64(configRepository.GetSRTConfig().Port) ||
 		typedValue == float64(configRepository.GetWebRTCConfig().UDPPort) {
 		webutils.BadRequestHandler(w, errors.New("port is already used by another listener"))
@@ -630,6 +634,139 @@ func (a *Admin) SetRTMPServerPort(w http.ResponseWriter, r *http.Request) {
 	}
 
 	webutils.WriteSimpleResponse(w, true, "rtmp port set")
+}
+
+// SetRTMPSServerPort handles the web config request to set or clear the inbound
+// RTMPS (TLS) port. Leaving the port empty or 0 disables the RTMPS listener.
+func (a *Admin) SetRTMPSServerPort(w http.ResponseWriter, r *http.Request) {
+	if !requirePOST(w, r) {
+		return
+	}
+
+	configValue, success := getValueFromRequest(w, r)
+	if !success {
+		return
+	}
+
+	var port int
+	switch v := configValue.Value.(type) {
+	case nil:
+		port = 0
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			port = 0
+		} else {
+			parsed, err := strconv.Atoi(trimmed)
+			if err != nil {
+				webutils.BadRequestHandler(w, errors.New("value must be a whole port number between 1 and 65535 (or empty to disable)"))
+				return
+			}
+			port = parsed
+		}
+	case float64:
+		if v != math.Trunc(v) {
+			webutils.BadRequestHandler(w, errors.New("value must be a whole port number between 1 and 65535 (or empty to disable)"))
+			return
+		}
+		port = int(v)
+	default:
+		webutils.BadRequestHandler(w, errors.New("value must be a number or empty"))
+		return
+	}
+
+	if port < 0 || port > 65535 {
+		webutils.BadRequestHandler(w, errors.New("value must be a whole port number between 1 and 65535 (or empty to disable)"))
+		return
+	}
+
+	a.liveConfigMu.Lock()
+	defer a.liveConfigMu.Unlock()
+
+	configRepository := a.configRepository
+	if port > 0 {
+		if port == configRepository.GetHTTPPortNumber() || port == configRepository.GetRTMPPortNumber() {
+			webutils.BadRequestHandler(w, errors.New("port is already used by another TCP listener"))
+			return
+		}
+	}
+
+	previousPort := configRepository.GetRTMPSPortNumber()
+	if err := configRepository.SetRTMPSPortNumber(float64(port)); err != nil {
+		webutils.WriteSimpleResponse(w, false, err.Error())
+		return
+	}
+
+	if a.rtmp != nil {
+		if err := a.rtmp.ReconfigureRTMPS(); err != nil {
+			_ = configRepository.SetRTMPSPortNumber(float64(previousPort))
+			_ = a.rtmp.ReconfigureRTMPS()
+			webutils.WriteSimpleResponse(w, false, err.Error())
+			return
+		}
+	}
+
+	if port == 0 {
+		webutils.WriteSimpleResponse(w, true, "rtmps port cleared; RTMPS listener disabled")
+		return
+	}
+	webutils.WriteSimpleResponse(w, true, "rtmps port set")
+}
+
+// SetRTMPSCertPath handles the web config request to set or clear the RTMPS TLS
+// certificate path (directory, combined PEM, or certificate file with sibling
+// key). Clearing the path stops the RTMPS listener.
+func (a *Admin) SetRTMPSCertPath(w http.ResponseWriter, r *http.Request) {
+	if !requirePOST(w, r) {
+		return
+	}
+
+	configValue, success := getValueFromRequest(w, r)
+	if !success {
+		return
+	}
+
+	var certPath string
+	if configValue.Value != nil {
+		typedValue, valueOK := valueAsStringOK(configValue.Value)
+		if !valueOK {
+			webutils.BadRequestHandler(w, errors.New("value must be a string"))
+			return
+		}
+		certPath = strings.TrimSpace(typedValue)
+	}
+
+	if certPath != "" {
+		if err := rtmp.ValidateCertPath(certPath); err != nil {
+			webutils.WriteSimpleResponse(w, false, err.Error())
+			return
+		}
+	}
+
+	a.liveConfigMu.Lock()
+	defer a.liveConfigMu.Unlock()
+
+	configRepository := a.configRepository
+	previousPath := configRepository.GetRTMPSCertPath()
+	if err := configRepository.SetRTMPSCertPath(certPath); err != nil {
+		webutils.WriteSimpleResponse(w, false, err.Error())
+		return
+	}
+
+	if a.rtmp != nil {
+		if err := a.rtmp.ReconfigureRTMPS(); err != nil {
+			_ = configRepository.SetRTMPSCertPath(previousPath)
+			_ = a.rtmp.ReconfigureRTMPS()
+			webutils.WriteSimpleResponse(w, false, err.Error())
+			return
+		}
+	}
+
+	if certPath == "" {
+		webutils.WriteSimpleResponse(w, true, "rtmps certificate path cleared; RTMPS listener disabled")
+		return
+	}
+	webutils.WriteSimpleResponse(w, true, "rtmps certificate path set")
 }
 
 // SetServerURL will handle the web config request to set the full server URL.

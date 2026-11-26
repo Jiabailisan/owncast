@@ -34,6 +34,10 @@ type ConfigRepository interface {
 	SetHTTPListenAddress(address string) error
 	GetRTMPPortNumber() int
 	SetRTMPPortNumber(port float64) error
+	GetRTMPSPortNumber() int
+	SetRTMPSPortNumber(port float64) error
+	GetRTMPSCertPath() string
+	SetRTMPSCertPath(certPath string) error
 	GetRTMPBindAddress() string
 	SetRTMPBindAddress(address string) error
 	GetServerMetadataTags() []string
