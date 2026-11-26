@@ -114,24 +114,34 @@ describe('application state machine', () => {
     expect(mergedMeta(snapshot)).toEqual(ONLINE_META);
   });
 
-  test('CHAT_USER_DISABLED while online keeps the online meta except chatAvailable', () => {
+  test('CHAT_USER_DISABLED while online keeps the online meta except chatAvailable and recovers on OFFLINE', () => {
     const actor = startActor();
     actor.send({ type: AppStateEvent.Loaded });
     actor.send({ type: AppStateEvent.Online });
     actor.send({ type: AppStateEvent.ChatUserDisabled });
-    const snapshot = actor.getSnapshot();
+    let snapshot = actor.getSnapshot();
 
     expect(snapshot.matches({ ready: 'chatUserDisabled' })).toBe(true);
     expect(mergedMeta(snapshot)).toEqual(CHAT_USER_DISABLED_META);
+
+    actor.send({ type: AppStateEvent.Offline });
+    snapshot = actor.getSnapshot();
+    expect(snapshot.matches({ ready: 'offline' })).toBe(true);
+    expect(mergedMeta(snapshot)).toEqual(OFFLINE_META);
   });
 
-  test('FAIL while loading reaches serverFailure and the machine is done', () => {
+  test('FAIL while loading reaches serverFailure and can recover via LOADED', () => {
     const actor = startActor();
     actor.send({ type: AppStateEvent.Fail });
-    const snapshot = actor.getSnapshot();
+    let snapshot = actor.getSnapshot();
 
     expect(snapshot.matches('serverFailure')).toBe(true);
-    expect(snapshot.status).toBe('done');
+    expect(snapshot.status).toBe('active');
+    expect(mergedMeta(snapshot)).toEqual(OFFLINE_META);
+
+    actor.send({ type: AppStateEvent.Loaded });
+    snapshot = actor.getSnapshot();
+    expect(snapshot.matches({ ready: 'offline' })).toBe(true);
   });
 
   test('ONLINE while loading is ignored without error', () => {

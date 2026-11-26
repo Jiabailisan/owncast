@@ -10,6 +10,9 @@ export interface ServerStatusStaticService {
 class ServerStatusService {
   public static async getStatus(): Promise<ServerStatus> {
     const response = await fetch(ENDPOINT);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch server status: HTTP ${response.status}`);
+    }
     const status = await response.json();
     return status;
   }

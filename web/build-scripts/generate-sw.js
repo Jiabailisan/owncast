@@ -43,10 +43,14 @@ async function run() {
     // Drop precaches from previous builds. Without it the browser keeps serving
     // the old admin chunks from a stale cache after an upgrade.
     cleanupOutdatedCaches: true,
+    // Include Web Push handlers in the single root-scoped service worker so
+    // /sw.js and /serviceWorker.js never fight over scope "/".
+    importScripts: ['/serviceWorker.js'],
     // Manifest URLs are generated relative to out/, make them absolute.
     modifyURLPrefix: { '': '/' },
-    // _next/static files are already content-hashed, no revision busting.
-    dontCacheBustURLsMatching: /^\/_next\/static\//,
+    // Only content-hashed chunk files skip revision busting; unhashed manifests
+    // (such as _buildManifest.js / _ssgManifest.js) must still be revisioned.
+    dontCacheBustURLsMatching: /^\/_next\/static\/chunks\//,
   });
 
   warnings.forEach(w => console.warn('[generate-sw]', w));

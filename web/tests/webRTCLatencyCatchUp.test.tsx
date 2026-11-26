@@ -305,4 +305,61 @@ describe('WebRTC low-latency catch-up loop', () => {
     // The new session's first sample must not be compared against the previous session's last one.
     expect(previousSeen[before]).toBeNull();
   });
+
+  test('sets receiver jitterBufferTarget/playoutDelayHint to 0 when enabled and steps 1.05x/1.1x', async () => {
+    const receiver = {
+      jitterBufferTarget: 500 as number | null,
+      playoutDelayHint: 0.5 as number | null,
+    };
+    const getStats = jest.fn(async () => new Map());
+    let latency = 0.7;
+    collectSpy.mockImplementation((() => ({
+      sample: { liveLatencySeconds: latency },
+      bytes: bytesSample(1),
+    })) as never);
+
+    const session: WHEPSessionHandle = {
+      ...makeSession(getStats),
+      pc: {
+        getStats,
+        getReceivers: () => [receiver],
+      } as unknown as RTCPeerConnection,
+    };
+
+    const onReady = jest.fn();
+    render(
+      <WebRTCPlayer
+        whepUrl="/webrtc/whep"
+        online
+        title="Test stream"
+        onReady={onReady}
+        enableStats={false}
+        sessionFactory={async () => session}
+      />,
+    );
+    await flush();
+
+    // Enabled: target minimum playout delay (0), not an artificial 200ms floor.
+    expect(receiver.jitterBufferTarget).toBe(0);
+    expect(receiver.playoutDelayHint).toBe(0);
+
+    await tick();
+    expect(videoEl().playbackRate).toBe(1);
+    await tick();
+    expect(videoEl().playbackRate).toBe(1.05);
+
+    latency = 1.4;
+    await tick();
+    expect(videoEl().playbackRate).toBe(1.1);
+
+    latency = 0.2;
+    await tick();
+    expect(videoEl().playbackRate).toBe(1);
+
+    // Turning Minimize latency off restores browser defaults (null).
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: /minimize latency/i }));
+    expect(receiver.jitterBufferTarget).toBeNull();
+    expect(receiver.playoutDelayHint).toBeNull();
+  });
 });

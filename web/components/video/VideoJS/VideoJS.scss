@@ -60,7 +60,8 @@
 
     // Same corner as the WebRTC notice: bottom right, just above the control
     // bar, so the affordance does not jump when the transport switches.
-    inset: auto max(16px, env(safe-area-inset-right)) calc(max(14px, env(safe-area-inset-bottom)) + 52px) auto;
+    inset: auto max(16px, env(safe-area-inset-right))
+      calc(max(14px, env(safe-area-inset-bottom)) + 52px) auto;
     z-index: 3;
     display: flex;
     gap: 8px;
@@ -75,6 +76,7 @@
     border: 1px solid rgb(255 255 255 / 14%);
     border-radius: 999px;
     cursor: pointer;
+    transition: bottom 0.2s ease;
 
     .vjs-icon-placeholder svg {
       width: 18px;
@@ -115,6 +117,10 @@
   .vjs-control {
     color: var(--theme-color-components-text-on-light);
   }
+}
+
+[data-controls-visible='false'] .vjs-owncast .vjs-big-unmute-button.vjs-control {
+  bottom: max(14px, env(safe-area-inset-bottom));
 }
 
 .vjs-airplay {

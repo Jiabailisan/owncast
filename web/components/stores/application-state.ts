@@ -136,11 +136,23 @@ const appStateModel =
               ...ONLINE_STATE,
               chatAvailable: false,
             },
+            on: {
+              OFFLINE: {
+                target: 'offline',
+              },
+            },
           },
         },
       },
       serverFailure: {
-        type: 'final',
+        meta: {
+          ...OFFLINE_STATE,
+        },
+        on: {
+          LOADED: {
+            target: 'ready',
+          },
+        },
       },
     },
   });

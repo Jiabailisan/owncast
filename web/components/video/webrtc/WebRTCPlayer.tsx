@@ -686,10 +686,12 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [whepUrl, online, selectedVariant, retryToken, sessionFactory]);
 
-  // Minimize latency applies real receiver-side playout limits. jitterBufferTarget
-  // (Chrome) and playoutDelayHint (Firefox/older Chrome) both cap the receiver
-  // buffer; the catch-up loop nudges playbackRate when the estimated playout
-  // latency still exceeds one second.
+  // Minimize latency applies real receiver-side playout limits. Setting
+  // jitterBufferTarget (Chrome) and playoutDelayHint (Firefox/older Chrome) to
+  // 0 asks the browser for the minimum possible receiver playout delay instead
+  // of imposing an artificial floor, while null restores browser defaults when
+  // disabled. The stepped catch-up loop gently speeds playback up (1.05x/1.1x)
+  // if the receiver buffer still drifts behind live.
   useEffect(() => {
     if (phase !== 'ready') {
       return undefined;
@@ -698,31 +700,30 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     if (!session) {
       return undefined;
     }
-    const receivers =
-      typeof session.pc.getReceivers === 'function'
-        ? (session.pc.getReceivers() as (RTCRtpReceiver & {
-            jitterBufferTarget?: number | null;
-            playoutDelayHint?: number | null;
-          })[])
-        : [];
-    receivers.forEach(receiver => {
-      try {
-        if ('jitterBufferTarget' in receiver) {
-          // Restore browser default (null) when Minimize latency is off instead
-          // of forcing a 1000 ms buffer delay on low-latency WebRTC playback.
-          receiver.jitterBufferTarget = latencyEnabled ? 200 : null;
+    const applyReceiverLatencyTargets = (active: WHEPSessionHandle | null) => {
+      if (!active || typeof active.pc.getReceivers !== 'function') return;
+      const receivers = active.pc.getReceivers() as (RTCRtpReceiver & {
+        jitterBufferTarget?: number | null;
+        playoutDelayHint?: number | null;
+      })[];
+      receivers.forEach(receiver => {
+        try {
+          if ('jitterBufferTarget' in receiver) {
+            receiver.jitterBufferTarget = latencyEnabled ? 0 : null;
+          }
+        } catch {
+          // Not supported by this browser.
         }
-      } catch {
-        // Not supported by this browser.
-      }
-      try {
-        if ('playoutDelayHint' in receiver) {
-          receiver.playoutDelayHint = latencyEnabled ? 0.2 : null;
+        try {
+          if ('playoutDelayHint' in receiver) {
+            receiver.playoutDelayHint = latencyEnabled ? 0 : null;
+          }
+        } catch {
+          // Not supported by this browser.
         }
-      } catch {
-        // Not supported by this browser.
-      }
-    });
+      });
+    };
+    applyReceiverLatencyTargets(session);
 
     let timer: ReturnType<typeof setInterval> | null = null;
     let lateSamples = 0;
@@ -742,7 +743,18 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     // the sample succeeds, fails, or is discarded as stale.
     let sampling = false;
 
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        applyReceiverLatencyTargets(sessionRef.current);
+        previousSample = null;
+        lateSamples = 0;
+      }
+    };
+
     if (latencyEnabled) {
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+      }
       timer = setInterval(() => {
         const video = videoRef.current;
         const activeSession = sessionRef.current;
@@ -751,6 +763,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           sampledSession = activeSession;
           previousSample = null;
           lateSamples = 0;
+          applyReceiverLatencyTargets(activeSession);
         }
         if (sampling) return;
         sampling = true;
@@ -763,12 +776,17 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
             previousSample = bytes;
             const liveLatency = sample.liveLatencySeconds;
             if (liveLatency === null) return;
-            if (liveLatency > 1) {
+            if (liveLatency > 1.0) {
               lateSamples += 1;
-              if (lateSamples >= 2 && video.playbackRate === 1) {
+              if (lateSamples >= 2 && video.playbackRate !== 1.1) {
                 video.playbackRate = 1.1;
               }
-            } else if (liveLatency < 0.7) {
+            } else if (liveLatency > 0.5) {
+              lateSamples += 1;
+              if (lateSamples >= 2 && video.playbackRate !== 1.05) {
+                video.playbackRate = 1.05;
+              }
+            } else if (liveLatency < 0.3) {
               lateSamples = 0;
               if (video.playbackRate > 1) video.playbackRate = 1;
             }
@@ -785,6 +803,9 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       sampling = false;
       previousSample = null;
       lateSamples = 0;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
       if (timer) clearInterval(timer);
       const video = videoRef.current;
       if (video && video.playbackRate !== 1) video.playbackRate = 1;
@@ -1058,6 +1079,8 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
     { enableOnContentEditable: false },
   );
 
+  const [controlsVisible, setControlsVisible] = useState(true);
+
   const handleBigUnmute = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -1119,7 +1142,9 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
         {bigUnmuteVisible && (
           <button
             type="button"
-            className={styles.bigUnmuteButton}
+            className={classNames(styles.bigUnmuteButton, {
+              [styles.bigUnmuteButtonLowered]: !controlsVisible,
+            })}
             aria-label={unmuteLabel}
             onClick={handleBigUnmute}
           >
@@ -1151,6 +1176,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           sparklines={sparklines}
           statsOpen={statsOpen}
           fullscreen={fullscreen}
+          onControlsVisibilityChange={setControlsVisible}
           callbacks={{
             onTogglePlay: togglePlayback,
             onToggleMute: toggleMute,

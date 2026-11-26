@@ -64,7 +64,8 @@
 // A muted player shows a corner notice rather than a full-frame overlay.
 .bigUnmuteButton {
   position: absolute;
-  inset: auto 12px 72px auto;
+  inset: auto max(16px, env(safe-area-inset-right))
+    calc(max(14px, env(safe-area-inset-bottom)) + 52px) auto;
   z-index: 6;
   display: inline-flex;
   gap: 8px;
@@ -78,6 +79,11 @@
   background: rgb(0 0 0 / 72%);
   border: 1px solid rgb(255 255 255 / 14%);
   border-radius: 999px;
+  transition: bottom 0.2s ease;
+
+  &.bigUnmuteButtonLowered {
+    bottom: max(14px, env(safe-area-inset-bottom));
+  }
 
   svg {
     width: 18px;

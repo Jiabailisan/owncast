@@ -172,21 +172,31 @@ export function hlsVideoBitrateKbps(input: HlsMeterInput): number | null {
   return advertised !== null ? advertised / 1000 : null;
 }
 
+// Minimum segment transfer duration (ms) trusted for raw throughput division.
+// Sub-5ms fetches (e.g. local cache / kernel-buffered LAN segments) are
+// heavily quantized by millisecond timers and produce artificial spikes.
+const MIN_MEASURED_TRANSFER_MS = 5;
+
 // Connection speed in kbps: measured segment-download throughput, falling back
 // to the ABR system bandwidth, and never below the playing stream's own
-// video+audio bitrate (provided-player behavior).
+// video+audio bitrate. Avoids taking max(measured, systemKbps) so stale ABR
+// peaks do not pin the readout above actual transfer throughput.
 export function hlsConnectionSpeedKbps(
   input: HlsMeterInput,
   videoBitrateKbps: number | null,
 ): number | null {
   const bytes = positiveNumber(input.mediaBytesTransferred);
   const durationMs = positiveNumber(input.mediaTransferDurationMs);
-  const measured = bytes !== null && durationMs !== null ? (8e3 * bytes) / durationMs / 1000 : null;
   const system = positiveNumber(input.systemBandwidthBps);
   const systemKbps = system !== null ? system / 1000 : null;
+  const usableMeasured =
+    bytes !== null &&
+    durationMs !== null &&
+    (durationMs >= MIN_MEASURED_TRANSFER_MS || systemKbps === null);
+  const measured = usableMeasured ? (8e3 * bytes) / durationMs / 1000 : null;
   const throughput = measured ?? systemKbps;
   const streamKbps = (videoBitrateKbps ?? 0) + (positiveNumber(input.audioBitrateKbps) ?? 0);
-  const candidates = [throughput, systemKbps, streamKbps].filter(
+  const candidates = [throughput, streamKbps].filter(
     (value): value is number => value !== null && value > 0,
   );
   return candidates.length > 0 ? Math.max(...candidates) : null;

@@ -243,13 +243,35 @@ describe('HLS transport metering helpers', () => {
     expect(hlsVideoBitrateKbps({})).toBeNull();
   });
 
-  test('connection speed uses segment transfer duration and never drops below the stream bitrate', () => {
+  test('connection speed uses segment transfer duration, avoids peak-pinning, and filters sub-5ms bursts', () => {
     expect(
       hlsConnectionSpeedKbps(
         { mediaBytesTransferred: 8_000_000, mediaTransferDurationMs: 7_400, audioBitrateKbps: 131 },
         1090,
       ),
     ).toBeCloseTo(8648.65, 0);
+    // Does not pin to a higher stale systemBandwidthBps when measured duration is valid (>= 5 ms).
+    expect(
+      hlsConnectionSpeedKbps(
+        {
+          mediaBytesTransferred: 1_000_000,
+          mediaTransferDurationMs: 1_000,
+          systemBandwidthBps: 120_000_000,
+        },
+        2000,
+      ),
+    ).toBeCloseTo(8000, 0);
+    // Ignores quantized < 5 ms transfer durations when ABR systemBandwidthBps is available.
+    expect(
+      hlsConnectionSpeedKbps(
+        {
+          mediaBytesTransferred: 500_000,
+          mediaTransferDurationMs: 1,
+          systemBandwidthBps: 25_000_000,
+        },
+        2000,
+      ),
+    ).toBeCloseTo(25000, 0);
     expect(hlsConnectionSpeedKbps({ systemBandwidthBps: 12_000_000 }, 1090)).toBeCloseTo(12000, 0);
     expect(hlsConnectionSpeedKbps({}, 1090)).toBeCloseTo(1090, 0);
     expect(hlsConnectionSpeedKbps({}, null)).toBeNull();

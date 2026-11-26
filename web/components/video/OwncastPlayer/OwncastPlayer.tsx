@@ -206,6 +206,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   const [aspectRatio, setAspectRatio] = useState('16 / 9');
   const [fullscreen, setFullscreen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   // video.js buffering state, surfaced through the custom overlay spinner.
   const [buffering, setBuffering] = useState(false);
   const [stats, setStats] = useState<StatsSnapshot>(() => makeEmptyStats(false));
@@ -224,6 +225,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     windowBitrateSeconds: number | null;
     windowTransferBytes: number | null;
     windowTransferMs: number | null;
+    smoothedConnectionSpeedKbps: number | null;
     audioBitrateKbps: number | null;
     videoPipeline: string | null;
   }>({
@@ -238,6 +240,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     windowBitrateSeconds: null,
     windowTransferBytes: null,
     windowTransferMs: null,
+    smoothedConnectionSpeedKbps: null,
     audioBitrateKbps: null,
     videoPipeline: null,
   });
@@ -611,6 +614,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     meter.windowBitrateSeconds = null;
     meter.windowTransferBytes = null;
     meter.windowTransferMs = null;
+    meter.smoothedConnectionSpeedKbps = null;
     setSparklines({ video: [], audio: [] });
     let disposed = false;
     let statusAbort: AbortController | null = null;
@@ -735,7 +739,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
             meter.windowBitrateBytes = deltaBytes;
             meter.windowBitrateSeconds = deltaSeconds;
           }
-          if (deltaTransferMs !== null && deltaTransferMs > 0) {
+          if (deltaTransferMs !== null && deltaTransferMs >= 5) {
             meter.windowTransferBytes = deltaBytes;
             meter.windowTransferMs = deltaTransferMs;
           }
@@ -763,7 +767,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         mediaSecondsLoaded: hasWindowBitrate ? meter.windowBitrateSeconds : cumSeconds,
         mediaTransferDurationMs: null,
       });
-      const connectionSpeedKbps = hlsConnectionSpeedKbps(
+      const rawConnectionSpeedKbps = hlsConnectionSpeedKbps(
         {
           ...commonMeterInput,
           mediaBytesTransferred: hasWindowTransfer ? meter.windowTransferBytes : cumBytes,
@@ -772,6 +776,13 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         },
         videoBitrateKbps,
       );
+      if (rawConnectionSpeedKbps !== null) {
+        meter.smoothedConnectionSpeedKbps =
+          meter.smoothedConnectionSpeedKbps === null
+            ? rawConnectionSpeedKbps
+            : meter.smoothedConnectionSpeedKbps * 0.65 + rawConnectionSpeedKbps * 0.35;
+      }
+      const connectionSpeedKbps = meter.smoothedConnectionSpeedKbps;
       const resolution = hlsResolution(video?.videoWidth, video?.videoHeight, fps);
       const dpr =
         typeof window !== 'undefined' &&
@@ -1146,7 +1157,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
         style={{ '--video-aspect-ratio': aspectRatio } as CSSProperties}
       >
         {online && (
-          <div className={styles.player}>
+          <div className={styles.player} data-controls-visible={controlsVisible ? 'true' : 'false'}>
             <VideoJS options={videoJsOptions} onReady={handlePlayerReady} aria-label={title} />
             {transportErrorVisible && (
               <div className={styles.transportError} data-testid="transport-error">
@@ -1173,6 +1184,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
               loading={buffering}
               statsOpen={statsOpen}
               fullscreen={fullscreen}
+              onControlsVisibilityChange={setControlsVisible}
               callbacks={{
                 onTogglePlay: togglePlayback,
                 onToggleMute: toggleMute,

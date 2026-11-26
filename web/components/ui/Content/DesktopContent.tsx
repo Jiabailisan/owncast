@@ -128,9 +128,9 @@ export const DesktopContent: FC<DesktopContentProps> = ({
 
       <div>
         {items.length > 1 ? (
-          <Tabs defaultActiveKey="0" items={items} />
+          <Tabs defaultActiveKey={items[0]?.key} items={items} />
         ) : (
-          !!extraPageContent && aboutTabContent
+          (items[0]?.children ?? null)
         )}
       </div>
     </ErrorBoundary>

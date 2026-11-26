@@ -1,4 +1,4 @@
-import { FC, useContext, useEffect } from 'react';
+import { FC, useContext, useEffect, useRef } from 'react';
 import { atom, useAtom, useSetAtom } from 'jotai';
 import { useMachine } from '@xstate/react';
 import { makeEmptyClientConfig, ClientConfig } from '../../interfaces/client-config.model';
@@ -70,7 +70,6 @@ const DISPLAY_NAME_KEY = 'displayName';
 
 let serverStatusRefreshPoll: ReturnType<typeof setInterval>;
 let hasBeenModeratorNotified = false;
-let hasWebsocketDisconnected = false;
 
 const serverConnectivityError = `Cannot connect to the Owncast service. Please check your internet connection and verify this Owncast server is running.`;
 
@@ -121,10 +120,13 @@ export const clockSkewAtom = atom<Number>(0.0);
 
 const removedMessageIdsAtom = atom<string[]>([]);
 
+export const hasWebsocketDisconnectedAtom = atom<boolean>(false);
+
 export const isChatAvailableSelector = atom(get => {
   const state: AppStateOptions = get(appStateAtom);
   const accessToken: string = get(accessTokenAtom);
-  return Boolean(accessToken && state.chatAvailable && !hasWebsocketDisconnected);
+  const disconnected: boolean = get(hasWebsocketDisconnectedAtom);
+  return Boolean(accessToken && state.chatAvailable && !disconnected);
 });
 
 // The requested state of chat in the UI
@@ -165,7 +167,7 @@ export const ClientConfigStore: FC = () => {
   const ChatService = useContext(ChatServiceContext);
   const ServerStatusService = useContext(ServerStatusServiceContext);
 
-  const [appState, appStateSend, appStateService] = useMachine(appStateModel);
+  const [, appStateSend, appStateService] = useMachine(appStateModel);
   const [currentUser, setCurrentUser] = useAtom(currentUserAtom);
   const setChatAuthenticated = useSetAtom(chatAuthenticatedAtom);
   const [clientConfig, setClientConfig] = useAtom(clientConfigStateAtom);
@@ -177,9 +179,12 @@ export const ClientConfigStore: FC = () => {
   const setGlobalFatalErrorMessage = useSetAtom(fatalErrorStateAtom);
   const setWebsocketService = useSetAtom(websocketServiceAtom);
   const setHiddenMessageIds = useSetAtom(removedMessageIdsAtom);
+  const setHasWebsocketDisconnected = useSetAtom(hasWebsocketDisconnectedAtom);
   const [hasLoadedConfig, setHasLoadedConfig] = useAtom(isClientConfigLoadedAtom);
 
-  let ws: WebsocketService;
+  const wsRef = useRef<WebsocketService | null>(null);
+  const hasLoadedConfigRef = useRef(false);
+  const lastOnlineRef = useRef<boolean | null>(null);
 
   const setGlobalFatalError = (title: string, message: string) => {
     setGlobalFatalErrorMessage({
@@ -193,7 +198,8 @@ export const ClientConfigStore: FC = () => {
   };
 
   const handleStatusChange = (status: ServerStatus) => {
-    if (appState.matches('loading')) {
+    const currentSnapshot = appStateService.getSnapshot();
+    if (currentSnapshot.matches('loading') || currentSnapshot.matches('serverFailure')) {
       const events = [AppStateEvent.Loaded];
       if (status.online) {
         events.push(AppStateEvent.Online);
@@ -204,9 +210,9 @@ export const ClientConfigStore: FC = () => {
       return;
     }
 
-    if (status.online && appState.matches('ready')) {
+    if (status.online && currentSnapshot.matches('ready')) {
       sendEvent([AppStateEvent.Online]);
-    } else if (!status.online && !appState.matches({ ready: 'offline' })) {
+    } else if (!status.online && !currentSnapshot.matches({ ready: 'offline' })) {
       sendEvent([AppStateEvent.Offline]);
     }
   };
@@ -216,6 +222,7 @@ export const ClientConfigStore: FC = () => {
       const config = await ClientConfigService.getConfig();
       setClientConfig(config);
       setGlobalFatalErrorMessage(null);
+      hasLoadedConfigRef.current = true;
       setHasLoadedConfig(true);
     } catch (error) {
       setGlobalFatalError('Unable to reach Owncast server', serverConnectivityError);
@@ -226,6 +233,8 @@ export const ClientConfigStore: FC = () => {
   const updateServerStatus = async () => {
     try {
       const status = await ServerStatusService.getStatus();
+      const transitionedOnline = lastOnlineRef.current === false && Boolean(status.online);
+      lastOnlineRef.current = Boolean(status.online);
       handleStatusChange(status);
       setServerStatus(status);
 
@@ -235,6 +244,12 @@ export const ClientConfigStore: FC = () => {
       setClockSkew(clockSkew);
 
       setGlobalFatalErrorMessage(null);
+
+      // Refresh client config if boot fetch failed or if a stream just went live
+      // (so dynamic WebRTC variants and TURN credentials are up to date).
+      if (!hasLoadedConfigRef.current || transitionedOnline) {
+        void updateClientConfig();
+      }
     } catch (error) {
       sendEvent([AppStateEvent.Fail]);
       setGlobalFatalError('Unable to reach Owncast server', serverConnectivityError);
@@ -279,9 +294,9 @@ export const ClientConfigStore: FC = () => {
     setLocalStorage(ACCESS_TOKEN_KEY, '');
     setLocalStorage(DISPLAY_NAME_KEY, '');
     setAccessToken(null);
-    ws?.shutdown();
+    wsRef.current?.shutdown();
     setWebsocketService(null);
-    ws = null;
+    wsRef.current = null;
     handleUserRegistration();
   };
 
@@ -295,11 +310,11 @@ export const ClientConfigStore: FC = () => {
   };
 
   const handleSocketDisconnect = () => {
-    hasWebsocketDisconnected = true;
+    setHasWebsocketDisconnected(true);
   };
 
   const handleSocketConnected = () => {
-    hasWebsocketDisconnected = false;
+    setHasWebsocketDisconnected(false);
   };
 
   const handleMessage = (message: SocketEvent) => {
@@ -374,10 +389,10 @@ export const ClientConfigStore: FC = () => {
 
   const startChat = async () => {
     try {
-      if (ws) {
-        ws?.shutdown();
+      if (wsRef.current) {
+        wsRef.current.shutdown();
         setWebsocketService(null);
-        ws = null;
+        wsRef.current = null;
       }
 
       const { socketHostOverride } = clientConfig;
@@ -386,10 +401,11 @@ export const ClientConfigStore: FC = () => {
       const location = window.location.origin + window.location.pathname;
       const host = socketHostOverride || location;
 
-      ws = new WebsocketService(accessToken, '/ws', host);
+      const ws = new WebsocketService(accessToken, '/ws', host);
       ws.handleMessage = handleMessage;
       ws.socketDisconnected = handleSocketDisconnect;
       ws.socketConnected = handleSocketConnected;
+      wsRef.current = ws;
       setWebsocketService(ws);
     } catch (error) {
       console.error(`ChatService -> startChat() ERROR: \n${error}`);
@@ -416,6 +432,7 @@ export const ClientConfigStore: FC = () => {
 
     if (hasHydratedConfig) {
       setClientConfig(config);
+      hasLoadedConfigRef.current = true;
       setHasLoadedConfig(true);
     } else {
       updateClientConfig();
@@ -428,6 +445,7 @@ export const ClientConfigStore: FC = () => {
     handleUserRegistration(getDisplayNameFromQuery(window.location.search));
 
     if (hasHydratedStatus) {
+      lastOnlineRef.current = Boolean(status.online);
       handleStatusChange(status);
       setServerStatus(status);
       if (status.serverTime) {
@@ -445,6 +463,9 @@ export const ClientConfigStore: FC = () => {
 
     return () => {
       clearInterval(serverStatusRefreshPoll);
+      wsRef.current?.shutdown();
+      wsRef.current = null;
+      setWebsocketService(null);
     };
   }, []);
 
@@ -461,7 +482,7 @@ export const ClientConfigStore: FC = () => {
       return;
     }
 
-    if (ws) {
+    if (wsRef.current) {
       return;
     }
 

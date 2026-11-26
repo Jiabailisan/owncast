@@ -55,6 +55,9 @@ export type PlayerControlsProps = {
   // Quality rows only exist for the HLS transport in the reference player.
   // Storybook/tests only: open one of the menus on first render.
   initialMenu?: 'settings' | 'transport' | null;
+  // Notifies the host player whenever the overlay control bar shows or hides
+  // so auxiliary chrome (such as the floating Unmute pill) can reposition smoothly.
+  onControlsVisibilityChange?: (visible: boolean) => void;
   callbacks: PlayerControlsCallbacks;
 };
 
@@ -80,6 +83,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   statsOpen,
   fullscreen = false,
   initialMenu = null,
+  onControlsVisibilityChange,
   callbacks,
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -93,6 +97,11 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
   // is a floating HUD rather than a dropdown menu, so neither should pin the
   // bottom control bar visible forever.
   const anyMenuOpen = settingsOpen || transportOpen;
+  const controlsVisible = visible || anyMenuOpen;
+
+  useEffect(() => {
+    onControlsVisibilityChange?.(controlsVisible);
+  }, [controlsVisible, onControlsVisibilityChange]);
 
   const scheduleHide = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -238,7 +247,7 @@ export const PlayerControls: FC<PlayerControlsProps> = ({
       )}
       <div
         ref={rootRef}
-        className={classNames(styles.overlay, { [styles.hidden]: !visible && !anyMenuOpen })}
+        className={classNames(styles.overlay, { [styles.hidden]: !controlsVisible })}
         data-player-control="true"
         onPointerMove={() => {
           if (!anyMenuOpen) reveal();
