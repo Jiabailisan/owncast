@@ -148,10 +148,10 @@ func h264LevelHex(level, profile string) string {
 // profile family. It is used to prefer the matching H.264 payload type when a
 // viewer offers several.
 func h264ProfileIDC(profile string) byte {
-	switch strings.ToLower(strings.TrimSpace(profile)) {
+	switch normalizeProfileName(profile) {
 	case h264ProfileMain:
 		return 0x4d
-	case h264ProfileHigh:
+	case h264ProfileHigh, h264ProfileConstrainedHigh:
 		return 0x64
 	default:
 		return 0x42

@@ -341,7 +341,15 @@ type negotiatedPeer struct {
 }
 
 func (s *Service) createViewerSession(r *http.Request, clientIP string, variantIndex int, offer string) (*session, *webrtc.SessionDescription, error) {
-	pruned, err := pruneOffer(offer, s.Config())
+	cfg := s.Config()
+	leg := s.mediaLeg(variantIndex)
+	preferredProfile := cfg.H264Profile
+	if leg != nil {
+		if copyProfile := leg.copyProfile(); copyProfile != "" {
+			preferredProfile = copyProfile
+		}
+	}
+	pruned, err := pruneOfferForProfile(offer, preferredProfile)
 	if err != nil {
 		return nil, nil, err
 	}

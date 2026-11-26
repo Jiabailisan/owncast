@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -183,15 +184,45 @@ func buildMediaEngine(cfg models.WebRTCConfig) (*webrtc.MediaEngine, error) {
 	}
 
 	me := &webrtc.MediaEngine{}
-	if err := me.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:    webrtc.MimeTypeH264,
-			ClockRate:   rtpClockRate,
-			SDPFmtpLine: h264Fmtp,
-		},
-		PayloadType: videoPayloadType,
-	}, webrtc.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("register h264 codec: %w", err)
+	// Register the configured H.264 profile first, followed by the remaining
+	// browser-safe H.264 profile families so copy legs carrying a different
+	// profile (e.g. a High/Constrained-High source while transcoded legs use
+	// Main) can negotiate the source's profile family in WHEP SDP.
+	h264Candidates := []string{
+		h264Fmtp,
+		"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640033",
+		"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c33",
+		"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d0033",
+		"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d4033",
+		"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+		"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f",
+	}
+	seenPrefix := make(map[string]bool, len(h264Candidates))
+	nextPT := webrtc.PayloadType(videoPayloadType)
+	for _, fmtpLine := range h264Candidates {
+		plid := strings.ToLower(fmtpParameter(fmtpLine, "profile-level-id"))
+		prefix := plid
+		if len(prefix) >= 4 {
+			prefix = prefix[:4]
+		}
+		if seenPrefix[prefix] {
+			continue
+		}
+		seenPrefix[prefix] = true
+		if err := me.RegisterCodec(webrtc.RTPCodecParameters{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:    webrtc.MimeTypeH264,
+				ClockRate:   rtpClockRate,
+				SDPFmtpLine: fmtpLine,
+			},
+			PayloadType: nextPT,
+		}, webrtc.RTPCodecTypeVideo); err != nil {
+			return nil, fmt.Errorf("register h264 codec (%s): %w", prefix, err)
+		}
+		nextPT += 2
+		if nextPT == audioPayloadType {
+			nextPT += 2
+		}
 	}
 	if err := me.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{

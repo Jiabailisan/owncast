@@ -393,11 +393,25 @@ type MediaLeg struct {
 	wg        sync.WaitGroup
 	closeOnce sync.Once
 
-	// copySourceLevel records the ingest source's H.264 level (e.g. "5.1") for
-	// video-copy legs so WHEP answers advertise a level high enough for the
-	// copied bitstream even when the global transcode level cap is lower (e.g. 4.2).
-	copyLevelMu     sync.RWMutex
-	copySourceLevel string
+	// copySourceProfile/copySourceLevel record the ingest source's H.264
+	// profile (e.g. "constrained-high") and level (e.g. "5.1") for video-copy
+	// legs so WHEP negotiation selects the source's profile family and
+	// advertises a level high enough for the copied bitstream even when the
+	// global transcode settings are lower (e.g. main / 4.2).
+	copyLevelMu       sync.RWMutex
+	copySourceProfile string
+	copySourceLevel   string
+}
+
+// SetCopySourceFormat records the source H.264 profile and level for a copy leg.
+func (l *MediaLeg) SetCopySourceFormat(profile, level string) {
+	if l == nil {
+		return
+	}
+	l.copyLevelMu.Lock()
+	l.copySourceProfile = normalizeProfileName(profile)
+	l.copySourceLevel = strings.TrimSpace(level)
+	l.copyLevelMu.Unlock()
 }
 
 // SetCopySourceLevel records the source H.264 level for a copy media leg.
@@ -408,6 +422,34 @@ func (l *MediaLeg) SetCopySourceLevel(level string) {
 	l.copyLevelMu.Lock()
 	l.copySourceLevel = strings.TrimSpace(level)
 	l.copyLevelMu.Unlock()
+}
+
+// copyProfile returns the H.264 profile label for a copy leg, preferring the
+// configured source metadata and falling back to live SPS profile_idc.
+func (l *MediaLeg) copyProfile() string {
+	if l == nil {
+		return ""
+	}
+	l.copyLevelMu.RLock()
+	raw := l.copySourceProfile
+	l.copyLevelMu.RUnlock()
+	if raw != "" {
+		return raw
+	}
+	if l.videoForwarder != nil {
+		if sps, _ := l.videoForwarder.parameterSets(); len(sps) >= 4 {
+			switch sps[1] {
+			case 0x64:
+				return h264ProfileHigh
+			case 0x4d:
+				return h264ProfileMain
+			case 0x42:
+				return h264ProfileConstrainedBaseline
+			}
+		}
+	}
+
+	return ""
 }
 
 // copyLevel returns the H.264 level (major*10+minor) that a copy leg requires

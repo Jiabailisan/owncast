@@ -30,10 +30,12 @@ type variantTracks struct {
 func newVariantTracks(variant Variant, h264Fmtp string) (*variantTracks, error) {
 	streamID := fmt.Sprintf("owncast-variant-%d", variant.Index)
 
+	// Leave SDPFmtpLine unset on the shared RTP track so Pion binds it to
+	// whichever H.264 profile family pruneOffer selected for this variant
+	// (e.g. High for a passthrough copy leg, Main for a transcoded leg).
 	video, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
-		MimeType:    webrtc.MimeTypeH264,
-		ClockRate:   rtpClockRate,
-		SDPFmtpLine: h264Fmtp,
+		MimeType:  webrtc.MimeTypeH264,
+		ClockRate: rtpClockRate,
 	}, "video", streamID)
 	if err != nil {
 		return nil, fmt.Errorf("create video track: %w", err)

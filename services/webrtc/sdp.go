@@ -42,6 +42,10 @@ type prunedOffer struct {
 // deliver (VP8/VP9/AV1/H265/RTX/G722/PCMU/PCMA/...) is removed before Pion sees
 // the offer, so negotiation cannot select a codec Owncast can never produce.
 func pruneOffer(raw string, cfg models.WebRTCConfig) (prunedOffer, error) {
+	return pruneOfferForProfile(raw, cfg.H264Profile)
+}
+
+func pruneOfferForProfile(raw string, preferredProfile string) (prunedOffer, error) {
 	parsed := &sdp.SessionDescription{}
 	if err := parsed.UnmarshalString(raw); err != nil {
 		return prunedOffer{}, fmt.Errorf("%w: parse sdp: %v", ErrBadOffer, err)
@@ -60,7 +64,7 @@ func pruneOffer(raw string, cfg models.WebRTCConfig) (prunedOffer, error) {
 				continue
 			}
 			videoSeen = true
-			videoPT = chooseH264PayloadType(media, cfg)
+			videoPT = chooseH264PayloadType(media, preferredProfile)
 			mediaKeep[index] = true
 			pruneMediaFormats(media, map[string]bool{videoPT: true})
 		case "audio":
@@ -103,7 +107,7 @@ func pruneOffer(raw string, cfg models.WebRTCConfig) (prunedOffer, error) {
 	return prunedOffer{sdp: string(encoded), videoPayloadType: videoPT, audioPayloadType: audioPT}, nil
 }
 
-func chooseH264PayloadType(media *sdp.MediaDescription, cfg models.WebRTCConfig) string {
+func chooseH264PayloadType(media *sdp.MediaDescription, preferredProfile string) string {
 	candidates := make([]codecCandidate, 0, 4)
 	for _, attribute := range media.Attributes {
 		if attribute.Key != rtpmapAttrKey {
@@ -126,7 +130,7 @@ func chooseH264PayloadType(media *sdp.MediaDescription, cfg models.WebRTCConfig)
 		candidates[index].profileLevelID = fmtpParameter(fmtpLine, "profile-level-id")
 	}
 
-	wantProfile := h264ProfileIDC(cfg.H264Profile)
+	wantProfile := h264ProfileIDC(preferredProfile)
 
 	// Preferred order: matching profile with packetization-mode 1, then any
 	// packetization-mode 1, then matching profile, then anything H.264.
