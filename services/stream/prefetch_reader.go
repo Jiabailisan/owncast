@@ -224,3 +224,13 @@ func (p *prefetchReader) Read(b []byte) (int, error) {
 	defer p.readMu.Unlock()
 	return p.src.Read(b)
 }
+
+// Close stops any active read-ahead and closes the underlying reader when it
+// implements io.Closer, unblocking releaseStdinCopy promptly on FFmpeg exit.
+func (p *prefetchReader) Close() error {
+	p.Stop("closed")
+	if closer, ok := p.src.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}

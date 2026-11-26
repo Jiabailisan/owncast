@@ -10,7 +10,6 @@ import (
 
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/persistence/configrepository"
-	"github.com/owncast/owncast/services/geoip"
 	"github.com/owncast/owncast/services/ingest"
 )
 
@@ -127,31 +126,10 @@ func (s *Service) SetViewerActiveForSnapshot(viewer *models.Viewer, snapshot Liv
 		return
 	}
 
-	// Asynchronously, optionally, fetch GeoIP info. The lookup can be slow, so it
-	// lands on the stored viewer later, and only if the same broadcast is still live:
-	// a late result must not overwrite the next broadcast's viewer.
-	go func(clientID, ipAddress string, epoch uint64) {
-		var geo *geoip.GeoDetails
-		if s.geoIPClient != nil {
-			geo = s.geoIPClient.GetGeoFromIP(ipAddress)
-		}
-
-		s.statsMu.Lock()
-		defer s.statsMu.Unlock()
-		if s.broadcastEpoch != epoch {
-			return
-		}
-		// A failed lookup (database reload, transient error) must not erase a
-		// location that was already resolved.
-		if stored, ok := s.stats.Viewers[clientID]; ok && geo != nil {
-			stored.Geo = geo
-		}
-	}(viewer.ClientID, viewer.IPAddress, snapshot.Epoch)
-
+	needsGeoLookup := false
 	s.statsMu.Lock()
-	defer s.statsMu.Unlock()
-
 	if !s.stats.StreamConnected || s.broadcastEpoch != snapshot.Epoch {
+		s.statsMu.Unlock()
 		return
 	}
 
@@ -159,11 +137,34 @@ func (s *Service) SetViewerActiveForSnapshot(viewer *models.Viewer, snapshot Liv
 		stored.LastSeen = time.Now()
 		mergeViewerQuality(stored, viewer)
 		mergeViewerReport(stored, viewer)
+		needsGeoLookup = s.geoIPClient != nil && stored.Geo == nil && viewer.IPAddress != ""
 	} else {
 		s.stats.Viewers[viewer.ClientID] = viewer
+		needsGeoLookup = s.geoIPClient != nil && viewer.Geo == nil && viewer.IPAddress != ""
 	}
 	s.stats.SessionMaxViewerCount = int(math.Max(float64(len(s.stats.Viewers)), float64(s.stats.SessionMaxViewerCount)))
 	s.stats.OverallMaxViewerCount = int(math.Max(float64(s.stats.SessionMaxViewerCount), float64(s.stats.OverallMaxViewerCount)))
+	s.statsMu.Unlock()
+
+	// Only spawn an async GeoIP lookup when GeoIP is configured and this viewer
+	// does not already have a resolved location.
+	if needsGeoLookup {
+		go func(clientID, ipAddress string, epoch uint64) {
+			geo := s.geoIPClient.GetGeoFromIP(ipAddress)
+			if geo == nil {
+				return
+			}
+
+			s.statsMu.Lock()
+			defer s.statsMu.Unlock()
+			if s.broadcastEpoch != epoch {
+				return
+			}
+			if stored, ok := s.stats.Viewers[clientID]; ok {
+				stored.Geo = geo
+			}
+		}(viewer.ClientID, viewer.IPAddress, snapshot.Epoch)
+	}
 }
 
 // mergeViewerReport copies the player-reported playback details onto a stored

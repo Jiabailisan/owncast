@@ -344,12 +344,18 @@ func (t *Transcoder) Start(shouldLog bool) {
 	// CPU/RSS sampling and best-effort nvidia-smi GPU sampling for NVENC.
 	sampler := t.startProcessSampler(cmd.Process.Pid)
 	metrics := &t.state.metrics
-	go metrics.consumeProgress(stdout)
+	var pipeWG sync.WaitGroup
+	pipeWG.Add(2)
+	go func() {
+		defer pipeWG.Done()
+		metrics.consumeProgress(stdout)
+	}()
 
 	transcoderLog := logging.GetTranscoderLogWriter(t.cfg.LogDirectory)
 	fmt.Fprintf(transcoderLog, "ffmpeg started on %s\nCommand line:\n%s\n", time.Now().Format(time.RFC3339), command)
 
 	go func() {
+		defer pipeWG.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -371,6 +377,22 @@ func (t *Transcoder) Start(shouldLog bool) {
 	// stops a running child through os.Process but never through a raw PGID.
 	t.disarmSignalPath(cmd, observeErr == nil)
 
+	// When waitid observed the child exit (the normal path), drain stdout/stderr
+	// pipes briefly before cmd.Wait() closes them so final FFmpeg crash diagnostics
+	// are not truncated. Bounded by a short timeout so a grandchild inheriting fds
+	// can never stall reaping; skipped when observeErr != nil because the child
+	// may still be running until Stop() kills it.
+	if observeErr == nil {
+		pipesDrained := make(chan struct{})
+		go func() {
+			pipeWG.Wait()
+			close(pipesDrained)
+		}()
+		select {
+		case <-pipesDrained:
+		case <-time.After(2 * time.Second):
+		}
+	}
 	err = cmd.Wait()
 	sampler.Stop()
 

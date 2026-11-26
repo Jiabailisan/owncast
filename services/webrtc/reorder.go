@@ -29,13 +29,21 @@ func newReorderBuffer(hold time.Duration) *reorderBuffer {
 	return &reorderBuffer{hold: hold}
 }
 
+// reset clears buffered state on producer restart so a new RTP sequence space
+// starts cleanly instead of waiting behind stale pre-restart sequence numbers.
+func (b *reorderBuffer) reset() {
+	b.pending = b.pending[:0]
+	b.nextSeq = 0
+	b.initialized = false
+}
+
 // push buffers a packet and returns the packets that are ready to emit in
 // sequence order.
 func (b *reorderBuffer) push(packet *rtp.Packet, now time.Time) []*rtp.Packet {
 	clone := *packet
 	clone.Payload = append([]byte(nil), packet.Payload...)
-	b.pending = append(b.pending, pendingPacket{packet: &clone, at: now})
 	if !b.initialized {
+		b.pending = append(b.pending, pendingPacket{packet: &clone, at: now})
 		// Hold the first packet until a neighbour arrives or the window
 		// expires; this is what lets a first-arriving later packet be put
 		// back in order.
@@ -44,6 +52,13 @@ func (b *reorderBuffer) push(packet *rtp.Packet, now time.Time) []*rtp.Packet {
 
 		return nil
 	}
+	// A packet whose sequence number is already behind nextSeq arrived after
+	// its slot expired; drop it rather than inserting it into pending where
+	// releaseExpired would pull nextSeq backwards.
+	if int16(clone.SequenceNumber-b.nextSeq) < 0 {
+		return nil
+	}
+	b.pending = append(b.pending, pendingPacket{packet: &clone, at: now})
 
 	ready := b.drain()
 	// A missing packet would otherwise pin the queue until the next read

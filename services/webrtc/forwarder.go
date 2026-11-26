@@ -162,8 +162,9 @@ type forwarder struct {
 	track      trackWriter
 	expectedPT uint8
 
-	normalizer *normalizer
-	reorder    *reorderBuffer
+	normalizer   *normalizer
+	reorder      *reorderBuffer
+	reorderReset atomic.Bool
 
 	counters forwarderCounters
 	rates    slidingRateWindow
@@ -272,6 +273,9 @@ func (f *forwarder) handleRaw(raw []byte) {
 
 		return
 	}
+	if f.reorderReset.Swap(false) {
+		f.reorder.reset()
+	}
 	f.emitReady(f.reorder.push(packet, now), false)
 }
 
@@ -286,6 +290,10 @@ func (f *forwarder) emitReady(packets []*rtp.Packet, forced bool) {
 
 func (f *forwarder) flushReorderBuffer(now time.Time) {
 	if f.reorder == nil {
+		return
+	}
+	if f.reorderReset.Swap(false) {
+		f.reorder.reset()
 		return
 	}
 	ready, forced := f.reorder.flush(now)
@@ -315,6 +323,7 @@ func (f *forwarder) emit(packet *rtp.Packet) {
 
 func (f *forwarder) markRestart() {
 	f.normalizer.markRestart()
+	f.reorderReset.Store(true)
 	f.rates.reset()
 }
 

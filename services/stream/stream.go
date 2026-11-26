@@ -262,6 +262,9 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	// legs for the variants WebRTC exposes. Pass &mediaReader so a bitrate wait
 	// can pump the ingest stream without losing bytes before FFmpeg starts.
 	webrtc := s.configureWebRTC(session, &mediaReader, broadcast.OutputSettings, source)
+	if webrtc.source.VideoBitrateKbps > 0 || (webrtc.source.Width > 0 && source.Width == 0) {
+		source = webrtc.source
+	}
 	processModel := s.configRepository.GetOutputProcessModel()
 	// Remember what this stream started with: the admin reports a pending
 	// process-model change only when it differs from the running one.

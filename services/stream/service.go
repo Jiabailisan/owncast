@@ -264,3 +264,11 @@ func New(deps Deps) *Service {
 	}
 	return s
 }
+
+// RunningProcessModel returns the FFmpeg output process model ("shared" or
+// "isolated") the currently active stream started with, or "" while offline.
+func (s *Service) RunningProcessModel() string {
+	s.processModelMu.RLock()
+	defer s.processModelMu.RUnlock()
+	return s.runningProcessModel
+}

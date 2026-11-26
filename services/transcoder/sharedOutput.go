@@ -132,6 +132,9 @@ func (t *Transcoder) variantMatchesLeg(variant HLSVariant, output RTPOutput) boo
 		return false
 	}
 
+	if output.VideoCodec != "" && t.codec != nil && !strings.EqualFold(output.VideoCodec, t.codec.Name()) {
+		return false
+	}
 	return normalizeH264Profile(output.H264Profile) == normalizeSharedH264Profile(variant.h264Profile)
 }
 
@@ -457,8 +460,14 @@ func (t *Transcoder) writeMasterPlaylist() {
 		builder.WriteString(strconv.Itoa(variant.index) + "/stream.m3u8\n")
 	}
 	masterPath := path.Join(config.HLSStoragePath, "stream.m3u8")
-	if err := os.WriteFile(masterPath, []byte(builder.String()), 0o600); err != nil {
+	tmpPath := masterPath + ".tmp." + shortid.MustGenerate()
+	if err := os.WriteFile(tmpPath, []byte(builder.String()), 0o600); err != nil {
 		log.Errorf("transcoder: could not write HLS master playlist: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, masterPath); err != nil {
+		_ = os.Remove(tmpPath)
+		log.Errorf("transcoder: could not finalize HLS master playlist: %v", err)
 		return
 	}
 	if t.onMasterPlaylistWritten != nil {
@@ -510,7 +519,11 @@ func (t *Transcoder) masterPlaylistCodecs(variant HLSVariant) string {
 		}
 	}
 
-	return "avc1." + profileHex + "00" + levelHex + ",mp4a.40.2"
+	videoCodec := "avc1." + profileHex + "00" + levelHex
+	if t.sourceVideoOnly {
+		return videoCodec
+	}
+	return videoCodec + ",mp4a.40.2"
 }
 
 // largestVariantLevelHex returns the highest level required by any variant with

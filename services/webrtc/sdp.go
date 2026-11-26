@@ -132,8 +132,9 @@ func chooseH264PayloadType(media *sdp.MediaDescription, preferredProfile string)
 
 	wantProfile := h264ProfileIDC(preferredProfile)
 
-	// Preferred order: matching profile with packetization-mode 1, then any
-	// packetization-mode 1, then matching profile, then anything H.264.
+	// Preferred order: matching profile + registered constraint prefix with
+	// packetization-mode 1, then registered H.264 with packetization-mode 1,
+	// then any packetization-mode 1, then matching profile, then anything H.264.
 	type preference struct {
 		score int
 		pt    string
@@ -142,6 +143,9 @@ func chooseH264PayloadType(media *sdp.MediaDescription, preferredProfile string)
 	for _, candidate := range candidates {
 		score := 0
 		if candidate.packetizationMode == "1" {
+			score += 4
+		}
+		if isRegisteredH264ProfileLevel(candidate.profileLevelID) {
 			score += 2
 		}
 		if profileIDMatches(candidate.profileLevelID, wantProfile) {
@@ -153,6 +157,21 @@ func chooseH264PayloadType(media *sdp.MediaDescription, preferredProfile string)
 	}
 
 	return best.pt
+}
+
+// isRegisteredH264ProfileLevel reports whether profileLevelID matches one of
+// the 4-hex-char profile_idc+constraint prefixes registered on our MediaEngine.
+func isRegisteredH264ProfileLevel(profileLevelID string) bool {
+	if len(profileLevelID) < 4 {
+		return false
+	}
+	prefix := strings.ToLower(profileLevelID[:4])
+	switch prefix {
+	case "42e0", "4200", "4d00", "4d40", "6400", "640c":
+		return true
+	default:
+		return false
+	}
 }
 
 func chooseOpusPayloadType(media *sdp.MediaDescription) string {

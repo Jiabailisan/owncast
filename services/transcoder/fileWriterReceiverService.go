@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/teris-io/shortid"
 
 	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/utils"
@@ -93,15 +94,48 @@ func (s *FileWriterReceiverService) uploadHandler(w http.ResponseWriter, r *http
 	}
 	defer root.Close()
 
+	// Write playlists atomically via a same-directory temp file + rename so
+	// concurrent HLS viewers never observe a truncated or empty .m3u8 file.
+	if strings.HasSuffix(relativePath, ".m3u8") {
+		tmpRel := relativePath + ".tmp." + shortid.MustGenerate()
+		f, err := root.Create(tmpRel)
+		if err != nil {
+			returnError(err, w)
+			return
+		}
+		if _, err := io.Copy(f, r.Body); err != nil {
+			_ = f.Close()
+			_ = root.Remove(tmpRel)
+			returnError(err, w)
+			return
+		}
+		if err := f.Close(); err != nil {
+			_ = root.Remove(tmpRel)
+			returnError(err, w)
+			return
+		}
+		if err := root.Rename(tmpRel, relativePath); err != nil {
+			_ = root.Remove(tmpRel)
+			returnError(err, w)
+			return
+		}
+		s.fileWritten(writePath)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	f, err := root.Create(relativePath)
 	if err != nil {
 		returnError(err, w)
 		return
 	}
 
-	defer f.Close()
-
 	if _, err := io.Copy(f, r.Body); err != nil {
+		_ = f.Close()
+		returnError(err, w)
+		return
+	}
+	if err := f.Close(); err != nil {
 		returnError(err, w)
 		return
 	}

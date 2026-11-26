@@ -177,7 +177,9 @@ func (i *Inspector) FeedVideo(format, packetType uint8, payload []byte, timeMs u
 		case AVCPacketSequenceHeader:
 			i.parseAVCConfigurationRecord(payload)
 		case AVCPacketNALU:
-			i.feedAVCCNALUs(payload)
+			if !i.probe.Complete() {
+				i.feedAVCCNALUs(payload)
+			}
 		}
 	}
 

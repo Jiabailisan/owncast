@@ -55,11 +55,22 @@ func (b *sourceBitrateTracker) add(pts int64, payloadBytes int) {
 	if payloadBytes <= 0 || pts < 0 {
 		return
 	}
-	b.samples = append(b.samples, bitrateSample{pts: pts, bytes: payloadBytes})
-	if !b.primed || forwardPTS(b.maxPTS, pts) < ptsModulus/2 {
+	if !b.primed {
 		b.maxPTS = pts
 		b.primed = true
+	} else if forwardPTS(b.maxPTS, pts) < ptsModulus/2 {
+		b.maxPTS = pts
+	} else {
+		// Detect a large backward PTS jump (beyond normal B-frame reordering,
+		// e.g. encoder restart or source switch) and reset the window so
+		// rolling bitrate estimation does not freeze permanently.
+		backward := forwardPTS(pts, b.maxPTS)
+		if backward > 5*90000 && backward < ptsModulus/2 {
+			b.samples = b.samples[:0]
+			b.maxPTS = pts
+		}
 	}
+	b.samples = append(b.samples, bitrateSample{pts: pts, bytes: payloadBytes})
 
 	// Bound memory by media time first. The whole stale prefix is dropped at once:
 	// after a timestamp jump every older sample is out of the window, and removing one
@@ -277,7 +288,7 @@ func (i *Inspector) consumeVideoPayload(payload []byte, payloadStart bool) {
 	if flushPTS, flushBytes, flush := i.videoPES.addPacket(len(es), pts, hasPTS, payloadStart); flush {
 		i.recordVideoBitrate(flushPTS, flushBytes)
 	}
-	if len(es) == 0 || i.videoProbeComplete() {
+	if len(es) == 0 || i.videoProbeComplete() || (i.info.VideoStreamTY != 0 && i.info.VideoStreamTY != streamTypeH264) {
 		return
 	}
 
@@ -312,7 +323,7 @@ func (i *Inspector) consumeAudioPayload(payload []byte, payloadStart bool) {
 			i.info.AudioBitrateValid = true
 		}
 	}
-	if len(es) == 0 || i.audioDetailsSet {
+	if len(es) == 0 || i.audioDetailsSet || (i.info.AudioStreamTY != 0 && i.info.AudioStreamTY != streamTypeAACADTS) {
 		return
 	}
 

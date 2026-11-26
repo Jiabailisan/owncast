@@ -446,6 +446,7 @@ type webRTCOutputs struct {
 	outputs    []transcoder.RTPOutput
 	legs       []WebRTCMediaLeg
 	variantGen uint64
+	source     webrtc.SourceInfo
 }
 
 func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader, variants []models.StreamOutputVariant, source webrtc.SourceInfo) webRTCOutputs {
@@ -476,7 +477,7 @@ func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader
 	s.setWebRTCLegs(legs)
 	if !hasEnabled {
 		s.setWebRTCWarnings(warnings)
-		return webRTCOutputs{}
+		return webRTCOutputs{source: source}
 	}
 
 	publishedVariants := disableUnplannedWebRTCVariants(webrtcVariants, decisions)
@@ -490,7 +491,7 @@ func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader
 		s.setWebRTCLegs(legs)
 		warnings = append(warnings, models.StatusWarning{Code: "webrtc_variants", Message: err.Error()})
 		s.setWebRTCWarnings(warnings)
-		return webRTCOutputs{}
+		return webRTCOutputs{source: source}
 	}
 
 	s.webRTCMu.Lock()
@@ -503,7 +504,7 @@ func (s *Service) configureWebRTC(session ingest.Session, mediaReader *io.Reader
 	s.markWebRTCLegsDisabledForGeneration(generation, failed)
 	s.setWebRTCWarnings(warnings)
 
-	return webRTCOutputs{outputs: outputs, legs: mediaLegs, variantGen: generation}
+	return webRTCOutputs{outputs: outputs, legs: mediaLegs, variantGen: generation, source: source}
 }
 
 // webRTCBitrateWaitTimeout bounds the wait for a measured source video bitrate.

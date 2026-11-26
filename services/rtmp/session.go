@@ -34,6 +34,13 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+func (c *countingReader) Close() error {
+	if closer, ok := c.reader.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
 // session is the ingest.Session implementation for an RTMP/FLV publisher.
 type session struct {
 	*ingest.SessionBase

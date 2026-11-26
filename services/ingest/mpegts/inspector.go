@@ -33,6 +33,7 @@ const (
 
 // MPEG-TS stream type values we classify.
 const (
+	streamTypePrivatePES = 0x06
 	streamTypeH264       = 0x1b
 	streamTypeHEVC       = 0x24
 	streamTypeMPEG1Video = 0x01
@@ -231,6 +232,12 @@ func (i *Inspector) parsePMT(payload []byte, payloadStart bool) {
 		streamType := table[pos]
 		elementaryPID := binary.BigEndian.Uint16(table[pos+1:pos+3]) & pmtPIDMask
 		esInfoLength := int(binary.BigEndian.Uint16(table[pos+3:pos+5]) & 0x0fff)
+		descStart := pos + 5
+		descEnd := descStart + esInfoLength
+		if descEnd > end {
+			descEnd = end
+		}
+		esDescriptors := table[descStart:descEnd]
 		pos += 5 + esInfoLength
 
 		switch streamType {
@@ -250,8 +257,38 @@ func (i *Inspector) parsePMT(payload []byte, payloadStart bool) {
 				i.info.AudioStreamTY = streamType
 				i.info.AudioCodec = audioCodecName(streamType)
 			}
+		case streamTypePrivatePES:
+			if i.audioPID == 0 && hasOpusDescriptor(esDescriptors) {
+				i.audioPID = elementaryPID
+				i.info.AudioStreamTY = streamType
+				i.info.AudioCodec = "opus"
+			}
 		}
 	}
+}
+
+// hasOpusDescriptor detects an Opus elementary stream in MPEG-TS private PES
+// (stream_type 0x06) via the standard registration descriptor ("Opus") or DVB
+// extension descriptor (0x7f / 0x80).
+func hasOpusDescriptor(descriptors []byte) bool {
+	for pos := 0; pos+2 <= len(descriptors); {
+		tag := descriptors[pos]
+		length := int(descriptors[pos+1])
+		bodyStart := pos + 2
+		bodyEnd := bodyStart + length
+		if bodyEnd > len(descriptors) {
+			break
+		}
+		body := descriptors[bodyStart:bodyEnd]
+		if tag == 0x05 && len(body) >= 4 && string(body[:4]) == "Opus" {
+			return true
+		}
+		if tag == 0x7f && len(body) >= 1 && body[0] == 0x80 {
+			return true
+		}
+		pos = bodyEnd
+	}
+	return false
 }
 
 func (i *Inspector) scanNALs() {
@@ -341,8 +378,33 @@ func (i *Inspector) handleNAL(nal []byte) {
 }
 
 // sliceTypeOf returns the normalized slice_type of a coded slice NAL.
+// Only the first few bytes are needed for two Exp-Golomb integers
+// (first_mb_in_slice and slice_type), so unescaping runs into a small stack
+// buffer to avoid per-frame heap allocations on the ingest hot path.
 func sliceTypeOf(nal []byte) (uint, bool) {
-	r := newBitReader(unescapeEmulationPrevention(nal[1:]))
+	if len(nal) < 2 {
+		return 0, false
+	}
+	var rbsp [16]byte
+	n := 0
+	zeros := 0
+	for _, b := range nal[1:] {
+		if zeros >= 2 && b == 0x03 {
+			zeros = 0
+			continue
+		}
+		rbsp[n] = b
+		n++
+		if n == len(rbsp) {
+			break
+		}
+		if b == 0 {
+			zeros++
+		} else {
+			zeros = 0
+		}
+	}
+	r := newBitReader(rbsp[:n])
 	if _, err := r.readUE(); err != nil { // first_mb_in_slice
 		return 0, false
 	}
@@ -457,6 +519,9 @@ func analyzeNAL(info *SourceInfo, sliceCount *int, nal []byte) {
 			}
 		}
 	case 1, 5: // coded slice (non-IDR / IDR)
+		if info.BFrameChecked {
+			return
+		}
 		sliceType, ok := sliceTypeOf(nal)
 		if !ok {
 			return
@@ -499,6 +564,14 @@ func (p *H264Probe) FeedNAL(nal []byte) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	analyzeNAL(&p.info, &p.sliceCount, nal)
+}
+
+// Complete reports whether both SPS metadata and the B-frame verdict have been
+// decided, allowing callers to skip further per-frame NAL parsing.
+func (p *H264Probe) Complete() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.info.BFrameChecked && p.info.Width > 0 && p.info.Height > 0 && p.info.Profile != ""
 }
 
 // Snapshot returns the current probe state.
