@@ -124,13 +124,27 @@ func resolveCertFilesInDir(dir string) (string, string, error) {
 		return "", "", fmt.Errorf("no PEM certificate file found in %q", dir)
 	}
 
-	certFile := certCandidates[0]
-	stem := strings.TrimSuffix(filepath.Base(certFile), filepath.Ext(certFile))
-	keyFile, err := findKeyInDir(dir, stem, certFile)
-	if err != nil {
-		return "", "", fmt.Errorf("found certificate %q in %q, but %w", filepath.Base(certFile), dir, err)
+	// Prefer a candidate whose paired key actually validates with tls.LoadX509KeyPair
+	// so directories containing ca.cer / chain.pem alongside the leaf cert work.
+	var firstErr error
+	for _, certFile := range certCandidates {
+		stem := strings.TrimSuffix(filepath.Base(certFile), filepath.Ext(certFile))
+		keyFile, err := findKeyInDir(dir, stem, certFile)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("found certificate %q in %q, but %w", filepath.Base(certFile), dir, err)
+			}
+			continue
+		}
+		if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unable to load TLS certificate pair (%s, %s): %w", certFile, keyFile, err)
+			}
+			continue
+		}
+		return certFile, keyFile, nil
 	}
-	return certFile, keyFile, nil
+	return "", "", firstErr
 }
 
 func findKeyInDir(dir, certStem, certFile string) (string, error) {
@@ -209,28 +223,28 @@ type certReloader struct {
 
 func newCertReloader(certPath string) (*certReloader, error) {
 	r := &certReloader{certPath: strings.TrimSpace(certPath)}
-	if err := r.reload(); err != nil {
+	if _, _, _, err := r.reload(); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-func (r *certReloader) reload() error {
+func (r *certReloader) reload() (string, string, *tls.Certificate, error) {
 	certFile, keyFile, err := resolveCertFiles(r.certPath)
 	if err != nil {
-		return err
+		return "", "", nil, err
 	}
 	certInfo, err := os.Stat(certFile)
 	if err != nil {
-		return err
+		return "", "", nil, err
 	}
 	keyInfo, err := os.Stat(keyFile)
 	if err != nil {
-		return err
+		return "", "", nil, err
 	}
 	loaded, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return fmt.Errorf("unable to load TLS certificate pair (%s, %s): %w", certFile, keyFile, err)
+		return "", "", nil, fmt.Errorf("unable to load TLS certificate pair (%s, %s): %w", certFile, keyFile, err)
 	}
 
 	r.mu.Lock()
@@ -240,7 +254,7 @@ func (r *certReloader) reload() error {
 	r.keyMtime = keyInfo.ModTime()
 	r.cert = &loaded
 	r.mu.Unlock()
-	return nil
+	return certFile, keyFile, &loaded, nil
 }
 
 func (r *certReloader) getCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -260,7 +274,8 @@ func (r *certReloader) getCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate,
 		return cached, nil
 	}
 
-	if err := r.reload(); err != nil {
+	loadedCertFile, loadedKeyFile, loadedCert, err := r.reload()
+	if err != nil {
 		if cached != nil {
 			log.WithError(err).Warn("RTMPS certificate reload failed; continuing with previously loaded certificate")
 			return cached, nil
@@ -268,19 +283,20 @@ func (r *certReloader) getCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate,
 		return nil, err
 	}
 	log.WithFields(log.Fields{
-		"cert": r.certFile,
-		"key":  r.keyFile,
+		"cert": loadedCertFile,
+		"key":  loadedKeyFile,
 	}).Info("RTMPS TLS certificate reloaded")
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.cert, nil
+	return loadedCert, nil
 }
 
 // ReconfigureRTMPS applies the current RTMPS port and certificate path settings
 // live. When either the RTMPS port is unset (<= 0) or the certificate path is
 // empty, RTMPS stops listening without affecting the plain RTMP listener.
 func (s *Service) ReconfigureRTMPS() error {
+	s.rtmpsReconfigMu.Lock()
+	defer s.rtmpsReconfigMu.Unlock()
+
 	s.listenerMu.Lock()
 	srv := s.rtmpServer
 	prev := s.rtmpsListener
@@ -329,10 +345,17 @@ func (s *Service) ReconfigureRTMPS() error {
 		_ = lis.Close()
 		return nil
 	}
+	replaced := s.rtmpsListener
 	s.rtmpsListener = lis
 	s.listenerMu.Unlock()
+	if replaced != nil {
+		_ = replaced.Close()
+	}
 
-	log.Infof("RTMPS is accepting inbound TLS streams on %s (cert: %s).", listenAddress, reloader.certFile)
+	reloader.mu.RLock()
+	activeCertFile := reloader.certFile
+	reloader.mu.RUnlock()
+	log.Infof("RTMPS is accepting inbound TLS streams on %s (cert: %s).", listenAddress, activeCertFile)
 	go s.serveRTMPS(lis, srv)
 	return nil
 }

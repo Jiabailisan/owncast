@@ -111,11 +111,16 @@ func (c *transcoderLogClassifier) classify(line string) (string, bool, bool) {
 			return strings.Replace(line, level, "", 1), false, true
 		}
 	}
-	// Untagged continuation line: inherit the previous line's level when one was
-	// established so multi-line warnings stay warnings and multi-line info stays quiet.
+	// Untagged line: inherit quiet only for indented continuation lines (e.g.
+	// "  Metadata:", "  Duration:", "  Stream #0:0:"). Top-level untagged lines
+	// from external libraries/drivers (e.g. errorMap assertions or x264/libva
+	// errors) must still surface instead of being swallowed after an [info] line.
 	switch c.lastLevel {
 	case transcoderLogLevelQuiet:
-		return "", false, false
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			return "", false, false
+		}
+		return line, false, true
 	case transcoderLogLevelWarning:
 		return line, true, true
 	default:

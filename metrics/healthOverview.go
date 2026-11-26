@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/utils"
@@ -105,22 +106,25 @@ func (s *Service) networkSpeedHealthOverviewMessage() string {
 	})
 
 	lowestSupportedBitrate := float64(streamSortVariants[len(streamSortVariants)-1].bitrate)
-	totalNumberOfClients := len(s.windowedBandwidths)
 
-	if totalNumberOfClients == 0 {
-		return ""
-	}
-
-	// Determine healthy status based on bandwidth speeds of clients.
+	// Determine healthy status based on HLS segment download speeds of clients.
+	// WebRTC clients report real-time paced stream bitrate (~1.0x the encoded
+	// bitrate) rather than link throughput, so applying the 1.1x HLS download
+	// threshold to them would permanently flag healthy WebRTC viewers as slow.
+	totalNumberOfClients := 0
 	unhealthyClientCount := 0
 
-	for _, speed := range s.windowedBandwidths {
+	for clientID, speed := range s.windowedBandwidths {
+		if strings.HasPrefix(clientID, "webrtc:") {
+			continue
+		}
+		totalNumberOfClients++
 		if int(speed) < int(lowestSupportedBitrate*1.1) {
 			unhealthyClientCount++
 		}
 	}
 
-	if unhealthyClientCount == 0 {
+	if totalNumberOfClients == 0 || unhealthyClientCount == 0 {
 		return ""
 	}
 

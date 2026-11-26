@@ -54,6 +54,9 @@ type Service struct {
 
 	// listenerMu guards listener, rtmpsListener, and rtmpServer.
 	listenerMu sync.Mutex
+	// rtmpsReconfigMu serializes ReconfigureRTMPS calls (e.g., Start vs admin API)
+	// so two concurrent reconfigurations cannot overwrite and leak a TLS listener.
+	rtmpsReconfigMu sync.Mutex
 	// listener is closed by Stop to end the plain RTMP accept loop.
 	listener net.Listener
 	// rtmpsListener is the optional TLS RTMP listener (nil when disabled).

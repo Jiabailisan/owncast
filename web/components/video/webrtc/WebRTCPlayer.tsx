@@ -136,6 +136,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
   const onReadyRef = useRef(onReady);
   const runtimeReconnectsRef = useRef(0);
   const lastCatchUpReconnectAtRef = useRef(0);
+  const resumeOnReconnectRef = useRef<{
+    play: boolean;
+    muted: boolean;
+    volume: number;
+  } | null>(null);
   const clockSkew = useAtomValue(clockSkewAtom);
   const clockSkewRef = useRef<number>(Number(clockSkew) || 0);
   useEffect(() => {
@@ -469,6 +474,7 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       sessionRef.current = null;
       activeVariantNameRef.current = '';
       setActiveVariantName('');
+      resumeOnReconnectRef.current = null;
       if (video) video.srcObject = null;
       setPhase('idle');
       setIsPlaying(false);
@@ -503,6 +509,13 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
       detachConnectionListeners();
 
       if (runtimeReconnectsRef.current < MAX_RUNTIME_RECONNECTS) {
+        if (video) {
+          resumeOnReconnectRef.current = {
+            play: !video.paused,
+            muted: video.muted,
+            volume: video.volume,
+          };
+        }
         runtimeReconnectsRef.current += 1;
         setRetryToken(token => token + 1);
         return;
@@ -685,10 +698,34 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
           });
         }
 
-        try {
-          await attemptAutoplay();
-        } catch {
-          // Autoplay failure is not a playback failure; the viewer can press play.
+        const resumeState = resumeOnReconnectRef.current;
+        resumeOnReconnectRef.current = null;
+        if (resumeState && video) {
+          video.volume = Number.isFinite(resumeState.volume) ? resumeState.volume : 1;
+          video.muted = resumeState.muted;
+          handleVolumeChange();
+          if (resumeState.play) {
+            try {
+              await video.play();
+            } catch {
+              if (!video.muted) {
+                video.muted = true;
+                try {
+                  await video.play();
+                  mutedByAutoplayRef.current = true;
+                } catch {
+                  // Playback blocked by browser policy.
+                }
+              }
+            }
+            updateBigUnmute();
+          }
+        } else {
+          try {
+            await attemptAutoplay();
+          } catch {
+            // Autoplay failure is not a playback failure; the viewer can press play.
+          }
         }
       })
       .catch((error: unknown) => {
@@ -874,6 +911,11 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
                 bloatedBufferSamples = 0;
                 lastCatchUpReconnectAtRef.current = nowMs;
                 runtimeReconnectsRef.current = 0;
+                resumeOnReconnectRef.current = {
+                  play: !video.paused,
+                  muted: video.muted,
+                  volume: video.volume,
+                };
                 setIsBehindLive(false);
                 setRetryToken(token => token + 1);
                 return;
@@ -1164,6 +1206,14 @@ export const WebRTCPlayer: FC<WebRTCPlayerProps> = ({
 
   const goLive = useCallback(() => {
     if (!sessionRef.current) return;
+    const video = videoRef.current;
+    if (video) {
+      resumeOnReconnectRef.current = {
+        play: true,
+        muted: video.muted,
+        volume: video.volume,
+      };
+    }
     runtimeReconnectsRef.current = 0;
     lastCatchUpReconnectAtRef.current = Date.now();
     setIsBehindLive(false);

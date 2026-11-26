@@ -66,9 +66,11 @@ export default function EditInstanceDetails() {
   }
 
   const handleFieldChange = ({ fieldName, value }: UpdateArgs) => {
+    const normalizedValue =
+      fieldName === 'rtmpsServerPort' && (value === null || value === undefined) ? '' : value;
     setFormDataValues({
       ...formDataValues,
-      [fieldName]: value,
+      [fieldName]: normalizedValue,
     });
   };
 

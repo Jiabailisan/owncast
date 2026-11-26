@@ -389,10 +389,21 @@ describe('WebRTC low-latency catch-up loop', () => {
     await tick();
     expect(sessionFactory).toHaveBeenCalledTimes(1);
 
-    // 4th sustained sample triggers a clean catch-up reconnect.
+    // 4th sustained sample triggers a clean catch-up reconnect and resumes
+    // playback directly even when autoplay defaults to "off", preserving mute/volume.
+    const playMock = HTMLMediaElement.prototype.play as jest.Mock;
+    playMock.mockClear();
+    act(() => {
+      videoEl().muted = true;
+      videoEl().volume = 0.4;
+    });
+
     await tick();
     await flush();
     expect(sessionFactory).toHaveBeenCalledTimes(2);
+    expect(playMock).toHaveBeenCalledTimes(1);
+    expect(videoEl().muted).toBe(true);
+    expect(videoEl().volume).toBeCloseTo(0.4, 2);
 
     // Within the 30s cooldown, further sustained bloat must not reconnect-loop.
     await tick();

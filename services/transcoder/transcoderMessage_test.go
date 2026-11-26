@@ -108,12 +108,17 @@ func TestTranscoderLogClassifierInheritsMultiLineLevel(t *testing.T) {
 		t.Fatalf("warning continuation = (%q, %v, %v), want surfaced warning", cont, contWarn, contOK)
 	}
 
-	// Info continuation stays quiet.
+	// Info continuation stays quiet when indented, but top-level untagged
+	// errors from drivers/external libraries must still surface.
 	if _, _, ok := c.classify("[info] Input #0, flv, from 'pipe:0':"); ok {
 		t.Fatal("info line should be suppressed")
 	}
 	if _, _, ok := c.classify("  Metadata:"); ok {
-		t.Fatal("info continuation line should stay suppressed")
+		t.Fatal("indented info continuation line should stay suppressed")
+	}
+	untaggedMsg, untaggedWarn, untaggedOK := c.classify("intel_enc_hw_context_init: Assertion 'encoder_context->mfc_context' failed")
+	if !untaggedOK || untaggedWarn || untaggedMsg == "" {
+		t.Fatalf("top-level untagged error after info = (%q, %v, %v), want surfaced error", untaggedMsg, untaggedWarn, untaggedOK)
 	}
 
 	// Empty input EOF detector matches 0-frame disconnect errors, not codec errors.

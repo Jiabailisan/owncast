@@ -200,7 +200,6 @@ export const TEXTFIELD_PROPS_RTMPS_CERT_PATH = {
   tip: 'Path to TLS certificate directory, combined PEM file, or certificate file with matching key alongside it. Leave empty to disable RTMPS.',
   required: false,
   hasComplexityRequirements: false,
-  useTrim: true,
 };
 export const TEXTFIELD_PROPS_RTMP_ADDRESS = {
   apiPath: API_RTMP_ADDRESS,
