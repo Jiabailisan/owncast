@@ -234,7 +234,7 @@ func (s *Service) HandleIngestSession(session ingest.Session) error {
 	var prefetch *prefetchReader
 	if s.webRTCCopyPlanPending(session, webrtcVariants) {
 		prefetch = newPrefetchReader(mediaReader)
-		prefetch.Prefetch(time.Now().Add(webRTCSourceWaitTimeout), webRTCReadAheadMaxBytes)
+		prefetch.Prefetch(time.Now().Add(s.webRTCSourceWaitBudget(session)), webRTCReadAheadMaxBytes)
 		mediaReader = prefetch
 		budgetSpent = prefetch.BudgetSpent()
 	}

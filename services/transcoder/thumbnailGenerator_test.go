@@ -1,8 +1,18 @@
 package transcoder
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/owncast/owncast/config"
+	"github.com/owncast/owncast/models"
 )
 
 func TestThumbnailDecodeFlags(t *testing.T) {
@@ -52,4 +62,105 @@ func indexOf(values []string, want string) int {
 		}
 	}
 	return -1
+}
+
+type thumbnailConfigStub struct {
+	models.EngineConfig
+	ffmpegPath string
+	videoCodec string
+}
+
+func (c thumbnailConfigStub) GetFfMpegPath() string { return c.ffmpegPath }
+func (c thumbnailConfigStub) GetVideoCodec() string { return c.videoCodec }
+
+type errorCaptureHook struct {
+	mu      sync.Mutex
+	entries []string
+}
+
+func (h *errorCaptureHook) Levels() []log.Level {
+	return []log.Level{log.ErrorLevel, log.FatalLevel, log.PanicLevel}
+}
+
+func (h *errorCaptureHook) Fire(entry *log.Entry) error {
+	h.mu.Lock()
+	h.entries = append(h.entries, entry.Message)
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *errorCaptureHook) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.entries)
+}
+
+func TestThumbnailGeneratorSuppressesCancelErrorOnStop(t *testing.T) {
+	tmpDir := t.TempDir()
+	segDir := filepath.Join(tmpDir, "0")
+	if err := os.MkdirAll(segDir, 0o755); err != nil {
+		t.Fatalf("mkdir segment dir: %v", err)
+	}
+	segFile := filepath.Join(segDir, "0001.ts")
+	if err := os.WriteFile(segFile, []byte("ts"), 0o644); err != nil {
+		t.Fatalf("write segment: %v", err)
+	}
+
+	// Fake ffmpeg binary that sleeps until killed by context cancellation.
+	fakeFFmpeg := filepath.Join(tmpDir, "fake-ffmpeg.sh")
+	if err := os.WriteFile(fakeFFmpeg, []byte("#!/bin/sh\nexec sleep 10\n"), 0o755); err != nil {
+		t.Fatalf("write fake ffmpeg: %v", err)
+	}
+
+	hook := &errorCaptureHook{}
+	nextHooks := make(log.LevelHooks)
+	nextHooks.Add(hook)
+	prevHooks := log.StandardLogger().ReplaceHooks(nextHooks)
+	t.Cleanup(func() {
+		log.StandardLogger().ReplaceHooks(prevHooks)
+	})
+
+	gen := NewThumbnailGenerator(
+		&config.Config{TempDir: tmpDir},
+		thumbnailConfigStub{ffmpegPath: fakeFFmpeg, videoCodec: "libx264"},
+	)
+
+	// 1. Cancelling parentCtx during thumbnail extraction returns nil with no error log.
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel1()
+	}()
+	if err := gen.fireThumbnailGenerator(ctx1, tmpDir, 0); err != nil {
+		t.Fatalf("fireThumbnailGenerator returned %v after context cancel, want nil", err)
+	}
+
+	// 2. Cancelling parentCtx during animated GIF preview logs no error.
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel2()
+	}()
+	gen.makeAnimatedGifPreview(ctx2, segFile, filepath.Join(tmpDir, "preview.gif"))
+
+	if got := hook.count(); got != 0 {
+		t.Fatalf("expected 0 error logs on cancelled thumbnail/gif commands, got %d: %v", got, hook.entries)
+	}
+
+	// 3. A real non-cancelled ffmpeg failure must still return and log an error.
+	failingFFmpeg := filepath.Join(tmpDir, "failing-ffmpeg.sh")
+	if err := os.WriteFile(failingFFmpeg, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write failing ffmpeg: %v", err)
+	}
+	failGen := NewThumbnailGenerator(
+		&config.Config{TempDir: tmpDir},
+		thumbnailConfigStub{ffmpegPath: failingFFmpeg, videoCodec: "libx264"},
+	)
+	if err := failGen.fireThumbnailGenerator(context.Background(), tmpDir, 0); err == nil {
+		t.Fatal("fireThumbnailGenerator returned nil for non-cancelled ffmpeg failure, want error")
+	}
+	failGen.makeAnimatedGifPreview(context.Background(), segFile, filepath.Join(tmpDir, "preview.gif"))
+	if got := hook.count(); got == 0 {
+		t.Fatal("expected error log for non-cancelled animated gif failure, got 0")
+	}
 }

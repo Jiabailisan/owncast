@@ -20,14 +20,25 @@ import (
 	"github.com/owncast/owncast/services/ingest/mpegts"
 )
 
+const (
+	// srtReadBufferMaxBytes caps the async receive buffer that drains gosrt's
+	// fixed 1024-packet (~1.3 MB) non-blocking readQueue. 16 MiB absorbs roughly
+	// 10 seconds of 13 Mbps ingest during FFmpeg/CUDA startup pauses without
+	// letting gosrt drop packets on backpressure.
+	srtReadBufferMaxBytes = 16 << 20
+	// srtDrainScratchSize is the reusable buffer passed to gosrt.Conn.Read by
+	// the session's async drain goroutine.
+	srtDrainScratchSize = 32 * 1024
+)
+
 // session is the SRT implementation of ingest.Session. It embeds the shared
 // SessionBase bookkeeping and adds the gosrt connection, the payload byte
 // counter used for the displayed ingest bitrate, and the statistics sampler.
 //
-// The media Reader is the SRT connection itself: gosrt returns one SRT payload
-// at a time (up to the negotiated payload size) and MPEG-TS does not require
-// read alignment because ffmpeg's mpegts demuxer resynchronizes on the 0x47
-// sync byte.
+// Once reading starts, a bounded async receive buffer continuously drains the
+// gosrt connection so downstream startup stalls (such as FFmpeg CUDA/NVENC init
+// or the handoff between prefetch and transcoder) cannot overflow gosrt's
+// 1024-packet non-blocking readQueue.
 type session struct {
 	*ingest.SessionBase
 
@@ -41,6 +52,7 @@ type session struct {
 	inspector *mpegts.Inspector
 
 	sampler *statsSampler
+	reader  *srtReadBuffer
 
 	sourceMu      sync.Mutex
 	lastSourceKey string
@@ -56,9 +68,10 @@ type session struct {
 	// sourceMu. A published "true" is never replaced by an older snapshot.
 	publishedBFrames bool
 
-	// stateMu guards conn, closed and started. bind, Close and the start commit share
-	// it, so a session cannot register resources after Close finished and Close can
-	// always see what the start path registered.
+	// stateMu guards conn, closed, started, sampler and reader. bind, Close,
+	// ensureReadBuffer and the start commit share it, so a session cannot
+	// register resources after Close finished and Close can always see what was
+	// registered.
 	stateMu sync.Mutex
 	closed  bool
 	started bool
@@ -152,29 +165,206 @@ func (s *session) Reader() io.Reader {
 	return s
 }
 
-// Read implements io.Reader over the SRT connection. It counts payload bytes
-// (the displayed ingest bitrate is payload-only; gosrt byte counters include
-// protocol headers) and closes the session when the connection fails.
+// Read implements io.Reader over the SRT connection via a bounded async drain
+// buffer. Payload accounting and MPEG-TS inspection happen as bytes arrive from
+// gosrt; session closure on remote EOF/error happens once all buffered bytes
+// have been delivered to the caller.
 func (s *session) Read(buffer []byte) (int, error) {
-	conn := s.connection()
-	if conn == nil {
-		return 0, ErrSessionNotBound
+	reader, err := s.ensureReadBuffer()
+	if err != nil {
+		return 0, err
 	}
 
-	n, err := conn.Read(buffer)
-	if n > 0 {
-		s.payload.Add(int64(n))
-		s.lastRead.Store(time.Now().UnixNano())
-		// Tee the payload into the MPEG-TS/H.264 inspector. Write never blocks
-		// and always accepts the bytes, so it cannot affect ingest.
-		_, _ = s.inspector.Write(buffer[:n])
-		s.publishSourceInfoIfDecided()
-	}
+	n, err := reader.read(buffer)
 	if err != nil {
 		go s.Close(remoteCloseReason(err))
 	}
 
 	return n, err
+}
+
+func (s *session) ensureReadBuffer() (*srtReadBuffer, error) {
+	s.stateMu.Lock()
+	if s.conn == nil {
+		s.stateMu.Unlock()
+		return nil, ErrSessionNotBound
+	}
+	if s.reader != nil {
+		reader := s.reader
+		s.stateMu.Unlock()
+		return reader, nil
+	}
+	if s.closed {
+		s.stateMu.Unlock()
+		return nil, io.EOF
+	}
+	reader := newSRTReadBuffer(s.conn, srtReadBufferMaxBytes, s.onPayloadRead)
+	s.reader = reader
+	s.stateMu.Unlock()
+
+	reader.start()
+	return reader, nil
+}
+
+func (s *session) onPayloadRead(data []byte) {
+	s.payload.Add(int64(len(data)))
+	s.lastRead.Store(time.Now().UnixNano())
+	// Tee the payload into the MPEG-TS/H.264 inspector. Write never blocks
+	// and always accepts the bytes, so it cannot affect ingest.
+	_, _ = s.inspector.Write(data)
+	s.publishSourceInfoIfDecided()
+}
+
+// srtReadBuffer continuously drains a gosrt.Conn into a bounded FIFO of exact-
+// sized payload chunks so consumer pauses cannot overflow gosrt's small
+// non-blocking readQueue.
+type srtReadBuffer struct {
+	conn     gosrt.Conn
+	maxBytes int
+	onRead   func([]byte)
+
+	mu         sync.Mutex
+	notEmpty   *sync.Cond
+	notFull    *sync.Cond
+	chunks     [][]byte
+	head       int
+	headOffset int
+	buffered   int
+	readErr    error
+	closed     bool
+	done       chan struct{}
+}
+
+func newSRTReadBuffer(conn gosrt.Conn, maxBytes int, onRead func([]byte)) *srtReadBuffer {
+	if maxBytes <= 0 {
+		maxBytes = srtReadBufferMaxBytes
+	}
+	b := &srtReadBuffer{
+		conn:     conn,
+		maxBytes: maxBytes,
+		onRead:   onRead,
+		done:     make(chan struct{}),
+	}
+	b.notEmpty = sync.NewCond(&b.mu)
+	b.notFull = sync.NewCond(&b.mu)
+	return b
+}
+
+func (b *srtReadBuffer) start() {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		close(b.done)
+		return
+	}
+	b.mu.Unlock()
+	go b.drainLoop()
+}
+
+func (b *srtReadBuffer) isClosed() bool {
+	b.mu.Lock()
+	closed := b.closed
+	b.mu.Unlock()
+	return closed
+}
+
+func (b *srtReadBuffer) drainLoop() {
+	defer close(b.done)
+
+	scratch := make([]byte, srtDrainScratchSize)
+	for {
+		if b.isClosed() {
+			return
+		}
+		n, err := b.conn.Read(scratch)
+		if n > 0 {
+			if b.isClosed() {
+				return
+			}
+			if b.onRead != nil {
+				b.onRead(scratch[:n])
+			}
+			chunk := make([]byte, n)
+			copy(chunk, scratch[:n])
+
+			b.mu.Lock()
+			for b.buffered >= b.maxBytes && !b.closed {
+				b.notFull.Wait()
+			}
+			if b.closed {
+				b.mu.Unlock()
+				return
+			}
+			b.chunks = append(b.chunks, chunk)
+			b.buffered += n
+			b.notEmpty.Signal()
+			b.mu.Unlock()
+		}
+		if err != nil {
+			b.mu.Lock()
+			b.readErr = err
+			b.notEmpty.Broadcast()
+			b.mu.Unlock()
+			return
+		}
+	}
+}
+
+func (b *srtReadBuffer) read(dst []byte) (int, error) {
+	b.mu.Lock()
+	for b.head == len(b.chunks) && b.readErr == nil && !b.closed {
+		b.notEmpty.Wait()
+	}
+	if b.closed {
+		b.mu.Unlock()
+		return 0, io.EOF
+	}
+	if b.head < len(b.chunks) {
+		if len(dst) == 0 {
+			b.mu.Unlock()
+			return 0, nil
+		}
+		head := b.chunks[b.head]
+		copied := copy(dst, head[b.headOffset:])
+		b.headOffset += copied
+		b.buffered -= copied
+		if b.headOffset >= len(head) {
+			b.chunks[b.head] = nil
+			b.head++
+			b.headOffset = 0
+			if b.head == len(b.chunks) {
+				b.head = 0
+				if cap(b.chunks) > 256 {
+					b.chunks = nil
+				} else {
+					b.chunks = b.chunks[:0]
+				}
+			}
+		}
+		b.notFull.Signal()
+		b.mu.Unlock()
+		return copied, nil
+	}
+	err := b.readErr
+	b.mu.Unlock()
+	if err == nil {
+		err = io.EOF
+	}
+	return 0, err
+}
+
+func (b *srtReadBuffer) close() {
+	b.mu.Lock()
+	if !b.closed {
+		b.closed = true
+		b.chunks = nil
+		b.head = 0
+		b.headOffset = 0
+		b.buffered = 0
+		b.notEmpty.Broadcast()
+		b.notFull.Broadcast()
+	}
+	b.mu.Unlock()
 }
 
 func remoteCloseReason(err error) error {
@@ -196,11 +386,15 @@ func (s *session) Close(reason error) {
 		s.closed = true
 		conn := s.conn
 		sampler := s.sampler
+		reader := s.reader
 		s.sampler = nil
 		s.stateMu.Unlock()
 
-		// Stopping the sampler, closing the network connection and running the
-		// external callback all happen outside the lock.
+		// Stopping the reader/sampler, closing the network connection and running
+		// the external callback all happen outside the lock.
+		if reader != nil {
+			reader.close()
+		}
 		if sampler != nil {
 			sampler.stop()
 		}

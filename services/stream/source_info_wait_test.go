@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/owncast/owncast/models"
+	"github.com/owncast/owncast/persistence/configrepository"
 	"github.com/owncast/owncast/services/ingest"
 	"github.com/owncast/owncast/services/webrtc"
 )
@@ -205,5 +206,81 @@ func TestAwaitSourceInfoWithReasonDistinguishesTimeoutAndVerdict(t *testing.T) {
 	_, cancelled, reason = awaitSourceInfoWithReason(verdictSession, nil, time.Second)
 	if cancelled || reason != "verdict" {
 		t.Fatalf("verdict wait = (cancelled=%v, reason=%q), want (false, verdict)", cancelled, reason)
+	}
+}
+
+type srtLatencyConfigStub struct {
+	configrepository.ConfigRepository
+	srtCfg models.SRTConfig
+}
+
+func (c srtLatencyConfigStub) GetSRTConfig() models.SRTConfig {
+	return c.srtCfg
+}
+
+type rtmpStubSession struct {
+	*ingest.SessionBase
+}
+
+func (s *rtmpStubSession) Reader() io.Reader { return nil }
+
+func TestWebRTCSourceWaitBudgetExtendsForSRTReceiverLatency(t *testing.T) {
+	srtSession := newSourceInfoSession("srt-latency")
+	rtmpSession := &rtmpStubSession{
+		SessionBase: ingest.NewSessionBase("rtmp-1", ingest.ProtocolRTMP, nil, "key", ingest.FLVInputFormat(), nil),
+	}
+
+	tests := []struct {
+		name      string
+		svc       *Service
+		session   ingest.Session
+		wantTotal time.Duration
+	}{
+		{
+			name:      "nil config keeps base timeout",
+			svc:       &Service{},
+			session:   srtSession,
+			wantTotal: webRTCSourceWaitTimeout,
+		},
+		{
+			name: "srt adds configured receiver latency",
+			svc: &Service{
+				configRepository: srtLatencyConfigStub{srtCfg: models.SRTConfig{ReceiverLatencyMs: 2000}},
+			},
+			session:   srtSession,
+			wantTotal: webRTCSourceWaitTimeout + 2000*time.Millisecond,
+		},
+		{
+			name: "srt clamps excessive receiver latency",
+			svc: &Service{
+				configRepository: srtLatencyConfigStub{srtCfg: models.SRTConfig{ReceiverLatencyMs: 25000}},
+			},
+			session:   srtSession,
+			wantTotal: webRTCSourceWaitTimeout + webRTCSRTMaxWaitExtension,
+		},
+		{
+			name: "srt ignores zero receiver latency",
+			svc: &Service{
+				configRepository: srtLatencyConfigStub{srtCfg: models.SRTConfig{ReceiverLatencyMs: 0}},
+			},
+			session:   srtSession,
+			wantTotal: webRTCSourceWaitTimeout,
+		},
+		{
+			name: "rtmp does not add srt latency",
+			svc: &Service{
+				configRepository: srtLatencyConfigStub{srtCfg: models.SRTConfig{ReceiverLatencyMs: 2000}},
+			},
+			session:   rtmpSession,
+			wantTotal: webRTCSourceWaitTimeout,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.svc.webRTCSourceWaitBudget(tc.session); got != tc.wantTotal {
+				t.Fatalf("webRTCSourceWaitBudget = %s, want %s", got, tc.wantTotal)
+			}
+		})
 	}
 }

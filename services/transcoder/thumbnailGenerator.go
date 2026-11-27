@@ -92,6 +92,9 @@ func (g *ThumbnailGenerator) Start(chunkPath string, variantIndex int, isVideoPa
 				return
 			case <-timer.C:
 				if err := g.fireThumbnailGenerator(runCtx, chunkPath, variantIndex); err != nil {
+					if runCtx.Err() != nil {
+						return
+					}
 					failures++
 
 					// Report the first failure, then keep retrying quietly: a variant
@@ -117,6 +120,9 @@ func (g *ThumbnailGenerator) Start(chunkPath string, variantIndex int, isVideoPa
 }
 
 func (g *ThumbnailGenerator) fireThumbnailGenerator(parentCtx context.Context, segmentPath string, variantIndex int) error {
+	if parentCtx.Err() != nil {
+		return nil
+	}
 	// JPG takes less time to encode than PNG
 	outputFile := path.Join(g.cfg.TempDir, "thumbnail.jpg")
 	previewGifFile := path.Join(g.cfg.TempDir, "preview.gif")
@@ -162,14 +168,26 @@ func (g *ThumbnailGenerator) fireThumbnailGenerator(parentCtx context.Context, s
 	cmdCtx, cancel := context.WithTimeout(parentCtx, thumbnailFFmpegTimeout)
 	defer cancel()
 	if _, err := exec.CommandContext(cmdCtx, ffmpegPath, thumbnailCmdFlags...).Output(); err != nil {
+		if parentCtx.Err() != nil {
+			return nil
+		}
 		return err
+	}
+	if parentCtx.Err() != nil {
+		return nil
 	}
 
 	// rename temp file
 	if err := utils.Move(outputFileTemp, outputFile); err != nil {
+		if parentCtx.Err() != nil {
+			return nil
+		}
 		log.Errorln(err)
 	}
 
+	if parentCtx.Err() != nil {
+		return nil
+	}
 	g.makeAnimatedGifPreview(parentCtx, mostRecentFile, previewGifFile)
 
 	return nil
@@ -233,6 +251,9 @@ func animatedGifCommandFlags(input, output, codecName string) []string {
 }
 
 func (g *ThumbnailGenerator) makeAnimatedGifPreview(parentCtx context.Context, sourceFile string, outputFile string) {
+	if parentCtx.Err() != nil {
+		return
+	}
 	ffmpegPath := utils.ValidatedFfmpegPath(g.configRepository.GetFfMpegPath())
 	outputFileTemp := path.Join(g.cfg.TempDir, "temppreview.gif")
 
@@ -241,9 +262,17 @@ func (g *ThumbnailGenerator) makeAnimatedGifPreview(parentCtx context.Context, s
 	cmdCtx, cancel := context.WithTimeout(parentCtx, thumbnailFFmpegTimeout)
 	defer cancel()
 	if _, err := exec.CommandContext(cmdCtx, ffmpegPath, animatedGifFlags...).Output(); err != nil {
+		if parentCtx.Err() != nil {
+			return
+		}
 		log.Errorln(err)
 		// rename temp file
+	} else if parentCtx.Err() != nil {
+		return
 	} else if err := utils.Move(outputFileTemp, outputFile); err != nil {
+		if parentCtx.Err() != nil {
+			return
+		}
 		log.Errorln(err)
 	}
 }

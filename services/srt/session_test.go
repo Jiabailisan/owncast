@@ -323,3 +323,171 @@ func TestReleaseOfAnOldSessionKeepsTheNewOwner(t *testing.T) {
 		t.Fatalf("releasing the old session cleared the new owner: %v", current)
 	}
 }
+
+// streamingFakeConn delivers chunks pushed over a channel and unblocks Read when
+// Close is called, mimicking gosrt.Conn for async-drain tests.
+type streamingFakeConn struct {
+	fakeConn
+	ch        chan []byte
+	closeCh   chan struct{}
+	closeOnce sync.Once
+	delivered atomicInt64
+}
+
+type atomicInt64 struct {
+	mu sync.Mutex
+	v  int64
+}
+
+func (a *atomicInt64) add(delta int64) {
+	a.mu.Lock()
+	a.v += delta
+	a.mu.Unlock()
+}
+
+func (a *atomicInt64) load() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.v
+}
+
+func newStreamingFakeConn() *streamingFakeConn {
+	return &streamingFakeConn{
+		ch:      make(chan []byte),
+		closeCh: make(chan struct{}),
+	}
+}
+
+func (c *streamingFakeConn) Read(buffer []byte) (int, error) {
+	select {
+	case <-c.closeCh:
+		return 0, io.EOF
+	case chunk, ok := <-c.ch:
+		if !ok {
+			return 0, io.EOF
+		}
+		n := copy(buffer, chunk)
+		c.delivered.add(int64(n))
+		return n, nil
+	}
+}
+
+func (c *streamingFakeConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closeCh) })
+	return c.fakeConn.Close()
+}
+
+func TestSessionAsyncDrainBuffersWhileConsumerPaused(t *testing.T) {
+	conn := newStreamingFakeConn()
+	sess := newBoundTestSession(conn, nil)
+	defer sess.Close(ErrRemoteClosed)
+
+	// Send first chunk and read it to kick off the async drain goroutine.
+	first := []byte("HELLO-FIRST")
+	go func() {
+		conn.ch <- first
+	}()
+	buf := make([]byte, 64)
+	n, err := sess.Read(buf)
+	if err != nil {
+		t.Fatalf("initial Read: %v", err)
+	}
+	if string(buf[:n]) != string(first) {
+		t.Fatalf("initial Read = %q, want %q", buf[:n], first)
+	}
+
+	// While the consumer is completely paused, push 64 chunks through the
+	// unbuffered channel. Without async draining this would deadlock on chunk 1.
+	const chunkCount = 64
+	const chunkSize = 1316
+	want := make([]byte, 0, chunkCount*chunkSize)
+	pushed := make(chan struct{})
+	go func() {
+		for i := 0; i < chunkCount; i++ {
+			chunk := make([]byte, chunkSize)
+			for j := range chunk {
+				chunk[j] = byte((i + j) % 251)
+			}
+			want = append(want, chunk...)
+			conn.ch <- chunk
+		}
+		close(conn.ch)
+		close(pushed)
+	}()
+
+	select {
+	case <-pushed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("async drain did not keep draining conn while consumer was paused")
+	}
+
+	// Now resume reading and verify every buffered byte arrives in exact order
+	// followed by EOF.
+	got := make([]byte, 0, len(want))
+	readBuf := make([]byte, 4096)
+	for {
+		n, err := sess.Read(readBuf)
+		if n > 0 {
+			got = append(got, readBuf[:n]...)
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("unexpected Read error: %v", err)
+		}
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("read %d bytes, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("byte mismatch at offset %d: got %d, want %d", i, got[i], want[i])
+		}
+	}
+	if total := sess.PayloadBytes(); total != int64(len(first)+len(want)) {
+		t.Fatalf("PayloadBytes = %d, want %d", total, len(first)+len(want))
+	}
+}
+
+func TestSRTReadBufferCloseUnblocksFullDrain(t *testing.T) {
+	conn := newStreamingFakeConn()
+	buf := newSRTReadBuffer(conn, 1024, nil)
+	buf.start()
+
+	// Fill past maxBytes so the drain goroutine blocks on notFull.Wait().
+	go func() {
+		for i := 0; i < 4; i++ {
+			select {
+			case conn.ch <- make([]byte, 1024):
+			case <-conn.closeCh:
+				return
+			}
+		}
+	}()
+
+	// Wait until chunk 0 is queued (1024 bytes) AND chunk 1 has been read from
+	// conn (2048 bytes delivered), proving drainLoop is blocked inside notFull.Wait().
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if conn.delivered.load() >= 2048 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := conn.delivered.load(); got < 2048 {
+		t.Fatalf("drainLoop delivered %d bytes, want >= 2048 to reach full buffer", got)
+	}
+
+	// Close the buffer BEFORE closing conn so only notFull.Broadcast() can wake
+	// drainLoop.
+	buf.close()
+
+	select {
+	case <-buf.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain goroutine did not exit after close while buffer was full")
+	}
+	_ = conn.Close()
+}

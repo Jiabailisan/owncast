@@ -16,10 +16,15 @@ import (
 )
 
 // webRTCSourceWaitTimeout bounds how long the stream waits for SRT source
-// metadata before planning WebRTC legs. The MPEG-TS inspector usually publishes
-// within about a second; without metadata any copy intent falls back to
-// transcode, which is the safe default.
+// metadata before planning WebRTC legs once media arrives. The MPEG-TS
+// inspector usually publishes within about a second; without metadata any copy
+// intent falls back to transcode, which is the safe default.
 const webRTCSourceWaitTimeout = 3500 * time.Millisecond
+
+// webRTCSRTMaxWaitExtension caps the additional wait added for SRT receiver
+// TSBPD latency (the server holds packets for ReceiverLatencyMs before
+// releasing byte 0 to the reader).
+const webRTCSRTMaxWaitExtension = 10 * time.Second
 
 // webRTCReadAheadMaxBytes is the hard memory ceiling for the copy-decision
 // read-ahead. The read-ahead itself is bounded by webRTCSourceWaitTimeout; this
@@ -211,6 +216,26 @@ type sourceInfoReadyWaiter interface {
 	SourceInfoReady() <-chan struct{}
 }
 
+// webRTCSourceWaitBudget returns the source-metadata wait budget for session.
+// For SRT sessions, gosrt's TSBPD buffer holds all media for ReceiverLatencyMs
+// before releasing the first payload to Read, so that latency is added on top
+// of webRTCSourceWaitTimeout (capped at webRTCSRTMaxWaitExtension).
+func (s *Service) webRTCSourceWaitBudget(session ingest.Session) time.Duration {
+	budget := webRTCSourceWaitTimeout
+	if session == nil || session.Protocol() != ingest.ProtocolSRT || s.configRepository == nil {
+		return budget
+	}
+	latencyMs := s.configRepository.GetSRTConfig().ReceiverLatencyMs
+	if latencyMs <= 0 {
+		return budget
+	}
+	maxExtensionMs := int(webRTCSRTMaxWaitExtension / time.Millisecond)
+	if latencyMs > maxExtensionMs {
+		latencyMs = maxExtensionMs
+	}
+	return budget + time.Duration(latencyMs)*time.Millisecond
+}
+
 // waitForSourceInfo blocks briefly for SRT source metadata when a copy decision
 // is pending. RTMP metadata cannot provide profile/B-frame information, so RTMP
 // never waits (copy intent falls back to transcode by design).
@@ -240,7 +265,7 @@ func (s *Service) waitForSourceInfo(session ingest.Session, variants []models.St
 		return session.Broadcaster(), false
 	}
 
-	broadcaster, cancelled, stopReason := awaitSourceInfoWithReason(session, budgetSpent, webRTCSourceWaitTimeout)
+	broadcaster, cancelled, stopReason := awaitSourceInfoWithReason(session, budgetSpent, s.webRTCSourceWaitBudget(session))
 	// The decision is made, whatever it turned out to be: stop buffering. The
 	// read-ahead would otherwise keep reading until its deadline and hand FFmpeg
 	// megabytes of dead weight, which is pure startup latency for nothing.

@@ -42,6 +42,9 @@ func TestRTPOnlyArgv(t *testing.T) {
 	if !strings.Contains(joined, "-f mpegts") || !strings.Contains(joined, "-i pipe:0") {
 		t.Fatalf("rtp-only argv must retain the SRT input descriptor: %v", args)
 	}
+	if !strings.Contains(joined, "-analyzeduration 3000000") || !strings.Contains(joined, "-probesize 4000000") {
+		t.Fatalf("rtp-only argv must set probe budget for 2s keyint streams: %v", args)
+	}
 	mpegtsIndex := strings.Index(joined, "-f mpegts")
 	inputIndex := strings.Index(joined, "-i pipe:0")
 	if mpegtsIndex < 0 || inputIndex < 0 || mpegtsIndex > inputIndex {

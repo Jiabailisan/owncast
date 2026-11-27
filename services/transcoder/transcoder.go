@@ -499,8 +499,8 @@ func (t *Transcoder) getFlags() *execInfo {
 		// golden argv are unaffected.
 		ffmpegFlags = append(ffmpegFlags, []string{
 			"-fflags", "+genpts+nobuffer",
-			"-analyzeduration", "1000000",
-			"-probesize", "1000000",
+			"-analyzeduration", "3000000",
+			"-probesize", "4000000",
 		}...)
 	} else {
 		ffmpegFlags = append(ffmpegFlags, []string{
