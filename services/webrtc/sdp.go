@@ -3,6 +3,7 @@ package webrtc
 import (
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -23,8 +24,64 @@ const (
 	midAttrPrefix        = "a=mid:"
 	candidateAttrPrefix  = "a=candidate:"
 	mediaLinePrefix      = "m="
-	maxTrickleCandidates = 64
+	maxTrickleCandidates        = 64
+	maxSessionTricklePatches    = 64
+	maxSessionTrickleCandidates = 256
 )
+
+// allowLoopbackRemoteCandidates reports whether remote ICE candidates targeting
+// loopback addresses should be permitted. Mirrors engine.go's loopback-bind
+// allowance so local tests and same-host setups keep working while public/LAN
+// deployments block loopback probes (including loopback RTP leg sockets).
+func allowLoopbackRemoteCandidates(cfg models.WebRTCConfig) bool {
+	bindAddr, err := netip.ParseAddr(strings.TrimSpace(cfg.BindAddress))
+	return err == nil && bindAddr.IsLoopback()
+}
+
+// isAllowedRemoteCandidate validates the connection-address field (RFC 8839
+// field index 4) of a remote ICE candidate string ("candidate:..."). It rejects
+// unspecified, multicast, and link-local (including cloud metadata
+// 169.254.169.254 and fe80::/10) addresses, and rejects loopback unless
+// allowLoopback is true. RFC1918 LAN addresses remain allowed for local viewing.
+func isAllowedRemoteCandidate(candidateLine string, allowLoopback bool) bool {
+	trimmed := strings.TrimSpace(candidateLine)
+	trimmed = strings.TrimPrefix(trimmed, "a=")
+	trimmed = strings.TrimPrefix(trimmed, "candidate:")
+	fields := strings.Fields(trimmed)
+	if len(fields) < 6 {
+		return true
+	}
+	addr, err := netip.ParseAddr(fields[4])
+	if err != nil {
+		// Non-IP hostname (e.g. mDNS .local); handled by Pion's mDNS setting.
+		return true
+	}
+	addr = addr.Unmap()
+	if addr.IsUnspecified() || addr.IsMulticast() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
+		addr == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+		return false
+	}
+	if addr.IsLoopback() && !allowLoopback {
+		return false
+	}
+	return true
+}
+
+// filterOfferCandidates strips disallowed remote ICE candidate attributes from
+// a parsed SDP offer so browsers sending link-local/loopback candidates
+// alongside valid LAN/WAN candidates still connect while SSRF targets are dropped.
+func filterOfferCandidates(parsed *sdp.SessionDescription, allowLoopback bool) {
+	for _, media := range parsed.MediaDescriptions {
+		filtered := media.Attributes[:0]
+		for _, attr := range media.Attributes {
+			if attr.Key == "candidate" && !isAllowedRemoteCandidate("candidate:"+attr.Value, allowLoopback) {
+				continue
+			}
+			filtered = append(filtered, attr)
+		}
+		media.Attributes = filtered
+	}
+}
 
 // prunedOffer is the result of narrowing a browser offer to the single H.264
 // and Opus payload types the server can deliver. Pruning is required because
@@ -42,14 +99,15 @@ type prunedOffer struct {
 // deliver (VP8/VP9/AV1/H265/RTX/G722/PCMU/PCMA/...) is removed before Pion sees
 // the offer, so negotiation cannot select a codec Owncast can never produce.
 func pruneOffer(raw string, cfg models.WebRTCConfig) (prunedOffer, error) {
-	return pruneOfferForProfile(raw, cfg.H264Profile)
+	return pruneOfferForProfileAndLoopback(raw, cfg.H264Profile, allowLoopbackRemoteCandidates(cfg))
 }
 
-func pruneOfferForProfile(raw string, preferredProfile string) (prunedOffer, error) {
+func pruneOfferForProfileAndLoopback(raw string, preferredProfile string, allowLoopback bool) (prunedOffer, error) {
 	parsed := &sdp.SessionDescription{}
 	if err := parsed.UnmarshalString(raw); err != nil {
 		return prunedOffer{}, fmt.Errorf("%w: parse sdp: %v", ErrBadOffer, err)
 	}
+	filterOfferCandidates(parsed, allowLoopback)
 
 	videoPT, audioPT := "", ""
 	videoSeen, audioSeen := false, false

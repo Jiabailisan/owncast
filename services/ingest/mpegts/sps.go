@@ -214,9 +214,22 @@ func ParseSPS(nal []byte) (*SPSInfo, bool) {
 	}
 	frameHeightFactor := uint(2) - frameMbsOnly
 
-	width := int((widthMbsMinus1+1)*16 - subWidthC*(cropLeft+cropRight))
-	height := int((2-frameMbsOnly)*(heightMapUnitsMinus1+1)*16 - subHeightC*frameHeightFactor*(cropTop+cropBottom))
-	if width <= 0 || height <= 0 {
+	const maxSPSDimension = 16384
+	const maxSPSMacroblocks = maxSPSDimension / 16
+	if widthMbsMinus1 >= maxSPSMacroblocks || heightMapUnitsMinus1 >= maxSPSMacroblocks {
+		return nil, false
+	}
+	codedWidth := (widthMbsMinus1 + 1) * 16
+	codedHeight := (2 - frameMbsOnly) * (heightMapUnitsMinus1 + 1) * 16
+	cropW := subWidthC * (cropLeft + cropRight)
+	cropH := subHeightC * frameHeightFactor * (cropTop + cropBottom)
+	if cropLeft > maxSPSDimension || cropRight > maxSPSDimension || cropTop > maxSPSDimension || cropBottom > maxSPSDimension ||
+		cropW >= codedWidth || cropH >= codedHeight {
+		return nil, false
+	}
+	width := int(codedWidth - cropW)
+	height := int(codedHeight - cropH)
+	if width <= 0 || height <= 0 || width > maxSPSDimension || height > maxSPSDimension {
 		return nil, false
 	}
 	info.Width = width
@@ -317,8 +330,11 @@ func skipVUI(r *bitReader, info *SPSInfo) error {
 			return err
 		}
 		if numUnitsInTick > 0 {
-			info.FPS = float64(timeScale) / (2 * float64(numUnitsInTick))
-			info.FPSValid = info.FPS > 0
+			fps := float64(timeScale) / (2 * float64(numUnitsInTick))
+			if fps > 0 && fps <= 1000 {
+				info.FPS = fps
+				info.FPSValid = true
+			}
 		}
 	}
 	return nil

@@ -709,9 +709,20 @@ func resolveFFmpegPath(configRepository configrepository.ConfigRepository) strin
 	return path
 }
 
+const ffmpegProbeTimeout = 10 * time.Second
+
+func runFFmpegProbeCommand(parent context.Context, path string, args ...string) ([]byte, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, ffmpegProbeTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, path, args...).Output() //nolint:gosec
+}
+
 // probeFFmpeg inspects the configured FFmpeg build for the capabilities the
 // SRT and WebRTC pipelines require.
-func probeFFmpeg(configRepository configrepository.ConfigRepository) (ffmpegCapabilities, []preflightWarning) {
+func probeFFmpeg(ctx context.Context, configRepository configrepository.ConfigRepository) (ffmpegCapabilities, []preflightWarning) {
 	capabilities := ffmpegCapabilities{
 		H264Encoders: []string{},
 		Warnings:     []string{},
@@ -729,7 +740,7 @@ func probeFFmpeg(configRepository configrepository.ConfigRepository) (ffmpegCapa
 	}
 	capabilities.Path = path
 
-	versionOutput, err := exec.Command(path, "-hide_banner", "-version").Output() //nolint:gosec
+	versionOutput, err := runFFmpegProbeCommand(ctx, path, "-hide_banner", "-version")
 	if err != nil {
 		warnings = append(warnings, preflightWarning{Code: warningCodeProbeFailed, Message: "Unable to run ffmpeg -version: " + err.Error()})
 		capabilities.Warnings = append(capabilities.Warnings, "Unable to run ffmpeg -version")
@@ -737,14 +748,14 @@ func probeFFmpeg(configRepository configrepository.ConfigRepository) (ffmpegCapa
 		capabilities.Version = parseFFmpegVersion(string(versionOutput))
 	}
 
-	encodersOutput, err := exec.Command(path, "-hide_banner", "-encoders").Output() //nolint:gosec
+	encodersOutput, err := runFFmpegProbeCommand(ctx, path, "-hide_banner", "-encoders")
 	if err != nil {
 		warnings = append(warnings, preflightWarning{Code: warningCodeProbeFailed, Message: "Unable to run ffmpeg -encoders: " + err.Error()})
 	} else {
 		capabilities.H264Encoders, capabilities.OpusEncoder = parseFFmpegEncoders(string(encodersOutput))
 	}
 
-	protocolsOutput, err := exec.Command(path, "-hide_banner", "-protocols").Output() //nolint:gosec
+	protocolsOutput, err := runFFmpegProbeCommand(ctx, path, "-hide_banner", "-protocols")
 	if err != nil {
 		warnings = append(warnings, preflightWarning{Code: warningCodeProbeFailed, Message: "Unable to run ffmpeg -protocols: " + err.Error()})
 	} else {
@@ -877,7 +888,7 @@ func (a *Admin) RunConfigPreflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	capabilities, warnings := probeFFmpeg(a.configRepository)
+	capabilities, warnings := probeFFmpeg(r.Context(), a.configRepository)
 	ports := a.probeConfiguredPorts(request.Target)
 	warnings = append(warnings, portWarnings(ports)...)
 

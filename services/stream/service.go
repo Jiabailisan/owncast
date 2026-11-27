@@ -108,10 +108,10 @@ type Service struct {
 	// dispatcher when a stream ends before the notification fires.
 	onlineTimerCancelFunc context.CancelFunc
 
-	// lastNotified is the last time we sent the live-going-online
-	// notification; used to debounce re-notifications when a stream
-	// flaps.
-	lastNotified *time.Time
+	// lastNotifiedUnixNano is the Unix timestamp (nanoseconds) of the last
+	// live-going-online notification; used to debounce re-notifications when a
+	// stream flaps.
+	lastNotifiedUnixNano atomic.Int64
 
 	// HLS transcoder plumbing. handler routes finished playlists/segments
 	// to the storage provider; fileWriter feeds the transcoder's output

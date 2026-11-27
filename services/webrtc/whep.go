@@ -190,6 +190,11 @@ func (h *whepHandler) patchSession(w http.ResponseWriter, r *http.Request, sessi
 
 		return
 	}
+	if sess.tricklePatches.Add(1) > maxSessionTricklePatches {
+		h.writeError(w, r, http.StatusTooManyRequests, CodeRateLimited, "too many trickle requests for session", 1)
+
+		return
+	}
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFragmentBytes))
 	if err != nil {
@@ -204,14 +209,22 @@ func (h *whepHandler) patchSession(w http.ResponseWriter, r *http.Request, sessi
 
 		return
 	}
+	if int(sess.trickleCands.Add(int32(len(candidates)))) > maxSessionTrickleCandidates { //nolint:gosec // len(candidates) <= maxTrickleCandidates (64)
+		h.writeError(w, r, http.StatusTooManyRequests, CodeRateLimited, "too many ice candidates for session", 1)
+
+		return
+	}
+	allowLoopback := allowLoopbackRemoteCandidates(h.service.Config())
 	for _, candidate := range candidates {
+		if !isAllowedRemoteCandidate(candidate.Candidate, allowLoopback) {
+			continue
+		}
 		if addErr := sess.pc.AddICECandidate(candidate); addErr != nil {
 			h.writeError(w, r, http.StatusBadRequest, CodeBadOffer, "invalid ice candidate", 0)
 
 			return
 		}
 	}
-	sess.touch()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -349,7 +362,7 @@ func (s *Service) createViewerSession(r *http.Request, clientIP string, variantI
 			preferredProfile = copyProfile
 		}
 	}
-	pruned, err := pruneOfferForProfile(offer, preferredProfile)
+	pruned, err := pruneOfferForProfileAndLoopback(offer, preferredProfile, allowLoopbackRemoteCandidates(cfg))
 	if err != nil {
 		return nil, nil, err
 	}

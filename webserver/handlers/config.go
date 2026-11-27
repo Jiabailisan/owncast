@@ -154,8 +154,11 @@ func (h *Handlers) getConfigResponse(r *http.Request) webConfigResponse {
 	followerCount, _ := h.activitypub.GetFollowerCount()
 	if federationEnabled {
 		serverURLString := configRepository.GetServerURL()
-		serverURL, _ := url.Parse(serverURLString)
-		account := fmt.Sprintf("%s@%s", configRepository.GetDefaultFederationUsername(), serverURL.Host)
+		host := ""
+		if serverURL, parseErr := url.Parse(serverURLString); parseErr == nil && serverURL != nil {
+			host = serverURL.Host
+		}
+		account := fmt.Sprintf("%s@%s", configRepository.GetDefaultFederationUsername(), host)
 		federationResponse = federationConfigResponse{
 			Enabled:          federationEnabled,
 			FollowerCount:    int(followerCount),

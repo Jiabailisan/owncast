@@ -364,6 +364,10 @@ func (t *Transcoder) Start(shouldLog bool) {
 		defer pipeWG.Done()
 		var classifier transcoderLogClassifier
 		scanner := bufio.NewScanner(stderr)
+		// Allow up to 1 MiB stderr lines (e.g. verbose publisher metadata) and
+		// always drain the pipe if the scanner stops early so ffmpeg can never
+		// deadlock writing to a full stderr pipe.
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(transcoderLog, line)
@@ -373,6 +377,10 @@ func (t *Transcoder) Start(shouldLog bool) {
 			if message, isWarning, ok := classifier.classify(line); ok {
 				t.handleTranscoderMessageWithLevel(message, isWarning)
 			}
+		}
+		if scanErr := scanner.Err(); scanErr != nil {
+			log.WithError(scanErr).Warn("transcoder stderr scanner stopped; draining remaining output")
+			_, _ = io.Copy(io.Discard, stderr)
 		}
 	}()
 

@@ -491,3 +491,46 @@ func TestSRTReadBufferCloseUnblocksFullDrain(t *testing.T) {
 	}
 	_ = conn.Close()
 }
+
+func TestSRTReadBufferCompactsChunksWithoutDraining(t *testing.T) {
+	conn := newStreamingFakeConn()
+	buf := newSRTReadBuffer(conn, 1<<20, nil)
+	buf.start()
+	defer func() {
+		buf.close()
+		_ = conn.Close()
+		<-buf.done
+	}()
+
+	// Preload 10 chunks and wait until all 10 are buffered so the queue stays
+	// non-empty while we read and push in lockstep, exercising head compaction
+	// without ever hitting head == len.
+	for i := 0; i < 10; i++ {
+		conn.ch <- []byte{byte(i)}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		buf.mu.Lock()
+		queued := buf.buffered
+		buf.mu.Unlock()
+		if queued >= 10 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	dst := make([]byte, 1)
+	for i := 0; i < 600; i++ {
+		conn.ch <- []byte{byte(i)}
+		if _, err := buf.read(dst); err != nil {
+			t.Fatalf("read %d: %v", i, err)
+		}
+	}
+
+	buf.mu.Lock()
+	head := buf.head
+	length := len(buf.chunks)
+	buf.mu.Unlock()
+	if length == 0 || head >= 256 || length > 300 {
+		t.Fatalf("chunks failed to compact while non-empty: head=%d len=%d", head, length)
+	}
+}

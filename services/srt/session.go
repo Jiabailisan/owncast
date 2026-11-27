@@ -342,6 +342,11 @@ func (b *srtReadBuffer) read(dst []byte) (int, error) {
 				} else {
 					b.chunks = b.chunks[:0]
 				}
+			} else if b.head >= 256 && b.head*2 >= len(b.chunks) {
+				remaining := copy(b.chunks, b.chunks[b.head:])
+				clear(b.chunks[remaining:])
+				b.chunks = b.chunks[:remaining]
+				b.head = 0
 			}
 		}
 		b.notFull.Signal()

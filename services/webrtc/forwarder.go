@@ -249,6 +249,11 @@ func (f *forwarder) handleRaw(raw []byte) {
 
 		return
 	}
+	if packet.Version != 2 {
+		f.counters.parseErrors.Add(1)
+
+		return
+	}
 
 	now := time.Now()
 	f.counters.packets.Add(1)
@@ -257,6 +262,8 @@ func (f *forwarder) handleRaw(raw []byte) {
 
 	if packet.PayloadType != f.expectedPT {
 		f.counters.ptMismatch.Add(1)
+
+		return
 	}
 	if f.kind == forwarderKindVideo {
 		f.inspectH264(packet.Payload)

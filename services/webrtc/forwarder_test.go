@@ -165,10 +165,15 @@ func TestForwarderCountsParseErrorsAndPayloadTypeMismatch(t *testing.T) {
 	mismatch := h264TestPacket(1, 0, []byte{0x65})
 	mismatch.PayloadType = 100
 	harness.send(t, mismatch)
-	harness.waitForPackets(t, 1)
+
+	valid := h264TestPacket(2, 3000, []byte{0x65})
+	harness.send(t, valid)
+	got := harness.waitForPackets(t, 1)
+	require.Len(t, got, 1)
+	assert.EqualValues(t, 2, got[0].SequenceNumber, "mismatched PT packet must be dropped instead of forwarded")
 
 	packets, _, parseErrors, ptMismatch, _, _, _, _, _ := harness.forwarder.stats()
-	assert.EqualValues(t, 1, packets)
+	assert.EqualValues(t, 2, packets)
 	assert.EqualValues(t, 1, parseErrors)
 	assert.EqualValues(t, 1, ptMismatch)
 }

@@ -98,6 +98,39 @@ func TestWHEPPatchTrickle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, unknown.Code)
 }
 
+func TestRemoteCandidateFilteringAndPatchLimits(t *testing.T) {
+	// Blocked regardless of loopback mode: metadata/link-local, unspecified, multicast.
+	assert.False(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 169.254.169.254 80 typ host", true))
+	assert.False(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 fe80::1 5000 typ host", true))
+	assert.False(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 0.0.0.0 5000 typ host", true))
+	assert.False(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 224.0.0.1 5000 typ host", true))
+
+	// Loopback is blocked unless BindAddress is loopback.
+	assert.False(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 127.0.0.1 40000 typ host", false))
+	assert.False(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 ::1 40000 typ host", false))
+	assert.True(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 127.0.0.1 40000 typ host", true))
+
+	// LAN (RFC1918) and public candidates remain allowed so local LAN viewing works.
+	assert.True(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 192.168.50.1 51000 typ host", false))
+	assert.True(t, isAllowedRemoteCandidate("candidate:1 1 udp 1 203.0.113.7 51000 typ host", false))
+
+	// Excessive trickle PATCH requests on a single session are rate-limited.
+	svc := testService(t, nil)
+	setDeliverableVariants(t, svc, testWebRTCVariants(1))
+	_, offer := testBrowserOffer(t)
+	created := whepRequest(t, svc, http.MethodPost, "/webrtc/whep", "application/sdp", offer, nil)
+	require.Equal(t, http.StatusCreated, created.Code)
+	location := created.Header().Get("Location")
+
+	fragment := "a=ice-ufrag:abcd\r\na=ice-pwd:secret\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=candidate:1 1 udp 2122260223 169.254.169.254 80 typ host\r\n"
+	for i := 0; i < maxSessionTricklePatches; i++ {
+		res := whepRequest(t, svc, http.MethodPatch, location, trickleContentType, fragment, nil)
+		require.Equal(t, http.StatusNoContent, res.Code)
+	}
+	overLimit := whepRequest(t, svc, http.MethodPatch, location, trickleContentType, fragment, nil)
+	assert.Equal(t, http.StatusTooManyRequests, overLimit.Code)
+}
+
 func TestWHEPDisabled(t *testing.T) {
 	svc := testService(t, func(cfg *models.WebRTCConfig) { cfg.Enabled = false })
 	setDeliverableVariants(t, svc, testWebRTCVariants(1))

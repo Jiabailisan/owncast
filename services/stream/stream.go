@@ -761,9 +761,9 @@ func (s *Service) stopOnlineCleanupTimer() {
 const goLiveNotificationDelay = 15 * time.Second
 
 func (s *Service) startLiveStreamNotificationsTimer() context.CancelFunc {
-	// Send delayed notification messages.
+	// Send delayed notification messages. The caller stores the returned cancel
+	// function under lifecycleMu.
 	c, cancelFunc := context.WithCancel(context.Background())
-	s.onlineTimerCancelFunc = cancelFunc
 
 	// The timer belongs to the stream that started it. If that stream ended or was replaced
 	// before the delay elapsed, this notification is about a stream that is no longer live and
@@ -773,7 +773,7 @@ func (s *Service) startLiveStreamNotificationsTimer() context.CancelFunc {
 	go func(c context.Context) {
 		select {
 		case <-time.After(goLiveNotificationDelay):
-			if s.lastNotified != nil && time.Since(*s.lastNotified) < 10*time.Minute {
+			if lastNano := s.lastNotifiedUnixNano.Load(); lastNano != 0 && time.Since(time.Unix(0, lastNano)) < 10*time.Minute {
 				return
 			}
 			if s.GetCurrentSession() != session {
@@ -797,8 +797,7 @@ func (s *Service) startLiveStreamNotificationsTimer() context.CancelFunc {
 				notificationService.Notify(s.currentStreamTitle())
 			}
 
-			now := time.Now()
-			s.lastNotified = &now
+			s.lastNotifiedUnixNano.Store(time.Now().UnixNano())
 		case <-c.Done():
 		}
 	}(c)

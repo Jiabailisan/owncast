@@ -291,6 +291,13 @@ func (i *Inspector) consumeVideoPayload(payload []byte, payloadStart bool) {
 	if len(es) == 0 || i.videoProbeComplete() || (i.info.VideoStreamTY != 0 && i.info.VideoStreamTY != streamTypeH264) {
 		return
 	}
+	if i.esProbedBytes >= maxVideoProbeBytes && i.info.Width == 0 && i.sliceCount == 0 {
+		i.es = nil
+		i.esScanPos = 0
+		i.esHasStart = false
+		return
+	}
+	i.esProbedBytes += len(es)
 
 	i.es = append(i.es, es...)
 	if len(i.es) > maxESBuffer {
@@ -298,6 +305,7 @@ func (i *Inspector) consumeVideoPayload(payload []byte, payloadStart bool) {
 		copy(i.es, i.es[len(i.es)-keep:])
 		i.es = i.es[:keep]
 		i.esScanPos = 0
+		i.esHasStart = false
 	}
 	i.scanNALs()
 }

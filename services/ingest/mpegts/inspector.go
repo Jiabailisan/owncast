@@ -26,6 +26,10 @@ const (
 	pmtPIDMask = 0x1fff
 	// maxESBuffer caps the retained elementary-stream tail.
 	maxESBuffer = 8 << 20
+	// maxVideoProbeBytes caps total H.264 ES bytes scanned when no SPS or coded
+	// slice has been found at all, preventing a non-Annex-B PID from burning
+	// CPU indefinitely.
+	maxVideoProbeBytes = 4 << 20
 	// slicesForBFrameDecision is how many slice headers to inspect before
 	// reporting the B-frame verdict.
 	slicesForBFrameDecision = 60
@@ -90,10 +94,14 @@ type Inspector struct {
 	videoPID uint16
 	audioPID uint16
 
-	es         []byte
-	esScanPos  int
-	sliceTypes map[uint]int
-	sliceCount int
+	es            []byte
+	esScanPos     int
+	esHasStart    bool
+	esStartOffset int
+	esStartLen    int
+	esProbedBytes int
+	sliceTypes    map[uint]int
+	sliceCount    int
 
 	videoRate       sourceBitrateTracker
 	audioRate       sourceBitrateTracker
@@ -295,12 +303,31 @@ func (i *Inspector) scanNALs() {
 	buf := i.es
 	searchFrom := 0
 	consumedUpTo := 0
+	hasIncompleteStart := false
+	incompleteStart := 0
+	incompleteStartLen := 0
 
 	for {
-		start, startLen := findStartCode(buf, searchFrom)
-		if start < 0 {
-			i.esScanPos = len(buf)
-			break
+		var start, startLen int
+		if searchFrom == 0 && i.esHasStart {
+			// Reuse the already-located start code of the incomplete NAL so we
+			// never skip past it or rescan from offset 0.
+			start = i.esStartOffset
+			startLen = i.esStartLen
+			i.esHasStart = false
+		} else {
+			firstFrom := searchFrom
+			// When the buffer contains no start code yet, resume the first
+			// search near where the previous packet ended (minus 3 bytes for a
+			// 4-byte start code split across packets), preventing O(N^2) scans.
+			if searchFrom == 0 && i.esScanPos > 3 {
+				firstFrom = i.esScanPos - 3
+			}
+			start, startLen = findStartCode(buf, firstFrom)
+			if start < 0 {
+				i.esScanPos = len(buf)
+				break
+			}
 		}
 		nextFrom := start + startLen + 1
 		// For the first incomplete NAL in the buffer, resume searching for its
@@ -312,6 +339,9 @@ func (i *Inspector) scanNALs() {
 		}
 		next, _ := findStartCode(buf, nextFrom)
 		if next < 0 {
+			hasIncompleteStart = true
+			incompleteStart = start
+			incompleteStartLen = startLen
 			i.esScanPos = len(buf)
 			break
 		}
@@ -325,6 +355,7 @@ func (i *Inspector) scanNALs() {
 	if i.videoProbeComplete() {
 		i.es = nil
 		i.esScanPos = 0
+		i.esHasStart = false
 		return
 	}
 
@@ -333,6 +364,15 @@ func (i *Inspector) scanNALs() {
 		copy(buf, buf[consumedUpTo:])
 		i.es = buf[:remaining]
 		i.esScanPos = remaining
+		if hasIncompleteStart {
+			i.esHasStart = true
+			i.esStartOffset = incompleteStart - consumedUpTo
+			i.esStartLen = incompleteStartLen
+		}
+	} else if hasIncompleteStart {
+		i.esHasStart = true
+		i.esStartOffset = incompleteStart
+		i.esStartLen = incompleteStartLen
 	}
 }
 

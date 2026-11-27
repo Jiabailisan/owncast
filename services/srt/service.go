@@ -560,8 +560,38 @@ func (s *Service) maybeApplyPending() {
 	s.spawn(s.applyPending)
 }
 
+func (s *Service) acquireLifecycleForPending() bool {
+	for {
+		if s.lifecycleMu.TryLock() {
+			s.mu.Lock()
+			stopping := s.stopping || s.state != StateRunning
+			s.mu.Unlock()
+			if stopping {
+				s.lifecycleMu.Unlock()
+				return false
+			}
+			return true
+		}
+
+		s.mu.Lock()
+		stopping := s.stopping || s.state != StateRunning
+		ctx := s.ctx
+		s.mu.Unlock()
+		if stopping || ctx == nil {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
 func (s *Service) applyPending() {
-	s.lifecycleMu.Lock()
+	if !s.acquireLifecycleForPending() {
+		return
+	}
 	defer s.lifecycleMu.Unlock()
 
 	s.mu.Lock()

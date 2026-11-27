@@ -112,9 +112,11 @@ type session struct {
 	videoSender *webrtc.RTPSender
 	audioSender *webrtc.RTPSender
 
-	pliCount  atomic.Uint64
-	firCount  atomic.Uint64
-	nackCount atomic.Uint64
+	pliCount         atomic.Uint64
+	firCount         atomic.Uint64
+	nackCount        atomic.Uint64
+	tricklePatches   atomic.Int32
+	trickleCands     atomic.Int32
 
 	statsMu sync.Mutex
 	stats   sessionStats
