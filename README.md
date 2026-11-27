@@ -119,7 +119,7 @@ address changes.
 
 | Field | RTMP | SRT |
 | --- | --- | --- |
-| Server | rtmp://192.168.1.10:1935/live | srt://192.168.1.10:1935 |
+| Server | rtmp://192.168.1.10:1935/live | srt://192.168.1.10:1935/live |
 | Stream key | TEST_KEY?title=%23GameTime | TEST_KEY?title=%23GameTime |
 
 The key is TEST_KEY; everything after ? is the title query, percent-encoded once, so
