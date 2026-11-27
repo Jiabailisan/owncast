@@ -90,11 +90,31 @@ const (
 // transcoderLogClassifier preserves FFmpeg's log level across multi-line
 // messages whose continuation lines omit the "[warning]" / "[info]" prefix
 // (e.g. "Consider increasing the value for the 'analyzeduration'...").
+// It also tracks whether FFmpeg has locked onto the input stream ("Stream
+// mapping:") so benign H.264 mid-GOP join messages emitted while waiting for
+// the first SPS/PPS keyframe are kept in transcoder.log without spamming the
+// admin error log.
 type transcoderLogClassifier struct {
-	lastLevel transcoderLogLevel
+	lastLevel    transcoderLogLevel
+	streamMapped bool
+}
+
+func isPreLockOnH264MidGOPNoise(message string) bool {
+	if !strings.Contains(message, "[h264 @") {
+		return false
+	}
+	if strings.Contains(message, "sps_id") && strings.Contains(message, "out of range") {
+		return true
+	}
+	return strings.Contains(message, "non-existing PPS") ||
+		strings.Contains(message, "no frame!") ||
+		strings.Contains(message, "decode_slice_header error")
 }
 
 func (c *transcoderLogClassifier) classify(line string) (string, bool, bool) {
+	if strings.Contains(line, "Stream mapping:") {
+		c.streamMapped = true
+	}
 	for _, level := range quietLogLevels {
 		if strings.Contains(line, level) {
 			c.lastLevel = transcoderLogLevelQuiet
@@ -108,7 +128,11 @@ func (c *transcoderLogClassifier) classify(line string) (string, bool, bool) {
 	for _, level := range []string{"[error] ", "[fatal] ", "[panic] "} {
 		if strings.Contains(line, level) {
 			c.lastLevel = transcoderLogLevelError
-			return strings.Replace(line, level, "", 1), false, true
+			cleaned := strings.Replace(line, level, "", 1)
+			if !c.streamMapped && level == "[error] " && isPreLockOnH264MidGOPNoise(cleaned) {
+				return "", false, false
+			}
+			return cleaned, false, true
 		}
 	}
 	// Untagged line: inherit quiet only for indented continuation lines (e.g.

@@ -107,3 +107,49 @@ func TestSRTBroadcasterTimeStaysAnchoredToSessionStart(t *testing.T) {
 		t.Fatalf("broadcaster.Time = %v, want immutable session StartedAt %v", broadcaster.Time, startedAt)
 	}
 }
+
+// A mid-GOP H.264 stream can reach 60 P-frames (HasBFrames=false) before the
+// first keyframe delivers SPS (profile/level/resolution). SourceInfoReady must
+// stay open until SPS arrives so WebRTC copy planning does not prematurely fall
+// back to transcode with unknown profile/resolution/level.
+func TestNoBFrameVerdictWithoutSPSWaitsForSPSBeforeClosingSourceReady(t *testing.T) {
+	s := newSession(nil, "key", 5, false, func(error) {})
+
+	midGOP := mpegts.SourceInfo{
+		VideoCodec:    "h264",
+		HasBFrames:    false,
+		BFrameChecked: true,
+	}
+	s.publishSourceMetadata(midGOP)
+
+	select {
+	case <-s.SourceInfoReady():
+		t.Fatal("SourceInfoReady closed before SPS profile/level/resolution arrived")
+	default:
+	}
+
+	// Once SPS arrives on the next keyframe, SourceInfoReady closes immediately.
+	s.publishSourceMetadata(inspectedSource(false))
+	select {
+	case <-s.SourceInfoReady():
+	default:
+		t.Fatal("SourceInfoReady did not close after SPS metadata arrived")
+	}
+}
+
+// Confirmed B-frames immediately disqualify WebRTC copy even without SPS.
+func TestConfirmedBFramesWithoutSPSSettlesImmediately(t *testing.T) {
+	s := newSession(nil, "key", 5, false, func(error) {})
+
+	s.publishSourceMetadata(mpegts.SourceInfo{
+		VideoCodec:    "h264",
+		HasBFrames:    true,
+		BFrameChecked: true,
+	})
+
+	select {
+	case <-s.SourceInfoReady():
+	default:
+		t.Fatal("SourceInfoReady must close immediately when B-frames are confirmed")
+	}
+}

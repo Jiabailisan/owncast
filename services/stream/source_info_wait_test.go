@@ -284,3 +284,38 @@ func TestWebRTCSourceWaitBudgetExtendsForSRTReceiverLatency(t *testing.T) {
 		})
 	}
 }
+
+func TestSourceDecisionSettledRequiresSPSForNoBFramesH264(t *testing.T) {
+	noBFramesNoSPS := &models.Broadcaster{
+		StreamDetails: models.InboundStreamDetails{
+			VideoCodec: "H.264",
+			HasBFrames: models.BoolPtr(false),
+		},
+	}
+	if sourceDecisionSettled(noBFramesNoSPS) {
+		t.Fatal("H.264 no-B-frames without SPS must not settle copy decision early")
+	}
+
+	bFramesNoSPS := &models.Broadcaster{
+		StreamDetails: models.InboundStreamDetails{
+			VideoCodec: "H.264",
+			HasBFrames: models.BoolPtr(true),
+		},
+	}
+	if !sourceDecisionSettled(bFramesNoSPS) {
+		t.Fatal("H.264 confirmed B-frames must settle immediately even without SPS")
+	}
+
+	if !sourceDecisionSettled(sourceInfoBroadcaster(models.BoolPtr(false))) {
+		t.Fatal("H.264 no-B-frames with full SPS must settle")
+	}
+
+	hevc := &models.Broadcaster{
+		StreamDetails: models.InboundStreamDetails{
+			VideoCodec: "H.265",
+		},
+	}
+	if !sourceDecisionSettled(hevc) {
+		t.Fatal("non-H.264 codec must settle immediately")
+	}
+}

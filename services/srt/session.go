@@ -64,9 +64,12 @@ type session struct {
 	sourceReady     chan struct{}
 	sourceReadyOnce sync.Once
 	sourceDecided   atomic.Bool
-	// publishedBFrames records the B-frame verdict that was published, guarded by
-	// sourceMu. A published "true" is never replaced by an older snapshot.
-	publishedBFrames bool
+	// publishedBFrames and publishedBFrameVerdict record the B-frame verdict
+	// that was published, guarded by sourceMu. A published verdict is never
+	// replaced by an older snapshot without one, and "true" is never downgraded
+	// back to "false".
+	publishedBFrames       bool
+	publishedBFrameVerdict bool
 
 	// stateMu guards conn, closed, started, sampler and reader. bind, Close,
 	// ensureReadBuffer and the start commit share it, so a session cannot
@@ -451,16 +454,17 @@ func (s *session) stopSampler() {
 	}
 }
 
-// publishSourceInfoIfDecided publishes the B-frame verdict from the ingest read
-// path as soon as the inspector reaches it, instead of leaving it to the next
-// one-second statistics tick. A copy decision that needs the verdict therefore
-// does not wait for the sampler. The atomic guard keeps the per-read cost to one
-// load once the verdict is out.
+// publishSourceInfoIfDecided publishes source metadata from the ingest read
+// path as soon as the inspector has enough evidence to settle a WebRTC copy
+// decision (non-H.264 codec, confirmed B-frames, or no-B-frames plus SPS
+// profile/level/resolution), instead of waiting for the next one-second
+// statistics tick. The atomic guard keeps the per-read cost to one load once
+// settled.
 func (s *session) publishSourceInfoIfDecided() {
 	if s.sourceDecided.Load() {
 		return
 	}
-	if !s.inspector.BFrameDecided() {
+	if !s.inspector.CopyMetadataReady() {
 		return
 	}
 	s.refreshSourceMetadata()
@@ -552,7 +556,7 @@ func (s *session) publishSourceMetadata(info mpegts.SourceInfo) {
 	}
 	// A published "no B-frames" verdict is not replaced by a snapshot that has no
 	// verdict at all, for the same reason.
-	if s.sourceDecided.Load() && details.HasBFrames == nil {
+	if s.publishedBFrameVerdict && details.HasBFrames == nil {
 		return
 	}
 	s.lastSourceKey = key
@@ -563,13 +567,25 @@ func (s *session) publishSourceMetadata(info mpegts.SourceInfo) {
 		StreamDetails: details,
 	})
 
-	// The verdict is what a copy decision waits for: announce it exactly once,
-	// whichever path published it (read path or statistics tick).
+	// Announce readiness once the copy decision is actually settled: either
+	// non-H.264, confirmed B-frames, or no-B-frames paired with SPS metadata
+	// (profile, level, resolution). Closing sourceReady earlier on a mid-GOP
+	// stream (60 P-frames before the first SPS) would prematurely fall back to
+	// transcode with unknown profile/resolution/level.
 	if details.HasBFrames != nil {
-		s.publishedBFrames = *details.HasBFrames
+		s.publishedBFrameVerdict = true
+		if *details.HasBFrames {
+			s.publishedBFrames = true
+		}
+	}
+	nonH264 := info.VideoCodec != "" && info.VideoCodec != "h264"
+	noBFramesWithSPS := details.HasBFrames != nil && !*details.HasBFrames &&
+		details.VideoProfile != "" && details.VideoLevel != "" &&
+		details.Width > 0 && details.Height > 0
+	if nonH264 || (details.HasBFrames != nil && *details.HasBFrames) || noBFramesWithSPS {
 		s.sourceReadyOnce.Do(func() { close(s.sourceReady) })
-		// Whichever path published the verdict, the read path can stop polling
-		// the inspector for it.
+		// Whichever path settled the copy decision, the read path can stop
+		// polling the inspector for it.
 		s.sourceDecided.Store(true)
 	}
 }

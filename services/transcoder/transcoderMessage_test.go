@@ -132,3 +132,34 @@ func TestTranscoderLogClassifierInheritsMultiLineLevel(t *testing.T) {
 		t.Fatal("real codec error must not be classified as empty input EOF")
 	}
 }
+
+func TestTranscoderLogClassifierSuppressesPreLockOnH264MidGOPNoiseOnly(t *testing.T) {
+	var c transcoderLogClassifier
+
+	// Before "Stream mapping:", mid-GOP H.264 probe errors waiting for the first
+	// SPS/PPS keyframe must be suppressed from the admin error log.
+	for _, line := range []string{
+		"[h264 @ 0x55f680e1e0c0] [error] sps_id 0 out of range",
+		"[h264 @ 0x55f680e1e0c0] [error] non-existing PPS 0 referenced",
+		"[h264 @ 0x55f680e1e0c0] [error] no frame!",
+		"[h264 @ 0x55f680e1e0c0] [error] decode_slice_header error",
+	} {
+		if msg, _, ok := c.classify(line); ok {
+			t.Fatalf("pre-lock-on mid-GOP line %q should be suppressed, surfaced %q", line, msg)
+		}
+	}
+
+	// Real startup errors before Stream mapping must still surface.
+	if msg, _, ok := c.classify("[error] Unknown encoder 'h264_nvenc'"); !ok || msg == "" {
+		t.Fatal("real startup encoder error must still surface before Stream mapping")
+	}
+
+	// Once Stream mapping is logged, later H.264 errors indicate live mid-stream
+	// corruption and must surface normally.
+	if _, _, ok := c.classify("[info] Stream mapping:"); ok {
+		t.Fatal("Stream mapping info line itself must stay quiet")
+	}
+	if msg, isWarn, ok := c.classify("[h264 @ 0x55f680e1e0c0] [error] non-existing PPS 0 referenced"); !ok || isWarn || msg == "" {
+		t.Fatalf("post-lock-on H.264 error should surface, got (%q, %v, %v)", msg, isWarn, ok)
+	}
+}

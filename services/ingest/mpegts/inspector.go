@@ -426,6 +426,31 @@ func (i *Inspector) BFrameDecided() bool {
 	return i.info.BFrameChecked
 }
 
+// CopyMetadataReady reports whether the inspector has enough evidence to settle
+// a WebRTC copy-vs-transcode decision:
+//   - a non-H.264 video codec (always transcoded),
+//   - a confirmed B-frame verdict (always transcoded), or
+//   - a no-B-frame verdict paired with SPS metadata (profile, level, resolution).
+//
+// Requiring SPS metadata when HasBFrames is false prevents a mid-GOP stream
+// from settling after 60 P-frames before the first keyframe delivers SPS, which
+// would falsely fail copy eligibility with unknown profile/resolution/level.
+func (i *Inspector) CopyMetadataReady() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	if i.info.VideoCodec != "" && i.info.VideoCodec != "h264" {
+		return true
+	}
+	if !i.info.BFrameChecked {
+		return false
+	}
+	if i.info.HasBFrames {
+		return true
+	}
+	return i.info.Profile != "" && i.info.Level != "" && i.info.Width > 0 && i.info.Height > 0
+}
+
 // Snapshot returns a copy of the current source properties.
 func (i *Inspector) Snapshot() SourceInfo {
 	i.mu.RLock()

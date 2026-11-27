@@ -17,9 +17,10 @@ import (
 
 // webRTCSourceWaitTimeout bounds how long the stream waits for SRT source
 // metadata before planning WebRTC legs once media arrives. The MPEG-TS
-// inspector usually publishes within about a second; without metadata any copy
-// intent falls back to transcode, which is the safe default.
-const webRTCSourceWaitTimeout = 3500 * time.Millisecond
+// inspector usually publishes within about a second (or up to ~2.5s when a
+// 2s-keyint stream joins mid-GOP before the first SPS); without metadata any
+// copy intent falls back to transcode, which is the safe default.
+const webRTCSourceWaitTimeout = 4500 * time.Millisecond
 
 // webRTCSRTMaxWaitExtension caps the additional wait added for SRT receiver
 // TSBPD latency (the server holds packets for ReceiverLatencyMs before
@@ -294,7 +295,7 @@ func awaitSourceInfo(session ingest.Session, budgetSpent <-chan struct{}, timeou
 }
 
 func awaitSourceInfoWithReason(session ingest.Session, budgetSpent <-chan struct{}, timeout time.Duration) (*models.Broadcaster, bool, string) {
-	if broadcaster := session.Broadcaster(); broadcaster != nil && broadcaster.StreamDetails.HasBFrames != nil {
+	if broadcaster := session.Broadcaster(); sourceDecisionSettled(broadcaster) {
 		return broadcaster, false, "verdict"
 	}
 
@@ -340,21 +341,26 @@ func awaitSourceInfoWithReason(session ingest.Session, budgetSpent <-chan struct
 const sourceInfoPollInterval = 100 * time.Millisecond
 
 // sourceDecisionSettled reports whether the published source metadata already
-// answers the copy question, so waiting longer cannot change the decision. A
-// known B-frame verdict settles it; so does a source whose video codec is known
-// to be something other than H.264, because such a source must be transcoded
-// regardless of its B-frames.
+// answers the copy question, so waiting longer cannot change the decision:
+//   - a non-H.264 video codec (always transcoded),
+//   - a confirmed B-frame verdict (always transcoded), or
+//   - a no-B-frame verdict paired with SPS metadata (profile, level, resolution).
 func sourceDecisionSettled(broadcaster *models.Broadcaster) bool {
 	if broadcaster == nil {
 		return false
 	}
 	details := broadcaster.StreamDetails
-	if details.HasBFrames != nil {
+	codec := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(details.VideoCodec, ".", ""), " ", ""))
+	if codec != "" && codec != "h264" && codec != "avc" && codec != "avc1" {
 		return true
 	}
-	codec := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(details.VideoCodec, ".", ""), " ", ""))
-
-	return codec != "" && codec != "h264" && codec != "avc" && codec != "avc1"
+	if details.HasBFrames == nil {
+		return false
+	}
+	if *details.HasBFrames {
+		return true
+	}
+	return details.VideoProfile != "" && details.VideoLevel != "" && details.Width > 0 && details.Height > 0
 }
 
 // configureWebRTC resolves the WebRTC plan for the stream that is starting and
